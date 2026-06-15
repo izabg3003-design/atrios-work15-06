@@ -168,9 +168,9 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                 { label: 'Pagamento Percurso', val: f(summary.totalTravelPayment || 0), color: 'text-emerald-600' },
                 { label: 'Líquido Final', val: f(summary.netTotal), color: 'text-emerald-700', highlight: true },
               ].map((item, i) => (
-                <div key={i} className={`p-4 sm:p-5 rounded-2xl border overflow-hidden flex flex-col justify-between min-h-[90px] ${item.highlight ? 'bg-emerald-50 border-emerald-200 shadow-sm col-span-2 lg:col-span-1 print:col-span-1' : 'bg-slate-50 border-slate-100'} print:border-black print:bg-white`}>
-                  <p className="text-[7.5px] font-black text-slate-400 uppercase tracking-[0.1em] mb-1 truncate block" title={item.label}>{item.label}</p>
-                  <p className={`text-base sm:text-lg md:text-xl font-black ${item.color} print:text-black truncate block w-full`} title={item.val}>{item.val}</p>
+                <div key={i} className={`p-3 sm:p-4 rounded-xl border flex flex-col justify-between min-h-[75px] sm:min-h-[85px] print:min-h-[50px] print:p-1.5 print:rounded-lg ${item.highlight ? 'bg-emerald-50 border-emerald-200 shadow-sm col-span-2 lg:col-span-1 print:col-span-1' : 'bg-slate-50 border-slate-100'} print:border-black print:bg-white`}>
+                  <p className="text-[7px] sm:text-[7.5px] font-black text-slate-400 uppercase tracking-[0.05em] mb-1 whitespace-normal break-words leading-tight print:text-[5.8px] print:leading-none block" title={item.label}>{item.label}</p>
+                  <p className={`text-[12px] sm:text-base md:text-lg font-black ${item.color} print:text-black print:text-[7.5px] print:leading-none whitespace-normal break-words block w-full`} title={item.val}>{item.val}</p>
                 </div>
               ))}
             </div>
