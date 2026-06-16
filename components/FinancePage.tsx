@@ -13,13 +13,17 @@ import {
   Zap, 
   CalendarCheck,
   TrendingUp,
-  BarChart3
+  BarChart3,
+  Briefcase,
+  Coins
 } from 'lucide-react';
 import { UserProfile, WorkRecord, FinanceSummary } from '../types';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 
 interface ExtendedFinanceSummary extends FinanceSummary {
   daysAbsent: number;
+  partTimeHours: number;
+  partTimeEarnings: number;
 }
 
 interface Props {
@@ -58,7 +62,9 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       advancesTotal: 0, 
       grossTotal: 0, 
       netTotal: 0, 
-      ivaTotal: 0 
+      ivaTotal: 0,
+      partTimeHours: 0,
+      partTimeEarnings: 0
     };
     
     const monthKey = format(currentDate, 'yyyy-MM');
@@ -66,6 +72,18 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
     
     let totalTravelPayment = 0;
     monthRecords.forEach(([_, record]) => {
+      // Calcular horas e ganhos do Part-Time (independentemente de ausências no trabalho principal)
+      const ptHours = record.partTimeHours || 0;
+      const ptRate = record.partTimeRate || 10;
+      const ptServiceVal = record.partTimeServiceValue || 0;
+      const ptGross = (ptHours * ptRate) + ptServiceVal;
+      const ptApplyIva = record.partTimeApplyIva || false;
+      const ptIvaRate = record.partTimeIvaRate !== undefined ? record.partTimeIvaRate : 23;
+      const ptIvaDeduction = ptApplyIva ? ptGross * (ptIvaRate / 100) : 0;
+      
+      summary.partTimeHours += ptHours;
+      summary.partTimeEarnings += (ptGross - ptIvaDeduction);
+
       if (record.isAbsent) {
         summary.daysAbsent += 1;
         return;
@@ -117,9 +135,10 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
   const summary = calculateFinance();
 
   const chartData = [
-    { name: 'Bruto', value: summary.grossTotal, color: '#6366f1' },
+    { name: 'Bruto Principal', value: summary.grossTotal, color: '#6366f1' },
+    { name: 'Part-Time', value: summary.partTimeEarnings, color: '#a855f7' },
     { name: 'Impostos', value: summary.irsTotal + summary.socialSecurityTotal, color: '#f43f5e' },
-    { name: 'Líquido', value: summary.netTotal, color: '#10b981' }
+    { name: 'Líquido Consolidado', value: summary.netTotal + summary.partTimeEarnings, color: '#10b981' }
   ];
 
   return (
@@ -227,6 +246,28 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
               <div className="p-3 rounded-2xl bg-slate-900 border border-white/5"><AlertCircle className="w-5 h-5 text-amber-500" /></div>
            </div>
            <p className="text-3xl font-black text-amber-500 truncate w-full" title={f(summary.advancesTotal)}>{f(summary.advancesTotal)}</p>
+        </div>
+
+        <div className="glass p-8 rounded-[2.5rem] space-y-4 border-white/5 group hover:border-purple-500/30 transition-all flex flex-col justify-between">
+           <div className="space-y-4">
+             <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Rendimento Part-Time</span>
+                <div className="p-3 rounded-2xl bg-slate-900 border border-white/5"><Briefcase className="w-5 h-5 text-purple-400" /></div>
+             </div>
+             <p className="text-3xl font-black text-purple-400 truncate w-full" title={f(summary.partTimeEarnings)}>{f(summary.partTimeEarnings)}</p>
+           </div>
+           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{summary.partTimeHours.toFixed(1)}h extra dedicadas</p>
+        </div>
+
+        <div className="glass p-8 rounded-[2.5rem] space-y-4 border-white/5 group hover:border-emerald-500/30 transition-all flex flex-col justify-between">
+           <div className="space-y-4">
+             <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Líquido Consolidado</span>
+                <div className="p-3 rounded-2xl bg-slate-900 border border-white/5"><Coins className="w-5 h-5 text-emerald-400" /></div>
+             </div>
+             <p className="text-3xl font-black text-emerald-400 truncate w-full" title={f(summary.netTotal + summary.partTimeEarnings)}>{f(summary.netTotal + summary.partTimeEarnings)}</p>
+           </div>
+           <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2 font-black">Principal + Part-Time</p>
         </div>
       </div>
 

@@ -7,6 +7,7 @@ import LoginPage from './components/LoginPage';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
 import FinancePage from './components/FinancePage';
+import PartTimePage from './components/PartTimePage';
 import ReportsPage from './components/ReportsPage';
 import AccountantPage from './components/AccountantPage';
 import SettingsPage from './components/SettingsPage';
@@ -269,16 +270,38 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isConfigured) { setAppState('landing'); return; }
     const initAuth = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session) loadUserData(session.user.id);
-      else { setAppState('landing'); setAuthInitialized(true); }
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session) {
+          await loadUserData(session.user.id);
+        } else {
+          setAppState('landing');
+          setAuthInitialized(true);
+        }
+      } catch (err) {
+        console.error("Auth initialization failed directly (Failed to Fetch):", err);
+        setAppState('landing');
+        setAuthInitialized(true);
+      }
     };
     if (isInitialLoad.current) { initAuth(); isInitialLoad.current = false; }
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event: any, session: any) => {
-      if (event === 'SIGNED_IN' && session) { setAuthInitialized(false); loadUserData(session.user.id); }
-      else if (event === 'SIGNED_OUT') { setAppState('landing'); setUser(DEFAULT_USER); setAuthInitialized(true); }
-    });
-    return () => subscription.unsubscribe();
+    
+    let subscription: any;
+    try {
+      const { data } = supabase.auth.onAuthStateChange((event: any, session: any) => {
+        if (event === 'SIGNED_IN' && session) { setAuthInitialized(false); loadUserData(session.user.id); }
+        else if (event === 'SIGNED_OUT') { setAppState('landing'); setUser(DEFAULT_USER); setAuthInitialized(true); }
+      });
+      subscription = data?.subscription;
+    } catch (err) {
+      console.error("onAuthStateChange failed:", err);
+    }
+    
+    return () => {
+      if (subscription && typeof subscription.unsubscribe === 'function') {
+        subscription.unsubscribe();
+      }
+    };
   }, [loadUserData]);
 
   useEffect(() => {
@@ -340,7 +363,7 @@ const App: React.FC = () => {
       
       {user.id && <PublicSupportChat />}
 
-      {['dashboard', 'finance', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
+      {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">
           <Sidebar activeTab={appState} setActiveTab={handleTabChange} user={user} onLogout={handleLogout} t={t} hideValues={hideValues} togglePrivacy={() => setHideValues(!hideValues)} isPro={isPro} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-12 pt-6 md:pt-12 pb-40 md:pb-12 ml-0 md:ml-24 scroll-smooth">
@@ -380,6 +403,43 @@ const App: React.FC = () => {
                 return true;
               }} t={t} hideValues={hideValues} isPro={isPro} />}
               {appState === 'finance' && <FinancePage user={user} records={records} t={t} f={formatCurrency} isPro={isPro} />}
+              {appState === 'part-time' && (
+                <PartTimePage 
+                  user={user} 
+                  records={records} 
+                  t={t} 
+                  f={formatCurrency} 
+                  isPro={isPro} 
+                  onOpenPremium={() => setIsPremiumModalOpen(true)}
+                  onAddRecord={async (r) => {
+                    if (!user.id) return false;
+                    
+                    const totalPartTimes = Object.values(records).filter(rec => 
+                      (rec.partTimeHours && rec.partTimeHours > 0) || 
+                      (rec.partTimeServiceValue && rec.partTimeServiceValue > 0) ||
+                      rec.partTimeServiceDesc ||
+                      rec.partTimeNotes
+                    ).length;
+
+                    const isExistent = records[r.date] && (
+                      (records[r.date].partTimeHours && records[r.date].partTimeHours > 0) ||
+                      (records[r.date].partTimeServiceValue && records[r.date].partTimeServiceValue > 0) ||
+                      records[r.date].partTimeServiceDesc ||
+                      records[r.date].partTimeNotes
+                    );
+
+                    if (!isPro && totalPartTimes >= 5 && !isExistent) {
+                      alert("Limite de 5 lançamentos de Part-time atingido na versão gratuita. Ative a sua licença PRO para continuar a registar novos dias.");
+                      return false;
+                    }
+
+                    const { error } = await supabase.from('work_records').upsert({ user_id: user.id, date: r.date, data: r }, { onConflict: 'user_id,date' });
+                    if (error) return false;
+                    setRecords(prev => ({ ...prev, [r.date]: r }));
+                    return true;
+                  }} 
+                />
+              )}
               {appState === 'reports' && <ReportsPage user={user} records={records} t={t} f={formatCurrency} isPro={isPro} />}
               {appState === 'accountant' && <AccountantPage user={user} records={records} t={t} f={formatCurrency} isPro={isPro} />}
               {appState === 'settings' && <SettingsPage user={user} setUser={async (updatedUser) => {

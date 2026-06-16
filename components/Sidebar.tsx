@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { Settings, LogOut, FileText, LayoutDashboard, DollarSign, ShieldCheck, BriefcaseBusiness, Award, ShoppingCart, LifeBuoy, Info, Eye, EyeOff, Lock } from 'lucide-react';
+import { Settings, LogOut, FileText, LayoutDashboard, DollarSign, ShieldCheck, BriefcaseBusiness, Award, ShoppingCart, LifeBuoy, Info, Eye, EyeOff, Lock, Briefcase } from 'lucide-react';
 import { UserProfile, AppState } from '../types';
 
 interface Props {
@@ -23,6 +23,7 @@ const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, 
   const tabs = [
     { id: 'dashboard' as AppState, icon: LayoutDashboard, label: 'Registro de dia', show: !isMaster && !isVendor && !isSupport },
     { id: 'finance' as AppState, icon: DollarSign, label: 'Finanças', show: !isMaster && !isVendor && !isSupport },
+    { id: 'part-time' as AppState, icon: Briefcase, label: 'Part-Time', show: !isMaster && !isVendor && !isSupport },
     { id: 'reports' as AppState, icon: FileText, label: 'Relatórios', show: !isMaster && !isVendor && !isSupport, isLocked: !isPro },
     { id: 'accountant' as AppState, icon: BriefcaseBusiness, label: 'Contabilista', show: !isMaster && !isVendor && !isSupport, isLocked: !isPro },
     
@@ -102,7 +103,7 @@ const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, 
                 )}
               </div>
               <span className={`text-[7px] font-black uppercase tracking-widest text-center whitespace-nowrap transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-40 scale-90'}`}>
-                {tab.id === 'dashboard' ? 'Log' : tab.id === 'accountant' ? 'Contas' : tab.id === 'admin' ? 'Master' : tab.id === 'reports' ? 'Relat.' : tab.id === 'user-support' || tab.id === 'support' ? 'Suporte' : tab.id === 'vendor-detail' ? 'Rede' : tab.id === 'vendor-sales' ? 'Vendas' : tab.label}
+                {tab.id === 'dashboard' ? 'Log' : tab.id === 'accountant' ? 'Contas' : tab.id === 'admin' ? 'Master' : tab.id === 'part-time' ? 'Part-Time' : tab.id === 'reports' ? 'Relat.' : tab.id === 'user-support' || tab.id === 'support' ? 'Suporte' : tab.id === 'vendor-detail' ? 'Rede' : tab.id === 'vendor-sales' ? 'Vendas' : tab.label}
               </span>
               {isActive && (
                 <div className="absolute -top-1 w-6 h-0.5 bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></div>

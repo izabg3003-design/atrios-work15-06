@@ -133,6 +133,20 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       .filter(([d]) => d.startsWith(selectedMonth))
       .sort(([a],[b]) => a.localeCompare(b));
     const summary = calculateMonthSummary(monthRecordsEntries.map(([_, r]) => r));
+    
+    const ptSummary = monthRecordsEntries.reduce((acc, [_, r]) => {
+      const hours = r.partTimeHours || 0;
+      const rate = r.partTimeRate || 10;
+      const val = r.partTimeServiceValue || 0;
+      const gross = (hours * rate) + val;
+      const applyIva = r.partTimeApplyIva || false;
+      const ivaRate = r.partTimeIvaRate !== undefined ? r.partTimeIvaRate : 23;
+      const ivaDeduction = applyIva ? gross * (ivaRate / 100) : 0;
+      
+      acc.hours += hours;
+      acc.earnings += (gross - ivaDeduction);
+      return acc;
+    }, { hours: 0, earnings: 0 });
 
     return (
       <div className="space-y-6 md:space-y-8 animate-[fadeIn_0.4s_ease-out] pb-40 px-2 md:px-0">
@@ -196,6 +210,29 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                 </div>
               ))}
             </div>
+
+            {/* INTEGRADO DE PART-TIME COMBINADOS */}
+            {ptSummary.earnings > 0 && (
+              <div className="p-6 bg-gradient-to-br from-indigo-50 to-purple-50 border border-indigo-105 rounded-[1.5rem] mb-6 print:bg-white print:border-black print:p-4 animate-[fadeIn_0.3s_ease-out]">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div>
+                    <h4 className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1 print:text-black">
+                      Rendimento Global Consolidado (Trabalho Principal + Part-Time)
+                    </h4>
+                    <p className="text-sm font-bold text-slate-700 leading-snug print:text-xs">
+                      O seu ganho total deste mês somado com o part-time foi de <span className="font-black text-slate-900">{f(summary.netTotal + ptSummary.earnings)}</span>.
+                    </p>
+                    <p className="text-[10px] text-slate-500 font-bold mt-1 print:text-[8px]">
+                      Trabalho Principal Líquido: {f(summary.netTotal)} • Rendimento Extra de Part-Time: {f(ptSummary.earnings)} ({ptSummary.hours.toFixed(1)}h extra registadas)
+                    </p>
+                  </div>
+                  <div className="bg-indigo-600/5 border border-indigo-200/50 px-5 py-3 rounded-2xl text-right shrink-0 print:border-black print:bg-white">
+                    <span className="text-[7.5px] font-black text-indigo-500 uppercase tracking-widest block print:text-black">Ganho Total Líquido Consolidado</span>
+                    <span className="text-lg font-black text-indigo-600 print:text-black">{f(summary.netTotal + ptSummary.earnings)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* DETALHAMENTO DE HORAS EXTRAS */}
             <div className="p-4 sm:p-5 bg-purple-50/40 border border-purple-100/70 rounded-[1.5rem] mb-6 print:bg-white print:border-black print:p-3 print:mb-4">
@@ -389,6 +426,16 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
            <div className="divide-y divide-slate-800/40">
               {sortedMonths.map(([monthKey, monthRecords]) => {
                 const summary = calculateMonthSummary(monthRecords);
+                const monthPtEarnings = monthRecords.reduce((acc, r) => {
+                  const hours = r.partTimeHours || 0;
+                  const rate = r.partTimeRate || 10;
+                  const val = r.partTimeServiceValue || 0;
+                  const gross = (hours * rate) + val;
+                  const applyIva = r.partTimeApplyIva || false;
+                  const ivaRate = r.partTimeIvaRate !== undefined ? r.partTimeIvaRate : 23;
+                  const ivaDeduction = applyIva ? gross * (ivaRate / 100) : 0;
+                  return acc + (gross - ivaDeduction);
+                }, 0);
                 return (
                   <div key={monthKey} className="flex flex-col md:flex-row items-start md:items-center justify-between p-6 md:p-8 hover:bg-slate-800/40 transition-all gap-4">
                     <div className="flex items-center gap-4 md:gap-6">
@@ -397,7 +444,18 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                       </div>
                       <div>
                         <h4 className="text-base md:text-lg font-black text-white capitalize italic tracking-tight">{format(parseISO(`${monthKey}-01`), 'MMMM yyyy', { locale: currentLocale })}</h4>
-                        <p className="text-[9px] md:text-[10px] font-black text-emerald-500 uppercase tracking-widest mt-1">{summary.daysWorked} Dias Trabalhados • {f(summary.netTotal)} Líquidos</p>
+                        <p className="text-[9px] md:text-[10px] font-black mt-1">
+                          <span className="text-emerald-500">{summary.daysWorked} Dias Trabalhados • {f(summary.netTotal)} Líquidos</span>
+                          {monthPtEarnings > 0 && (
+                            <span className="text-slate-400"> • </span>
+                          )}
+                          {monthPtEarnings > 0 && (
+                            <span className="text-purple-400">Part-time: +{f(monthPtEarnings)}</span>
+                          )}
+                          {monthPtEarnings > 0 && (
+                            <span className="text-emerald-400 font-bold"> • Consolidado: {f(summary.netTotal + monthPtEarnings)}</span>
+                          )}
+                        </p>
                       </div>
                     </div>
                     <button onClick={() => { setSelectedMonth(monthKey); setViewMode('detail'); window.scrollTo(0,0); }} className="w-full md:w-auto px-6 py-4 bg-slate-950 border border-slate-800 rounded-2xl text-[9px] font-black uppercase tracking-widest text-slate-400 hover:text-white hover:border-white/20 transition-all">
