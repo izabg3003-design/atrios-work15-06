@@ -125,9 +125,9 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
         </div>
 
         <div className="bg-white text-slate-900 rounded-[2rem] md:rounded-[3rem] overflow-hidden shadow-2xl print-container print:rounded-none">
-          <div className="p-8 md:p-12 print:p-8">
+          <div className="p-8 md:p-12 print:p-6">
             {/* CABEÇALHO */}
-            <div className="flex flex-col md:flex-row justify-between items-start border-b border-slate-100 pb-8 mb-8 gap-6 print:border-black print:pb-6">
+            <div className="flex flex-col md:flex-row justify-between items-start border-b border-slate-100 pb-8 mb-8 gap-6 print:border-black print:pb-4 print:mb-4">
               <div className="flex items-center gap-6">
                 <div className="w-20 h-20 bg-slate-100 rounded-2xl flex items-center justify-center border border-slate-200 overflow-hidden no-print">
                    <img src={user.photo || "https://ui-avatars.com/api/?name="+user.name} className="w-full h-full object-cover" alt={user.name} />
@@ -147,18 +147,18 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
             </div>
 
             {/* BLOCO FISCAL NO TOPO */}
-            <div className="p-8 bg-slate-50 border border-slate-100 rounded-[2rem] print:bg-white print:border-black print:p-6 mb-8">
-                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6">Informação Profissional e Fiscal (Portugal)</h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+            <div className="p-8 bg-slate-50 border border-slate-100 rounded-[2rem] print:bg-white print:border-black print:p-4 mb-8 print:mb-4">
+                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 print:mb-3">Informação Profissional e Fiscal (Portugal)</h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-8 print:gap-4">
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Colaborador</p><p className="text-xs font-black text-slate-900">{user.name}</p></div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">NIF (Contribuinte)</p><p className="text-xs font-black text-slate-900">{user.nif || '---'}</p></div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Valor Base Hora</p><p className="text-xs font-black text-slate-900">{f(user.hourlyRate)}</p></div>
-                  <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Status</p><p className="text-xs font-black text-emerald-600 uppercase">{user.isFreelancer ? 'Recibos Verdes' : 'Contrato de Trabalho'}</p></div>
+                  <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.03em] mb-1">Status</p><p className="text-xs font-black text-emerald-600 uppercase">{user.isFreelancer ? 'Recibos Verdes' : 'Contrato de Trabalho'}</p></div>
                 </div>
             </div>
 
             {/* TOTAIS MENSAIS */}
-            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-10 print:grid-cols-7">
+            <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3 mb-10 print:grid-cols-7 print:mb-4">
               {[
                 { label: 'Bruto', val: f(summary.grossTotal), color: 'text-slate-900' },
                 { label: 'Adiantamentos', val: f(summary.advancesTotal), color: 'text-amber-600' },
@@ -174,12 +174,8 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                 </div>
               ))}
             </div>
-          </div>
 
-          <div className="print-page-break"></div>
-
-          <div className="p-8 md:p-12 print:p-8">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-3">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 print:mb-3 flex items-center gap-3">
               <ClipboardList className="w-4 h-4" /> Detalhamento Operacional de Registos (Ledger PT)
             </h4>
             
