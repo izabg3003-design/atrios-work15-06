@@ -87,11 +87,15 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       const dailyExtraBonus = (record.extraHours.h1 * user.hourlyRate * ((rates.h1 ?? 50) / 100)) + 
                               (record.extraHours.h2 * user.hourlyRate * ((rates.h2 ?? 75) / 100)) + 
                               (record.extraHours.h3 * user.hourlyRate * ((rates.h3 ?? 100) / 100));
+
+      const dailyExtraFullVal = (record.extraHours.h1 * user.hourlyRate * (1 + (rates.h1 ?? 50) / 100)) + 
+                                (record.extraHours.h2 * user.hourlyRate * (1 + (rates.h2 ?? 75) / 100)) + 
+                                (record.extraHours.h3 * user.hourlyRate * (1 + (rates.h3 ?? 100) / 100));
       
-      summary.extraHoursValue += dailyExtraBonus;
+      summary.extraHoursValue += dailyExtraFullVal;
       const travelPay = record.travelPayment || 0;
       totalTravelPayment += travelPay;
-      summary.grossTotal += (hours * user.hourlyRate) + dailyExtraBonus + travelPay;
+      summary.grossTotal += (hours * user.hourlyRate) + dailyExtraFullVal + travelPay;
     });
 
     const calcTax = (base: number, config: { value: number; type: 'percentage' | 'fixed' }) => 

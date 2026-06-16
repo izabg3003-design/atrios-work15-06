@@ -50,13 +50,17 @@ const AccountantPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       const dailyExtraBonus = (h1 * rate * ((rates.h1 ?? 50) / 100)) + 
                               (h2 * rate * ((rates.h2 ?? 75) / 100)) + 
                               (h3 * rate * ((rates.h3 ?? 100) / 100));
+
+      const dailyExtraFullVal = (h1 * rate * (1 + (rates.h1 ?? 50) / 100)) + 
+                                (h2 * rate * (1 + (rates.h2 ?? 75) / 100)) + 
+                                (h3 * rate * (1 + (rates.h3 ?? 100) / 100));
       
       summary.totalExtraHours += (h1 + h2 + h3);
-      summary.extraHoursValue += dailyExtraBonus;
+      summary.extraHoursValue += dailyExtraFullVal;
       const travelPay = record.travelPayment || 0;
       totalTravelPayment += travelPay;
       // grossTotal aqui representa o somatório de (horas base * rate) + bónus extras + percurso
-      summary.grossTotal += (hours * rate) + dailyExtraBonus + travelPay;
+      summary.grossTotal += (hours * rate) + dailyExtraFullVal + travelPay;
     });
 
     const calcTax = (base: number, config: { value: number; type: 'percentage' | 'fixed' }) => 

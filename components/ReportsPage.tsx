@@ -74,18 +74,23 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       const h2Bonus = h2 * user.hourlyRate * ((rates.h2 ?? 75) / 100);
       const h3Bonus = h3 * user.hourlyRate * ((rates.h3 ?? 100) / 100);
       const dailyExtraBonus = h1Bonus + h2Bonus + h3Bonus;
+
+      const h1FullVal = h1 * user.hourlyRate * (1 + (rates.h1 ?? 50) / 100);
+      const h2FullVal = h2 * user.hourlyRate * (1 + (rates.h2 ?? 75) / 100);
+      const h3FullVal = h3 * user.hourlyRate * (1 + (rates.h3 ?? 100) / 100);
+      const dailyExtraFullVal = h1FullVal + h2FullVal + h3FullVal;
       
       summary.totalExtraHours += (h1 + h2 + h3);
-      summary.extraHoursValue += dailyExtraBonus;
+      summary.extraHoursValue += dailyExtraFullVal;
       
       summary.extraHoursH1Total = (summary.extraHoursH1Total || 0) + h1;
       summary.extraHoursH2Total = (summary.extraHoursH2Total || 0) + h2;
       summary.extraHoursH3Total = (summary.extraHoursH3Total || 0) + h3;
-      summary.extraHoursH1Value = (summary.extraHoursH1Value || 0) + h1Bonus;
-      summary.extraHoursH2Value = (summary.extraHoursH2Value || 0) + h2Bonus;
-      summary.extraHoursH3Value = (summary.extraHoursH3Value || 0) + h3Bonus;
+      summary.extraHoursH1Value = (summary.extraHoursH1Value || 0) + h1FullVal;
+      summary.extraHoursH2Value = (summary.extraHoursH2Value || 0) + h2FullVal;
+      summary.extraHoursH3Value = (summary.extraHoursH3Value || 0) + h3FullVal;
       
-      summary.grossTotal += (hours * user.hourlyRate) + dailyExtraBonus + travelPay;
+      summary.grossTotal += (hours * user.hourlyRate) + dailyExtraFullVal + travelPay;
     });
 
     const calcTax = (base: number, config: { value: number; type: 'percentage' | 'fixed' }) => config.type === 'percentage' ? (base * config.value) / 100 : config.value;
@@ -252,14 +257,15 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                     const h2 = record.extraHours?.h2 || 0;
                     const h3 = record.extraHours?.h3 || 0;
                     const rates = user.overtimeRates || { h1: 50, h2: 75, h3: 100 };
-                    const dailyExtraBonus = (h1 * user.hourlyRate * ((rates.h1 ?? 50) / 100)) + 
-                                            (h2 * user.hourlyRate * ((rates.h2 ?? 75) / 100)) + 
-                                            (h3 * user.hourlyRate * ((rates.h3 ?? 100) / 100));
+                    
+                    const dailyExtraFullVal = (h1 * user.hourlyRate * (1 + (rates.h1 ?? 50) / 100)) + 
+                                              (h2 * user.hourlyRate * (1 + (rates.h2 ?? 75) / 100)) + 
+                                              (h3 * user.hourlyRate * (1 + (rates.h3 ?? 100) / 100));
                     
                     const travelH = record.travelHours || 0;
                     const travelPay = record.travelPayment || 0;
-                    const rowGross = record.isAbsent ? 0 : (hours * user.hourlyRate) + dailyExtraBonus + travelPay;
-                    const taxableRowGross = record.isAbsent ? 0 : (hours * user.hourlyRate) + dailyExtraBonus;
+                    const rowGross = record.isAbsent ? 0 : (hours * user.hourlyRate) + dailyExtraFullVal + travelPay;
+                    const taxableRowGross = record.isAbsent ? 0 : (hours * user.hourlyRate) + dailyExtraFullVal;
                     
                     // Cálculo de Retenções e Líquido Diário
                     const calcTaxRow = (base: number, config: { value: number; type: 'percentage' | 'fixed' }) => 
