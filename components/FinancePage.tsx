@@ -24,6 +24,9 @@ interface ExtendedFinanceSummary extends FinanceSummary {
   daysAbsent: number;
   partTimeHours: number;
   partTimeEarnings: number;
+  partTimeIvaTotal: number;
+  partTimeWithIvaGross: number;
+  partTimeWithIvaCount: number;
 }
 
 interface Props {
@@ -64,7 +67,10 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       netTotal: 0, 
       ivaTotal: 0,
       partTimeHours: 0,
-      partTimeEarnings: 0
+      partTimeEarnings: 0,
+      partTimeIvaTotal: 0,
+      partTimeWithIvaGross: 0,
+      partTimeWithIvaCount: 0
     };
     
     const monthKey = format(currentDate, 'yyyy-MM');
@@ -83,6 +89,11 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       
       summary.partTimeHours += ptHours;
       summary.partTimeEarnings += (ptGross - ptIvaDeduction);
+      summary.partTimeIvaTotal += ptIvaDeduction;
+      if (ptApplyIva) {
+        summary.partTimeWithIvaGross += ptGross;
+        summary.partTimeWithIvaCount += 1;
+      }
 
       if (record.isAbsent) {
         summary.daysAbsent += 1;
@@ -161,13 +172,47 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
          <div className="absolute top-0 right-0 p-10 opacity-10 pointer-events-none transform translate-x-10 -translate-y-10">
             <Wallet className="w-64 h-64" />
          </div>
-         <div className="relative z-10 space-y-2">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="w-4 h-4 text-emerald-400" />
-              <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/70">Impacto Líquido na Carteira</p>
+         <div className="relative z-10 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-white/70">Impacto Líquido na Carteira</p>
+              </div>
+              {summary.partTimeEarnings > 0 && (
+                <span className="text-[8px] font-black uppercase bg-purple-500/20 px-2.5 py-1 rounded-full border border-purple-500/30 text-purple-300 tracking-wider">
+                  Consolidado + Part-time
+                </span>
+              )}
             </div>
-            <h3 className="text-6xl font-black tracking-tighter">{f(summary.netTotal)}</h3>
-            <div className="flex flex-wrap items-center gap-6 pt-6">
+
+            <div className="space-y-4">
+              <h3 className="text-6xl font-black tracking-tighter">
+                {f(summary.netTotal + summary.partTimeEarnings)}
+              </h3>
+
+              {/* Discriminação / Breakdown */}
+              <div className="flex flex-wrap items-center gap-x-6 gap-y-3 pt-4 border-t border-white/10 max-w-2xl">
+                <div className="flex items-center gap-2">
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-400"></div>
+                  <span className="text-[9px] font-black text-white/70 uppercase tracking-widest">Trabalho Principal:</span>
+                  <span className="text-xs font-black text-white">{f(summary.netTotal)}</span>
+                  <span className="text-[9px] text-white/50 font-medium">({summary.daysWorked} {summary.daysWorked === 1 ? 'dia trabalhado' : 'dias trabalhados'})</span>
+                </div>
+
+                {summary.partTimeEarnings > 0 && (
+                  <div className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-purple-400"></div>
+                    <span className="text-[9px] font-black text-white/70 uppercase tracking-widest">Trabalho Part-Time:</span>
+                    <span className="text-xs font-black text-white">{f(summary.partTimeEarnings)}</span>
+                    {summary.partTimeHours > 0 && (
+                      <span className="text-[9px] text-white/50 font-medium">({summary.partTimeHours.toFixed(1)}h)</span>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-6 pt-2">
                <div className="flex items-center gap-2 text-white/60 text-[10px] font-black uppercase tracking-widest bg-black/20 px-4 py-2 rounded-full border border-white/5">
                   <CalendarCheck className="w-4 h-4 text-emerald-400" /> {summary.daysWorked} Dias de Trabalho
                </div>
@@ -259,6 +304,17 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">{summary.partTimeHours.toFixed(1)}h extra dedicadas</p>
         </div>
 
+        <div className="glass p-8 rounded-[2.5rem] space-y-4 border-white/5 group hover:border-rose-500/30 transition-all flex flex-col justify-between">
+           <div className="space-y-4">
+             <div className="flex justify-between items-center">
+                <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">IVA Deduzido Part-Time</span>
+                <div className="p-3 rounded-2xl bg-slate-900 border border-white/5"><AlertCircle className="w-5 h-5 text-rose-500" /></div>
+              </div>
+              <p className="text-3xl font-black text-rose-500 truncate w-full" title={f(summary.partTimeIvaTotal)}>{f(summary.partTimeIvaTotal)}</p>
+            </div>
+            <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-2">Dedução de IVA nos Part-Times</p>
+         </div>
+
         <div className="glass p-8 rounded-[2.5rem] space-y-4 border-white/5 group hover:border-emerald-500/30 transition-all flex flex-col justify-between">
            <div className="space-y-4">
              <div className="flex justify-between items-center">
@@ -333,13 +389,31 @@ const FinancePage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                   <span className="text-lg font-black text-emerald-400">+{f(summary.ivaTotal)}</span>
                </div>
              )}
-             <div className="flex justify-between items-center py-4">
+             <div className={`flex justify-between items-center py-4 ${summary.partTimeWithIvaCount > 0 ? 'border-b border-white/5' : ''}`}>
                 <div className="space-y-1">
                    <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest">Vales e Antecipações</p>
                    <p className="text-xs text-slate-300">Total debitado durante o mês</p>
                 </div>
                 <span className="text-lg font-black text-amber-500">-{f(summary.advancesTotal)}</span>
              </div>
+             {summary.partTimeWithIvaCount > 0 && (
+               <>
+                 <div className="flex justify-between items-center py-4 border-b border-white/5">
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black text-purple-400 uppercase tracking-widest">Trabalhos Part-Time com IVA</p>
+                       <p className="text-xs text-slate-300">Total bruto dos {summary.partTimeWithIvaCount} registo(s) sujeito(s) a IVA</p>
+                    </div>
+                    <span className="text-lg font-black text-purple-400">{f(summary.partTimeWithIvaGross)}</span>
+                 </div>
+                 <div className="flex justify-between items-center py-4">
+                    <div className="space-y-1">
+                       <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest">Dedução IVA (Part-Time)</p>
+                       <p className="text-xs text-slate-300">Total de IVA retido sobre os serviços</p>
+                    </div>
+                    <span className="text-lg font-black text-rose-500">-{f(summary.partTimeIvaTotal)}</span>
+                 </div>
+               </>
+             )}
           </div>
         </div>
       </div>
