@@ -35,6 +35,11 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // ONLY intercept GET requests to prevent issues with POST/PUT/DELETE API calls or third-party connections
+  if (event.request.method !== 'GET') {
+    return;
+  }
+
   // Check if we are navigating to an HTML page
   const isNavigate = event.request.mode === 'navigate' || 
                     (event.request.method === 'GET' && event.request.headers.get('accept')?.includes('text/html'));
