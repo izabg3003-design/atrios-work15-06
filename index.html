@@ -1,6 +1,33 @@
 <!DOCTYPE html>
 <html lang="pt-PT">
 <head>
+    <!-- Self-Healing Chunk Loading Error & Service Worker Reset Catcher -->
+    <script>
+      window.addEventListener('error', function(e) {
+        if (e.message && (
+          e.message.indexOf('Failed to fetch dynamically imported module') > -1 ||
+          e.message.indexOf('Importing a module script failed') > -1 ||
+          e.message.indexOf('ChunkLoadError') > -1
+        )) {
+          console.warn('Detectado erro de carregamento de chunk! Limpando caches e recarregando para atualizar o software...');
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              for (let registration of registrations) {
+                registration.unregister();
+              }
+            });
+          }
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              for (let name of names) caches.delete(name);
+            });
+          }
+          setTimeout(function() {
+            window.location.reload(true);
+          }, 500);
+        }
+      }, true);
+    </script>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-YD6Q53C4K2"></script>
     <script>
