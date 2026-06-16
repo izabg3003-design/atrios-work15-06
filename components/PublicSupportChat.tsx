@@ -249,7 +249,7 @@ const PublicSupportChat: React.FC = () => {
   };
 
   return (
-    <div className="fixed bottom-28 md:bottom-6 right-6 z-[2000] font-inter flex flex-col items-end">
+    <div className="no-print fixed bottom-28 md:bottom-6 right-6 z-[2000] font-inter flex flex-col items-end">
       {/* AtriosWork Incentive Nudge */}
       {showNudge && !isOpen && (
         <div className="mb-4 mr-2 animate-[slideUp_0.5s_ease-out]">
