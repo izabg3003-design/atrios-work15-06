@@ -35,6 +35,12 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       totalHours: 0, 
       totalExtraHours: 0, 
       extraHoursValue: 0, 
+      extraHoursH1Total: 0,
+      extraHoursH2Total: 0,
+      extraHoursH3Total: 0,
+      extraHoursH1Value: 0,
+      extraHoursH2Value: 0,
+      extraHoursH3Value: 0,
       socialSecurityTotal: 0, 
       irsTotal: 0, 
       advancesTotal: 0, 
@@ -63,11 +69,22 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       const h2 = record.extraHours?.h2 || 0;
       const h3 = record.extraHours?.h3 || 0;
       const rates = user.overtimeRates || { h1: 50, h2: 75, h3: 100 };
-      const dailyExtraBonus = (h1 * user.hourlyRate * ((rates.h1 ?? 50) / 100)) + 
-                              (h2 * user.hourlyRate * ((rates.h2 ?? 75) / 100)) + 
-                              (h3 * user.hourlyRate * ((rates.h3 ?? 100) / 100));
+      
+      const h1Bonus = h1 * user.hourlyRate * ((rates.h1 ?? 50) / 100);
+      const h2Bonus = h2 * user.hourlyRate * ((rates.h2 ?? 75) / 100);
+      const h3Bonus = h3 * user.hourlyRate * ((rates.h3 ?? 100) / 100);
+      const dailyExtraBonus = h1Bonus + h2Bonus + h3Bonus;
+      
       summary.totalExtraHours += (h1 + h2 + h3);
       summary.extraHoursValue += dailyExtraBonus;
+      
+      summary.extraHoursH1Total = (summary.extraHoursH1Total || 0) + h1;
+      summary.extraHoursH2Total = (summary.extraHoursH2Total || 0) + h2;
+      summary.extraHoursH3Total = (summary.extraHoursH3Total || 0) + h3;
+      summary.extraHoursH1Value = (summary.extraHoursH1Value || 0) + h1Bonus;
+      summary.extraHoursH2Value = (summary.extraHoursH2Value || 0) + h2Bonus;
+      summary.extraHoursH3Value = (summary.extraHoursH3Value || 0) + h3Bonus;
+      
       summary.grossTotal += (hours * user.hourlyRate) + dailyExtraBonus + travelPay;
     });
 
@@ -173,6 +190,31 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                   <p className={`text-[12px] sm:text-base md:text-lg font-black ${item.color} print:text-black print:text-[7.5px] print:leading-none whitespace-normal break-words block w-full`} title={item.val}>{item.val}</p>
                 </div>
               ))}
+            </div>
+
+            {/* DETALHAMENTO DE HORAS EXTRAS */}
+            <div className="p-4 sm:p-5 bg-purple-50/40 border border-purple-100/70 rounded-[1.5rem] mb-6 print:bg-white print:border-black print:p-3 print:mb-4">
+                <h4 className="text-[8.5px] sm:text-[9.5px] font-black text-purple-700 uppercase tracking-widest mb-3 print:text-black print:mb-2 flex items-center gap-2">
+                  <Clock className="w-3.5 h-3.5" /> Detalhamento de Horas Extras (Portugal)
+                </h4>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 print:gap-1.5 text-center font-black">
+                  <div className="bg-white/80 p-2 rounded-xl border border-purple-150/40 print:bg-white print:border-black print:p-1">
+                    <p className="text-[7px] text-slate-400 uppercase tracking-wider mb-0.5 print:text-[5.5px]">1ª Hora Extra ({user.overtimeRates?.h1 ?? 50}%)</p>
+                    <p className="text-[10px] text-slate-800 print:text-[7.5px]">{(summary.extraHoursH1Total ?? 0).toFixed(1)}h <span className="text-[8px] sm:text-[8.5px] text-purple-600 font-bold print:text-black">({f(summary.extraHoursH1Value ?? 0)})</span></p>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-purple-150/40 print:bg-white print:border-black print:p-1">
+                    <p className="text-[7px] text-slate-400 uppercase tracking-wider mb-0.5 print:text-[5.5px]">2ª Hora Extra ({user.overtimeRates?.h2 ?? 75}%)</p>
+                    <p className="text-[10px] text-slate-800 print:text-[7.5px]">{(summary.extraHoursH2Total ?? 0).toFixed(1)}h <span className="text-[8px] sm:text-[8.5px] text-purple-600 font-bold print:text-black">({f(summary.extraHoursH2Value ?? 0)})</span></p>
+                  </div>
+                  <div className="bg-white/80 p-2 rounded-xl border border-purple-150/40 print:bg-white print:border-black print:p-1">
+                    <p className="text-[7px] text-slate-400 uppercase tracking-wider mb-0.5 print:text-[5.5px]">3ª Hora Extra ({user.overtimeRates?.h3 ?? 100}%)</p>
+                    <p className="text-[10px] text-slate-800 print:text-[7.5px]">{(summary.extraHoursH3Total ?? 0).toFixed(1)}h <span className="text-[8px] sm:text-[8.5px] text-purple-600 font-bold print:text-black">({f(summary.extraHoursH3Value ?? 0)})</span></p>
+                  </div>
+                  <div className="bg-purple-100/50 p-2 rounded-xl border border-purple-200 print:bg-slate-50 print:border-black print:p-1">
+                    <p className="text-[7px] text-purple-700 uppercase tracking-wider mb-0.5 print:text-[5.5px]">Total de Horas Extras</p>
+                    <p className="text-[10px] text-purple-900 print:text-[7.5px]">{summary.totalExtraHours.toFixed(1)}h <span className="text-[8.5px] sm:text-[9px] text-purple-700 font-black print:text-black">({f(summary.extraHoursValue)})</span></p>
+                  </div>
+                </div>
             </div>
 
             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 print:mb-3 flex items-center gap-3">

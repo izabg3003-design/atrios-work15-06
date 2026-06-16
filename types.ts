@@ -98,6 +98,12 @@ export interface FinanceSummary {
   totalHours: number;
   totalExtraHours: number;
   extraHoursValue: number;
+  extraHoursH1Total?: number;
+  extraHoursH2Total?: number;
+  extraHoursH3Total?: number;
+  extraHoursH1Value?: number;
+  extraHoursH2Value?: number;
+  extraHoursH3Value?: number;
   socialSecurityTotal: number;
   irsTotal: number;
   advancesTotal: number;
