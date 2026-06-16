@@ -368,7 +368,17 @@ const App: React.FC = () => {
           <Sidebar activeTab={appState} setActiveTab={handleTabChange} user={user} onLogout={handleLogout} t={t} hideValues={hideValues} togglePrivacy={() => setHideValues(!hideValues)} isPro={isPro} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-12 pt-6 md:pt-12 pb-40 md:pb-12 ml-0 md:ml-24 scroll-smooth">
             <div className="max-w-5xl mx-auto w-full">
-              {appState === 'dashboard' && <Dashboard user={user} records={records} onOpenPremium={() => setIsPremiumModalOpen(true)} onAddRecord={async (r) => {
+              {appState === 'dashboard' && <Dashboard user={user} records={records} onOpenPremium={() => setIsPremiumModalOpen(true)} onDeleteRecord={async (date) => {
+                if (!user.id) return false;
+                const { error } = await supabase.from('work_records').delete().eq('user_id', user.id).eq('date', date);
+                if (error) return false;
+                setRecords(prev => {
+                  const copy = { ...prev };
+                  delete copy[date];
+                  return copy;
+                });
+                return true;
+              }} onAddRecord={async (r) => {
                 if (!user.id) return false;
                 
                 // Limite de 165 horas para free

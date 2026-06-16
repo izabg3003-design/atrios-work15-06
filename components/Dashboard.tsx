@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { format, endOfMonth, eachDayOfInterval, isToday, addMonths, subMonths, isSameDay, startOfMonth, addYears, parseISO, differenceInDays } from 'date-fns';
 import { pt, enUS, es, fr, de, it, ru, uk, zhCN, ja, hi } from 'date-fns/locale';
-import { ChevronLeft, ChevronRight, Save, Clock, AlertCircle, Coffee, TrendingUp, MapPin, Wallet, MessageSquare, Loader2, CheckCircle2, RefreshCw, Zap, ShieldAlert, Headphones, Activity, X, Megaphone } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Save, Clock, AlertCircle, Coffee, TrendingUp, MapPin, Wallet, MessageSquare, Loader2, CheckCircle2, RefreshCw, Zap, ShieldAlert, Headphones, Activity, X, Megaphone, Trash2 } from 'lucide-react';
 import { UserProfile, WorkRecord, AppBanner } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -10,16 +10,19 @@ interface Props {
   user: UserProfile;
   records: Record<string, WorkRecord>;
   onAddRecord: (record: WorkRecord) => Promise<boolean>;
+  onDeleteRecord?: (date: string) => Promise<boolean>;
   t: (key: string) => any;
   hideValues?: boolean;
   isPro?: boolean;
   onOpenPremium?: () => void;
 }
 
-const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues, isPro, onOpenPremium }) => {
+const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord, t, hideValues, isPro, onOpenPremium }) => {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [isSaving, setIsSaving] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [now, setNow] = useState(new Date());
 
@@ -154,6 +157,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
     setExtraHours(record?.extraHours || { h1: 0, h2: 0, h3: 0 });
     setTravelHours(record?.travelHours || 0);
     setTravelPayment(record?.travelPayment || 0);
+    setShowConfirmDelete(false);
     
     if (scrollRef.current) {
       const timer = setTimeout(() => {
@@ -191,6 +195,29 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
       setTimeout(() => setSaveSuccess(false), 2000);
     }
     setIsSaving(false);
+  };
+
+  const handleDeleteDay = async () => {
+    if (!onDeleteRecord) return;
+    setIsDeleting(true);
+    const success = await onDeleteRecord(dateKey);
+    if (success) {
+      setEntry(user.defaultEntry || '09:00');
+      setExit(user.defaultExit || '18:00');
+      setIsAbsent(false);
+      setIsVacation(false);
+      setHasLunchBreak(true);
+      setNotes('');
+      setLocation('');
+      setAdvance(0);
+      setExtraHours({ h1: 0, h2: 0, h3: 0 });
+      setTravelHours(0);
+      setTravelPayment(0);
+      setShowConfirmDelete(false);
+    } else {
+      alert("Ocorreu um erro ao excluir o registo. Por favor, tente novamente.");
+    }
+    setIsDeleting(false);
   };
 
   const getDayStatusColor = (day: Date) => {
@@ -547,6 +574,48 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
           {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : saveSuccess ? <CheckCircle2 className="w-4 h-4" /> : hasExistingRecord ? <RefreshCw className="w-4 h-4" /> : <Save className="w-4 h-4" />} 
           {isSaving ? t('common.syncing') : saveSuccess ? t('settings.saved') : hasExistingRecord ? t('dashboard.update') : t('dashboard.sync')}
         </button>
+
+        {hasExistingRecord && (
+          <div className="mt-4 animate-soft">
+            {!showConfirmDelete ? (
+              <button
+                type="button"
+                onClick={() => setShowConfirmDelete(true)}
+                className="w-full py-4 bg-rose-500/10 border border-rose-500/20 text-rose-400 font-bold rounded-[2rem] flex items-center justify-center gap-2 hover:bg-rose-500/20 active:scale-95 transition-all text-xs uppercase tracking-widest"
+              >
+                <Trash2 className="w-4 h-4" /> Excluir Dia de Trabalho
+              </button>
+            ) : (
+              <div className="bg-rose-950/20 border border-rose-500/30 rounded-[2rem] p-5 space-y-4">
+                <p className="text-[10px] uppercase tracking-widest font-black text-rose-300 text-center leading-relaxed">
+                  Deseja mesmo excluir as informações do dia selecionado em definitivo?
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmDelete(false)}
+                    disabled={isDeleting}
+                    className="flex-1 py-3 bg-slate-800 text-slate-300 font-black rounded-2xl text-[10px] uppercase tracking-wider hover:bg-slate-700 active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleDeleteDay}
+                    disabled={isDeleting}
+                    className="flex-1 py-3 bg-rose-600 text-white font-black rounded-2xl text-[10px] uppercase tracking-wider hover:bg-rose-500 active:scale-95 transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 shadow-lg shadow-rose-600/20"
+                  >
+                    {isDeleting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      "Sim, Excluir"
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <style>{`
