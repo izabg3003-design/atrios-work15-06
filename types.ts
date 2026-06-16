@@ -79,6 +79,7 @@ export interface WorkRecord {
   entry: string;
   exit: string;
   isAbsent: boolean;
+  isVacation?: boolean;
   hasLunchBreak: boolean;
   notes: string;
   location: string;

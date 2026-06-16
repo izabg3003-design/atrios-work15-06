@@ -231,17 +231,31 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                     const rowSS = record.isAbsent ? 0 : calcTaxRow(taxableRowGross, user.socialSecurity);
                     const rowNet = rowGross - rowIRS - rowSS - (record.advance || 0);
 
+                    const isAbs = record.isAbsent;
+                    const isVac = record.isVacation;
+                    const rowBgClass = isAbs 
+                      ? 'bg-red-100/50 print:bg-red-100/50 text-red-950' 
+                      : isVac 
+                      ? 'bg-emerald-100/50 print:bg-emerald-100/50 text-emerald-950' 
+                      : 'hover:bg-slate-50/30';
+
                     return (
-                      <tr key={date} className={`${record.isAbsent ? 'bg-red-50' : 'hover:bg-slate-50/30'} print:text-black`}>
+                      <tr key={date} className={`${rowBgClass} print:text-black`}>
                         <td className="px-3 py-3 font-black text-slate-900 print:text-black">{format(parseISO(date), 'dd/MM/yy')}</td>
                         <td className="px-2 py-3 text-center">
-                          {record.isAbsent ? <span className="text-red-600 font-bold uppercase text-[8px]">Falta</span> : <span className="text-slate-700">{record.entry}-{record.exit}</span>}
+                          {isAbs ? (
+                            <span className="text-red-700 font-black uppercase text-[8px] bg-red-200/50 px-2 py-1 rounded">Falta</span>
+                          ) : isVac ? (
+                            <span className="text-emerald-700 font-black uppercase text-[8px] bg-emerald-200/50 px-2 py-1 rounded">Férias</span>
+                          ) : (
+                            <span className="text-slate-700">{record.entry}-{record.exit}</span>
+                          )}
                         </td>
                         <td className="px-1 py-3 text-center">
                           {record.hasLunchBreak ? <Coffee className="w-3 h-3 mx-auto text-emerald-600/50" /> : <span className="text-slate-300">---</span>}
                         </td>
                         <td className="px-2 py-3 text-center font-bold text-slate-600">
-                          {!record.isAbsent ? `${hours.toFixed(1)}h` : '-'}
+                          {!isAbs ? `${hours.toFixed(1)}h` : '-'}
                         </td>
                         <td className="px-3 py-3 truncate text-slate-600">{record.location || '---'}</td>
                         <td className="px-2 py-3 text-center font-bold text-amber-600 print:text-black">
@@ -263,10 +277,10 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                           {rowSS > 0 ? `-${f(rowSS)}` : '-'}
                         </td>
                         <td className="px-2 py-3 text-right font-bold text-slate-900 print:text-black">
-                          {!record.isAbsent ? f(rowGross) : '-'}
+                          {!isAbs ? f(rowGross) : '-'}
                         </td>
                         <td className="px-2 py-3 text-right font-black text-emerald-600 print:text-black">
-                          {!record.isAbsent ? f(rowNet) : '-'}
+                          {!isAbs ? f(rowNet) : '-'}
                         </td>
                         <td className="px-3 py-3 text-[8.5px] italic text-slate-400 print:text-black leading-tight">{record.notes || '-'}</td>
                       </tr>

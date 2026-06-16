@@ -35,6 +35,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
   const [entry, setEntry] = useState('09:00');
   const [exit, setExit] = useState('18:00');
   const [isAbsent, setIsAbsent] = useState(false);
+  const [isVacation, setIsVacation] = useState(false);
   const [hasLunchBreak, setHasLunchBreak] = useState(true);
   const [location, setLocation] = useState('');
   const [notes, setNotes] = useState('');
@@ -145,6 +146,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
     setEntry(record?.entry || user.defaultEntry || '09:00');
     setExit(record?.exit || user.defaultExit || '18:00');
     setIsAbsent(record?.isAbsent || false);
+    setIsVacation(record?.isVacation || false);
     setHasLunchBreak(record?.hasLunchBreak ?? true);
     setNotes(record?.notes || '');
     setLocation(record?.location || '');
@@ -174,6 +176,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
       entry, 
       exit, 
       isAbsent, 
+      isVacation,
       hasLunchBreak, 
       notes, 
       location, 
@@ -195,6 +198,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
     const record = records[dKey];
     if (!record) return null;
     if (record.isAbsent) return 'red';
+    if (record.isVacation) return 'emerald';
     return 'green';
   };
 
@@ -349,6 +353,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
             if (!active) {
               if (status === 'green') { statusClasses = "bg-emerald-500/10 border-emerald-500/30 text-emerald-400"; dotColor = "bg-emerald-500"; }
               else if (status === 'red') { statusClasses = "bg-red-500/10 border-red-500/30 text-red-400"; dotColor = "bg-red-500"; }
+              else if (status === 'emerald') { statusClasses = "bg-emerald-500/25 border-emerald-400/40 text-emerald-300 font-black"; dotColor = "bg-emerald-400"; }
             } else { statusClasses = "btn-primary text-white border-white/20 shadow-lg scale-110 z-10"; }
 
             return (
@@ -383,14 +388,14 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
               <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('dashboard.entry')}</label>
               <div className="relative">
                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-emerald-500/40" />
-                <input type="time" value={entry} onChange={e => setEntry(e.target.value)} disabled={isAbsent} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-1 py-3 text-white font-black outline-none focus:ring-1 focus:ring-emerald-500/30 text-[10px] disabled:opacity-20" />
+                <input type="time" value={entry} onChange={e => setEntry(e.target.value)} disabled={isAbsent || isVacation} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-1 py-3 text-white font-black outline-none focus:ring-1 focus:ring-emerald-500/30 text-[10px] disabled:opacity-20" />
               </div>
            </div>
            <div className="space-y-2">
               <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('dashboard.exit')}</label>
               <div className="relative">
                 <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-emerald-500/40" />
-                <input type="time" value={exit} onChange={e => setExit(e.target.value)} disabled={isAbsent} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-1 py-3 text-white font-black outline-none focus:ring-1 focus:ring-emerald-500/30 text-[10px] disabled:opacity-20" />
+                <input type="time" value={exit} onChange={e => setExit(e.target.value)} disabled={isAbsent || isVacation} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-1 py-3 text-white font-black outline-none focus:ring-1 focus:ring-emerald-500/30 text-[10px] disabled:opacity-20" />
               </div>
            </div>
         </div>
@@ -400,7 +405,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
               <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest ml-1">{t('dashboard.location')}</label>
               <div className="relative">
                 <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-purple-500/40" />
-                <input type="text" placeholder={t('dashboard.locationPlaceholder')} value={location} onChange={e => setLocation(e.target.value)} disabled={isAbsent} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-3 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[10px] disabled:opacity-20" />
+                <input type="text" placeholder={t('dashboard.locationPlaceholder')} value={location} onChange={e => setLocation(e.target.value)} disabled={isAbsent || isVacation} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-3 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[10px] disabled:opacity-20" />
               </div>
            </div>
            <div className="space-y-2">
@@ -412,7 +417,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
                   step="0.01" 
                   value={advance} 
                   onChange={e => setAdvance(Number(e.target.value))} 
-                  disabled={isAbsent} 
+                  disabled={isAbsent || isVacation} 
                   className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-3 py-3 text-white font-black outline-none focus:ring-1 focus:ring-amber-500/30 text-[10px] disabled:opacity-20" 
                 />
               </div>
@@ -430,7 +435,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
                   placeholder="0.0"
                   value={travelHours || ''} 
                   onChange={e => setTravelHours(Number(e.target.value))} 
-                  disabled={isAbsent} 
+                  disabled={isAbsent || isVacation} 
                   className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-3 py-3 text-white font-black outline-none focus:ring-1 focus:ring-blue-500/30 text-[10px] disabled:opacity-20" 
                 />
               </div>
@@ -445,7 +450,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
                   placeholder="0.00"
                   value={travelPayment || ''} 
                   onChange={e => setTravelPayment(Number(e.target.value))} 
-                  disabled={isAbsent} 
+                  disabled={isAbsent || isVacation} 
                   className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-3 py-3 text-white font-black outline-none focus:ring-1 focus:ring-emerald-500/30 text-[10px] disabled:opacity-20" 
                 />
               </div>
@@ -464,17 +469,17 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
            <div className="grid grid-cols-3 gap-3">
               <div className="relative">
                  <Zap className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-purple-400/40" />
-                 <input type="number" step="0.5" value={extraHours.h1} onChange={e => setExtraHours({...extraHours, h1: Number(e.target.value)})} disabled={isAbsent || !isPro} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-2 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[9px] disabled:opacity-20" placeholder="1ª H" />
+                 <input type="number" step="0.5" value={extraHours.h1} onChange={e => setExtraHours({...extraHours, h1: Number(e.target.value)})} disabled={isAbsent || isVacation || !isPro} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-2 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[9px] disabled:opacity-20" placeholder="1ª H" />
                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-600">1º</span>
               </div>
               <div className="relative">
                  <Zap className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-purple-400/40" />
-                 <input type="number" step="0.5" value={extraHours.h2} onChange={e => setExtraHours({...extraHours, h2: Number(e.target.value)})} disabled={isAbsent || !isPro} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-2 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[9px] disabled:opacity-20" placeholder="2ª H" />
+                 <input type="number" step="0.5" value={extraHours.h2} onChange={e => setExtraHours({...extraHours, h2: Number(e.target.value)})} disabled={isAbsent || isVacation || !isPro} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-2 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[9px] disabled:opacity-20" placeholder="2ª H" />
                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-600">2º</span>
               </div>
               <div className="relative">
                  <Zap className="absolute left-3 top-1/2 -translate-y-1/2 w-3 h-3 text-purple-400/40" />
-                 <input type="number" step="0.5" value={extraHours.h3} onChange={e => setExtraHours({...extraHours, h3: Number(e.target.value)})} disabled={isAbsent || !isPro} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-2 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[9px] disabled:opacity-20" placeholder="3ª H" />
+                 <input type="number" step="0.5" value={extraHours.h3} onChange={e => setExtraHours({...extraHours, h3: Number(e.target.value)})} disabled={isAbsent || isVacation || !isPro} className="w-full bg-slate-950/80 border border-white/5 rounded-2xl pl-9 pr-2 py-3 text-white font-black outline-none focus:ring-1 focus:ring-purple-500/30 text-[9px] disabled:opacity-20" placeholder="3ª H" />
                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[7px] font-black text-slate-600">3º</span>
               </div>
            </div>
@@ -488,11 +493,48 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, t, hideValues,
            </div>
         </div>
 
-        <div className="flex gap-3">
-          <button onClick={() => setIsAbsent(!isAbsent)} className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl border text-[9px] font-black uppercase transition-all shadow-md active:scale-95 ${isAbsent ? 'bg-red-500 text-white border-red-400' : 'bg-slate-900/60 border-white/5 text-slate-400'}`}>
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button 
+            type="button"
+            onClick={() => {
+              const nextIsAbsent = !isAbsent;
+              setIsAbsent(nextIsAbsent);
+              if (nextIsAbsent) {
+                setIsVacation(false);
+              }
+            }} 
+            className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl border text-[9px] font-black uppercase transition-all shadow-md active:scale-95 ${isAbsent ? 'bg-red-500 text-white border-red-400' : 'bg-slate-900/60 border-white/5 text-slate-400'}`}
+          >
             <AlertCircle className="w-3.5 h-3.5" /> {t('dashboard.absence')}
           </button>
-          <button onClick={() => setHasLunchBreak(!hasLunchBreak)} disabled={isAbsent} className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl border text-[9px] font-black uppercase transition-all shadow-md active:scale-95 ${hasLunchBreak ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-900/60 border-white/5 text-slate-400'}`}>
+          
+          <button 
+            type="button"
+            onClick={() => {
+              const nextIsVacation = !isVacation;
+              setIsVacation(nextIsVacation);
+              if (nextIsVacation) {
+                setIsAbsent(false);
+                setEntry('08:00');
+                setExit('17:00');
+                setHasLunchBreak(true);
+                setExtraHours({ h1: 0, h2: 0, h3: 0 });
+                setTravelHours(0);
+                setTravelPayment(0);
+                setAdvance(0);
+              }
+            }} 
+            className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl border text-[9px] font-black uppercase transition-all shadow-md active:scale-95 ${isVacation ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-900/60 border-white/5 text-slate-400'}`}
+          >
+            <CheckCircle2 className="w-3.5 h-3.5" /> Marcar Férias
+          </button>
+          
+          <button 
+            type="button"
+            onClick={() => setHasLunchBreak(!hasLunchBreak)} 
+            disabled={isAbsent || isVacation} 
+            className={`flex-1 flex items-center justify-center gap-2 py-4 rounded-2xl border text-[9px] font-black uppercase transition-all shadow-md active:scale-95 ${hasLunchBreak ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-slate-900/60 border-white/5 text-slate-400'}`}
+          >
             <Coffee className="w-3.5 h-3.5" /> {t('dashboard.lunch')}
           </button>
         </div>
