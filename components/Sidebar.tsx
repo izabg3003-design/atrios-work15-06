@@ -44,17 +44,17 @@ const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, 
 
   return (
     <>
-      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-24 bg-slate-950 border-r border-white/5 z-[100] flex-col items-center py-10">
-        <img src="/logo_atualizado.jpg?v=20260314_v1" className="w-10 h-10 object-contain rounded-xl mb-12 shadow-lg shadow-purple-500/20" alt="AtriosWork Logo" />
-        <nav className="flex-1 space-y-4 w-full px-2">
+      <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-24 bg-slate-950 border-r border-white/5 z-[100] flex-col items-center py-6">
+        <img src="/logo_atualizado.jpg?v=20260314_v1" className="w-9 h-9 object-contain rounded-xl mb-6 shadow-lg shadow-purple-500/20" alt="AtriosWork Logo" />
+        <nav className="flex-1 space-y-1.5 w-full px-2">
           {filteredTabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`w-full flex flex-col items-center justify-center py-3 rounded-2xl transition-all relative group ${activeTab === tab.id ? 'bg-white/5 text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}
+              className={`w-full flex flex-col items-center justify-center py-2 rounded-xl transition-all relative group ${activeTab === tab.id ? 'bg-white/5 text-purple-400' : 'text-slate-500 hover:text-slate-300'}`}
             >
               <div className="relative">
-                <tab.icon className={`w-6 h-6 ${activeTab === tab.id ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
+                <tab.icon className={`w-5 h-5 ${activeTab === tab.id ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
                 {(tab as any).isLocked && (
                   <div className="absolute -top-1 -right-1 bg-amber-500 rounded-full p-0.5 border border-slate-950">
                     <Lock className="w-2 h-2 text-slate-950" />
@@ -64,22 +64,22 @@ const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, 
               <span className="text-[7px] font-black uppercase tracking-tighter mt-1 opacity-0 group-hover:opacity-100 transition-opacity text-center px-1">
                 {tab.label}
               </span>
-              {activeTab === tab.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 btn-primary rounded-r-full"></div>}
+              {activeTab === tab.id && <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-6 btn-primary rounded-r-full"></div>}
             </button>
           ))}
         </nav>
         
-        <div className="flex flex-col items-center gap-2 mb-4">
+        <div className="flex flex-col items-center gap-1.5 mb-2">
           <button 
             onClick={togglePrivacy} 
-            className={`p-4 rounded-xl transition-all ${hideValues ? 'text-amber-500 bg-amber-500/10' : 'text-slate-700 hover:text-slate-300'}`}
+            className={`p-2.5 rounded-xl transition-all ${hideValues ? 'text-amber-500 bg-amber-500/10' : 'text-slate-700 hover:text-slate-300'}`}
             title={hideValues ? "Mostrar Valores" : "Modo Privacidade"}
           >
-            {hideValues ? <EyeOff className="w-6 h-6" /> : <Eye className="w-6 h-6" />}
+            {hideValues ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
           </button>
 
-          <button onClick={onLogout} className="p-4 text-slate-700 hover:text-red-500 transition-colors group flex flex-col items-center">
-            <LogOut className="w-6 h-6" />
+          <button onClick={onLogout} className="p-2.5 text-slate-700 hover:text-red-500 transition-colors group flex flex-col items-center rounded-xl">
+            <LogOut className="w-5 h-5" />
             <span className="text-[7px] font-black uppercase mt-1 opacity-0 group-hover:opacity-100">Sair</span>
           </button>
         </div>
