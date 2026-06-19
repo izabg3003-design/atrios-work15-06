@@ -112,12 +112,35 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         isPro: !!isPro
       });
 
-      // Sincronizar IDs já exibidos do localStorage ao montar/atualizar
+      // Sincronizar IDs já exibidos do localStorage, fundindo-os com o CacheStorage se houver eventos em segundo plano
       const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
       try {
-        const shownPushes = JSON.parse(shownPushesRaw);
-        saveToConfigCache('shown_push_ids', shownPushes);
-      } catch (e) {}
+        const localShown: string[] = JSON.parse(shownPushesRaw);
+        if ('caches' in window) {
+          caches.open('atrioswork-config-v1').then(async (cache) => {
+            const matchRequest = new Request('https://local-config/shown_push_ids');
+            const resp = await cache.match(matchRequest);
+            if (resp) {
+              const swShown: string[] = await resp.json();
+              const merged = Array.from(new Set([...localShown, ...swShown]));
+              localStorage.setItem('shown_push_notifications', JSON.stringify(merged));
+              
+              const newResponse = new Response(JSON.stringify(merged), {
+                headers: { 'Content-Type': 'application/json' }
+              });
+              await cache.put(matchRequest, newResponse);
+            } else {
+              saveToConfigCache('shown_push_ids', localShown);
+            }
+          }).catch(() => {
+            saveToConfigCache('shown_push_ids', localShown);
+          });
+        } else {
+          saveToConfigCache('shown_push_ids', localShown);
+        }
+      } catch (e) {
+        saveToConfigCache('shown_push_ids', []);
+      }
     }
   }, [user.id, user.subscription]);
 
@@ -307,7 +330,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     
     if (Notification.permission === 'granted') {
       // 1. Tentar por Service Worker (Ideal para disparar no ecran em segundo plano)
-      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      if (navigator.serviceWorker) {
         navigator.serviceWorker.ready.then(reg => {
           reg.showNotification(title, {
             body: body,

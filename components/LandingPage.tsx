@@ -26,6 +26,8 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
     const handleScroll = () => setScrolled(window.scrollY > 10);
     window.addEventListener('scroll', handleScroll);
     
+    let timer: NodeJS.Timeout | undefined;
+
     const fetchBanners = async () => {
       try {
         const { data, error } = await supabase.from('app_banners').select('*').eq('is_active', true).order('created_at', { ascending: false });
@@ -37,8 +39,12 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
             return !isPush && b.user_type === 'public';
           });
           if (publicBanners.length > 0) {
-            setActiveBanners(publicBanners);
-            setTimeout(() => setShowBannerOverlay(true), 1500);
+            const candidate = publicBanners[0];
+            const isDismissed = localStorage.getItem(`dismissed_banner_${candidate.id}`) === 'true';
+            if (!isDismissed) {
+              setActiveBanners(publicBanners);
+              timer = setTimeout(() => setShowBannerOverlay(true), 1500);
+            }
           }
         }
       } catch (e) {
@@ -47,7 +53,10 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
     };
     fetchBanners();
 
-    return () => window.removeEventListener('scroll', handleScroll);
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
   const BannerOverlay = () => {
@@ -58,7 +67,10 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
       <div className="fixed inset-0 z-[1000] flex items-center justify-center p-6 backdrop-blur-md bg-slate-950/60 animate-[fadeIn_0.3s_ease-out]">
         <div className={`relative w-full max-w-4xl bg-slate-900 rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.8)] border border-${banner.theme_color}-500/30 animate-[modalScale_0.4s_ease-out]`}>
           <button 
-            onClick={() => setShowBannerOverlay(false)}
+            onClick={() => {
+              localStorage.setItem(`dismissed_banner_${banner.id}`, 'true');
+              setShowBannerOverlay(false);
+            }}
             className="absolute top-6 right-6 z-50 p-3 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md transition-all border border-white/10"
           >
             <X className="w-6 h-6" />
