@@ -282,7 +282,7 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
             <div className="space-y-6 text-center md:text-left">
                <h4 className="text-[11px] font-black text-white uppercase tracking-[0.2em]">Suporte</h4>
                <ul className="space-y-4 text-[10px] font-black text-slate-500 uppercase tracking-widest">
-                  <li><a href="mailto:suporte.atrioswork@gmail.com" className="hover:text-emerald-400 transition-colors">Ajuda com IRS</a></li>
+                  <li><a href="mailto:software.atrios@gmail.com" className="hover:text-emerald-400 transition-colors">Apoio ao Cliente</a></li>
                   <li><button onClick={onAbout} className="hover:text-emerald-400 transition-colors">Parcerias AtriosWork</button></li>
                   <li><a href="https://www.facebook.com/share/1CSeJPHprp/" target="_blank" rel="noopener noreferrer" className="hover:text-blue-500 transition-colors flex items-center justify-center md:justify-start gap-2"><Facebook className="w-3 h-3" /> Facebook</a></li>
                </ul>

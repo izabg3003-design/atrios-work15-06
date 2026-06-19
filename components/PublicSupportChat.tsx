@@ -195,7 +195,7 @@ const PublicSupportChat: React.FC = () => {
       if (!success) {
         setMessages(prev => [...prev, { 
           role: 'ai', 
-          text: "Erro ao conectar. Por favor, envie um e-mail para suporte.atrioswork@gmail.com." 
+          text: "Erro ao conectar. Por favor, envie um e-mail para software.atrios@gmail.com." 
         }]);
       }
       setIsSending(false);
@@ -241,7 +241,7 @@ const PublicSupportChat: React.FC = () => {
       setShowHumanSupportStatus(true);
       setIsHumanModeActive(true);
     } else {
-      setMessages(prev => [...prev, { role: 'ai', text: "Erro ao abrir ticket. Contacte suporte.atrioswork@gmail.com" }]);
+      setMessages(prev => [...prev, { role: 'ai', text: "Erro ao abrir ticket. Contacte software.atrios@gmail.com" }]);
     }
     
     setIsSending(false);

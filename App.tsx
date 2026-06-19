@@ -20,6 +20,8 @@ import PrivacyPage from './components/PrivacyPage';
 import TermsPage from './components/TermsPage';
 import AboutAtriosWorkPage from './components/AboutAtriosWorkPage';
 import PublicSupportChat from './components/PublicSupportChat';
+import PushNotificationManager from './components/PushNotificationManager';
+import { InstallAppModal } from './components/InstallAppModal';
 import { AppState, UserProfile, WorkRecord, Language, Currency } from './types';
 import { supabase, isConfigured } from './lib/supabase';
 import { translations } from './translations';
@@ -125,6 +127,45 @@ const App: React.FC = () => {
   const [hideValues, setHideValues] = useState(false);
   const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
   const [loginInRegisterMode, setLoginInRegisterMode] = useState(false);
+  
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
+
+  useEffect(() => {
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                          (navigator as any).standalone === true;
+    
+    if (isStandalone) {
+      console.log('Running as a PWA standalone app');
+      return;
+    }
+
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallModalOpen(true);
+    };
+
+    const handleOpenPwaModal = () => {
+      setIsInstallModalOpen(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('open-pwa-install-modal', handleOpenPwaModal);
+
+    const timer = setTimeout(() => {
+      const alreadyDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
+      if (!alreadyDismissed) {
+        setIsInstallModalOpen(true);
+      }
+    }, 4000);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('open-pwa-install-modal', handleOpenPwaModal);
+      clearTimeout(timer);
+    };
+  }, []);
   
   const [now, setNow] = useState(new Date());
   const isInitialLoad = useRef(true);
@@ -326,6 +367,15 @@ const App: React.FC = () => {
           setAppState('subscription');
         }} 
       />
+      <InstallAppModal 
+        isOpen={isInstallModalOpen}
+        onClose={() => {
+          setIsInstallModalOpen(false);
+          sessionStorage.setItem('pwa_install_dismissed', 'true');
+        }}
+        deferredPrompt={deferredPrompt}
+        setDeferredPrompt={setDeferredPrompt}
+      />
       {appState === 'splash' ? <SplashScreen t={t} /> : null}
       {appState === 'language-gate' && <LanguageGate onSelect={(lang) => { setSystemLang(lang); setAppState('landing'); }} />}
       {appState === 'landing' && (
@@ -362,6 +412,7 @@ const App: React.FC = () => {
       {appState === 'about-atrioswork' && <AboutAtriosWorkPage onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} />}
       
       {user.id && <PublicSupportChat />}
+      {user.id && <PushNotificationManager user={user} />}
 
       {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">

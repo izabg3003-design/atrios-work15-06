@@ -76,3 +76,51 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// Suporte para Receber Notificações Push Locais ou de Servidor
+self.addEventListener('push', (event) => {
+  let data = { title: 'AtriosWork', body: 'Nova notificação do sistema!' };
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      data = { title: 'AtriosWork', body: event.data.text() };
+    }
+  }
+
+  const options = {
+    body: data.body,
+    icon: '/logo_atualizado.jpg?v=20260314_v1',
+    badge: '/logo_atualizado.jpg?v=20260314_v1',
+    vibrate: [200, 100, 200],
+    data: data.url || '/',
+    actions: [
+      { action: 'open', title: 'Ver App' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
+});
+
+// Lidar com o toque ou clique na notificação push
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Se já tiver uma aba aberta, faz o focus nela
+      for (const client of clientList) {
+        if (client.url.includes(targetUrl) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Se não, abre uma nova janela
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
