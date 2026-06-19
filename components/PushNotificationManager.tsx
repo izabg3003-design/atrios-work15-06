@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Sparkles, Megaphone } from 'lucide-react';
 import { UserProfile } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, parseDbBanner } from '../lib/supabase';
 
 interface Props {
   user: UserProfile;
@@ -86,7 +86,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
         if (!error && data && data.length > 0) {
           // Filtrar por banners marcados como push ou com tag "[PUSH]" no título
-          const pushes = data.filter(b => 
+          const pushes = data.map(parseDbBanner).filter(b => 
             b.user_type === 'push_notification' || 
             b.title.toUpperCase().includes('[PUSH]') || 
             b.highlight?.toUpperCase()?.includes('[PUSH]')

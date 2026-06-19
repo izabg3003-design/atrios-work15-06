@@ -4,7 +4,7 @@ import { format, endOfMonth, eachDayOfInterval, isToday, addMonths, subMonths, i
 import { pt, enUS, es, fr, de, it, ru, uk, zhCN, ja, hi } from 'date-fns/locale';
 import { ChevronLeft, ChevronRight, Save, Clock, AlertCircle, Coffee, TrendingUp, MapPin, Wallet, MessageSquare, Loader2, CheckCircle2, RefreshCw, Zap, ShieldAlert, Headphones, Activity, X, Megaphone, Trash2 } from 'lucide-react';
 import { UserProfile, WorkRecord, AppBanner } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, parseDbBanner } from '../lib/supabase';
 
 interface Props {
   user: UserProfile;
@@ -66,7 +66,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
         if (!error && data && data.length > 0) {
           // Filtrar banners por tipo de usuário
           const targetType = isPro ? 'premium' : 'free';
-          const filteredBanners = data.filter(b => b.user_type === 'all' || b.user_type === targetType);
+          const filteredBanners = data.map(parseDbBanner).filter(b => b.user_type === 'all' || b.user_type === targetType);
           
           if (filteredBanners.length > 0) {
             // Pega o banner mais recente para este tipo de usuário

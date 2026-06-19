@@ -1,5 +1,6 @@
 
 import { createClient } from '@supabase/supabase-js';
+import { AppBanner } from '../types';
 
 // Credenciais reais da AtriosWork fornecidas pelo usuário
 const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
@@ -43,3 +44,31 @@ export const supabase = isConfigured
         });
       }
     }) as any);
+
+export const parseDbBanner = (dbBanner: any): AppBanner => {
+  if (!dbBanner) return dbBanner;
+  let user_type: AppBanner['user_type'] = 'all';
+  let cta_link = dbBanner.cta_link || '';
+
+  if (cta_link.includes('||user_type:')) {
+    const parts = cta_link.split('||user_type:');
+    cta_link = parts[0];
+    user_type = parts[1] as any;
+  }
+
+  return {
+    ...dbBanner,
+    cta_link,
+    user_type
+  };
+};
+
+export const prepareBannerForDb = (banner: Partial<AppBanner>): any => {
+  if (!banner) return banner;
+  const { user_type, cta_link, ...rest } = banner;
+  return {
+    ...rest,
+    cta_link: `${cta_link || ''}||user_type:${user_type || 'all'}`
+  };
+};
+

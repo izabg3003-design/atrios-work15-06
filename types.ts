@@ -15,7 +15,7 @@ export interface AppBanner {
   image_url?: string;
   theme_color: 'emerald' | 'purple' | 'amber' | 'rose' | 'blue';
   is_active: boolean;
-  user_type: 'all' | 'free' | 'premium' | 'public';
+  user_type: 'all' | 'free' | 'premium' | 'public' | 'push_notification';
   created_at?: string;
 }
 

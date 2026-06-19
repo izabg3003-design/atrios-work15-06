@@ -7,7 +7,7 @@ import {
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
 } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, parseDbBanner, prepareBannerForDb } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -127,7 +127,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           setBanners([]);
           setShowSqlHelp(true);
         } else {
-          setBanners(data || []);
+          setBanners((data || []).map(parseDbBanner));
         }
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
@@ -286,7 +286,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     
     setIsCreating(true);
     try {
-      const bannerData = {
+      const bannerData: Partial<AppBanner> = {
         title: newBanner.title || 'Sem Título',
         highlight: newBanner.highlight || '',
         subtitle: newBanner.subtitle || '',
@@ -298,7 +298,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         image_url: newBanner.image_url || null
       };
       
-      const { error } = await supabase.from('app_banners').insert([bannerData]);
+      const { error } = await supabase.from('app_banners').insert([prepareBannerForDb(bannerData)]);
       if (error) throw error;
       
       setShowAddBanner(false);
@@ -322,7 +322,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     setPushSendResult(null);
     try {
       // Marcamos o banner como [PUSH] no título ou colocamos o tipo 'push_notification'
-      const pushRecord = {
+      const pushRecord: Partial<AppBanner> = {
         title: `[PUSH] ${newPushTitle.trim()}`,
         highlight: newPushBody.trim(),
         subtitle: 'Notificação AtriosWork Push',
@@ -334,7 +334,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         image_url: null
       };
 
-      const { error } = await supabase.from('app_banners').insert([pushRecord]);
+      const { error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]);
       if (error) throw error;
 
       setNewPushTitle('');
