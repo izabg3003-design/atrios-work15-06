@@ -93,28 +93,45 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           );
 
           if (pushes.length > 0) {
+            const hasStoredPushes = localStorage.getItem('shown_push_notifications') !== null;
             const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
             const shownPushes: string[] = JSON.parse(shownPushesRaw);
             
-            // Encontrar o push mais recente que ainda não foi mostrado
-            const freshPush = pushes.find(p => !shownPushes.includes(p.id));
+            if (!hasStoredPushes) {
+              // Primeira verificação nesta máquina/sessão: guardamos todos os IDs históricos ativos
+              // para não disparar dezenas de popups do passado ao mesmo tempo de uma só vez (Anti-Spam).
+              const allActiveIds = pushes.map(p => p.id);
+              localStorage.setItem('shown_push_notifications', JSON.stringify(allActiveIds));
+              return;
+            }
+
+            // Filtrar todos os pushes frescos que ainda não foram exibidos
+            const freshPushes = pushes.filter(p => !shownPushes.includes(p.id));
             
-            if (freshPush) {
-              const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
-              const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
+            if (freshPushes.length > 0) {
+              // Inverter para mostrar em ordem cronológica (do mais antigo pro mais recente)
+              const sortedFresh = [...freshPushes].reverse();
               
-              // 1. Mostrar Notificação Nativa Push
-              triggerNativePush(cleanTitle, cleanBody);
-              
-              // 2. Mostrar Alerta Visual no App
-              setNewPushAlert({
-                id: freshPush.id,
-                title: cleanTitle,
-                subtitle: cleanBody
+              sortedFresh.forEach((freshPush, idx) => {
+                const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
+                const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
+                
+                // 1. Mostrar Notificação Nativa Push (com tag única baseada no ID do registro para não colapsar)
+                triggerNativePush(cleanTitle, cleanBody, freshPush.id);
+                
+                // 2. Mostrar Alerta Visual no App (atualiza o state principal com a mais recente)
+                if (idx === sortedFresh.length - 1) {
+                  setNewPushAlert({
+                    id: freshPush.id,
+                    title: cleanTitle,
+                    subtitle: cleanBody
+                  });
+                }
+                
+                // 3. Registar como mostrado
+                shownPushes.push(freshPush.id);
               });
 
-              // 3. Registar como mostrado
-              shownPushes.push(freshPush.id);
               localStorage.setItem('shown_push_notifications', JSON.stringify(shownPushes));
             }
           }
@@ -124,9 +141,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       }
     };
 
-    // Verificar imediatamente e depois a cada 30 segundos
+    // Verificar imediatamente e depois a cada 15 segundos (mais rápido para melhor feedback do admin)
     checkBroadcastNotifications();
-    const interval = setInterval(checkBroadcastNotifications, 30000);
+    const interval = setInterval(checkBroadcastNotifications, 15000);
     return () => clearInterval(interval);
   }, [user.id]);
 
@@ -162,7 +179,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   }, [user.id, user.subscription]);
 
   // Função auxiliar para disparar notificação nativa do browser em PWA
-  const triggerNativePush = (title: string, body: string) => {
+  const triggerNativePush = (title: string, body: string, notificationId?: string) => {
     if (!('Notification' in window)) return;
     
     if (Notification.permission === 'granted') {
@@ -174,7 +191,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             icon: '/logo_atualizado.jpg?v=20260314_v1',
             badge: '/logo_atualizado.jpg?v=20260314_v1',
             vibrate: [200, 100, 200],
-            tag: 'atrioswork-alert'
+            tag: notificationId ? `atrioswork-alert-${notificationId}` : undefined
           } as any);
         }).catch(() => {
           // Fallback para Notificação normal de janela
@@ -229,47 +246,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
   return (
     <>
-      {/* 1. Banner para Instalar PWA (Baixar Aplicativo) */}
-      {showInstallBanner && isReadyToInstall && (
-        <div className="fixed bottom-24 left-4 right-4 md:left-auto md:right-10 z-[2900] max-w-sm w-full bg-slate-900/95 backdrop-blur-xl border border-emerald-500/30 p-6 rounded-[2.5rem] shadow-[0_20px_50px_rgba(16,185,129,0.2)] animate-[slideUp_0.5s_ease-out] flex flex-col gap-4">
-          <button 
-            onClick={dismissInstallPrompt}
-            className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-          
-          <div className="flex gap-4">
-            <div className="w-12 h-12 bg-emerald-500/20 rounded-2xl flex items-center justify-center shrink-0 border border-emerald-500/30 text-emerald-400">
-              <Download className="w-6 h-6 animate-bounce" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-1.5">
-                Baixar Aplicativo <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-              </h4>
-              <p className="text-[10px] text-slate-400 leading-normal font-bold uppercase">
-                Instale o AtriosWork no seu ecrã inicial para acesso rápido aos registos e uso offline completo.
-              </p>
-            </div>
-          </div>
-          
-          <div className="flex gap-2">
-            <button
-              onClick={dismissInstallPrompt}
-              className="flex-1 py-3 bg-slate-950 text-slate-400 hover:text-white font-black text-[9px] uppercase tracking-wider rounded-2xl transition-all border border-slate-800"
-            >
-              Agora Não
-            </button>
-            <button
-              onClick={installApp}
-              className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-500/10 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
-            >
-              <Smartphone className="w-3.5 h-3.5" /> Descarregar App
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* 2. Banner de Autorização do Push Notification */}
       {showPermissionBanner && notificationPermission === 'default' && (
         <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-10 z-[2800] max-w-sm w-full bg-slate-900/95 backdrop-blur-xl border border-blue-500/30 p-6 rounded-[2.5rem] shadow-[0_20px_50px_rgba(59,130,246,0.2)] animate-[slideUp_0.5s_ease-out] flex flex-col gap-4">

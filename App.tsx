@@ -143,7 +143,7 @@ const App: React.FC = () => {
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      setIsInstallModalOpen(true);
+      // Guardamos o prompt para instalação manual via click/settings, sem abrir o modal intrusivo automaticamente.
     };
 
     const handleOpenPwaModal = () => {
@@ -153,19 +153,23 @@ const App: React.FC = () => {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('open-pwa-install-modal', handleOpenPwaModal);
 
-    const timer = setTimeout(() => {
-      const alreadyDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
-      if (!alreadyDismissed) {
-        setIsInstallModalOpen(true);
-      }
-    }, 4000);
+    // Agenda o modal automático do PWA após 8s apenas se o utilizador estiver autenticado
+    let timer: NodeJS.Timeout | undefined;
+    if (user.id) {
+      timer = setTimeout(() => {
+        const alreadyDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
+        if (!alreadyDismissed) {
+          setIsInstallModalOpen(true);
+        }
+      }, 8000);
+    }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('open-pwa-install-modal', handleOpenPwaModal);
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [user.id]);
   
   const [now, setNow] = useState(new Date());
   const isInitialLoad = useRef(true);
