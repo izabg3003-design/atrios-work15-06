@@ -415,8 +415,8 @@ const App: React.FC = () => {
       )}
       {appState === 'about-atrioswork' && <AboutAtriosWorkPage onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} />}
       
-      {user.id && <PublicSupportChat />}
-      {user.id && <PushNotificationManager user={user} />}
+      {!PUBLIC_STATES.includes(appState) && user.id && <PublicSupportChat />}
+      {!PUBLIC_STATES.includes(appState) && user.id && <PushNotificationManager user={user} />}
 
       {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">

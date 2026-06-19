@@ -27,6 +27,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   
   // 1. Detectar suporte a PWA e evento de instalação
   useEffect(() => {
+    let installBannerTimer: NodeJS.Timeout | undefined;
+    let permissionBannerTimer: NodeJS.Timeout | undefined;
+
     // Verificar se já está a correr como PWA Standalone
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
                           (window.navigator as any).standalone === true;
@@ -44,30 +47,35 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       const isDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
       if (!isDismissed && !isStandalone) {
         // Delay ligeiro para não atrapalhar o login/splash
-        setTimeout(() => setShowInstallBanner(true), 3000);
+        installBannerTimer = setTimeout(() => setShowInstallBanner(true), 3000);
       }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     
-    window.addEventListener('appinstalled', () => {
+    const handleAppInstalled = () => {
       setIsInstalled(true);
       setIsReadyToInstall(false);
       setShowInstallBanner(false);
       triggerNativePush('AtriosWork Instalado!', 'Obrigado por instalar o aplicativo. Agora já pode registar horas diretamente do seu ecrã inicial.');
-    });
+    };
+
+    window.addEventListener('appinstalled', handleAppInstalled);
 
     // Diagnosticar permissão de notificações atual
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
       if (Notification.permission === 'default' && user.id) {
         // Mostrar sugestão de push após 5 segundos logado
-        setTimeout(() => setShowPermissionBanner(true), 5000);
+        permissionBannerTimer = setTimeout(() => setShowPermissionBanner(true), 5000);
       }
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+      if (installBannerTimer) clearTimeout(installBannerTimer);
+      if (permissionBannerTimer) clearTimeout(permissionBannerTimer);
     };
   }, [user.id]);
 

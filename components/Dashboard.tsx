@@ -55,6 +55,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
   const currentLocale = localesMap[lang] || pt;
 
   useEffect(() => {
+    let timer: NodeJS.Timeout | undefined;
     const fetchPostLoginBanner = async () => {
       try {
         const { data, error } = await supabase
@@ -78,8 +79,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
             setBannerData(filteredBanners[0]);
             
             // Mostrar após 800ms de entrar no dashboard
-            const timer = setTimeout(() => setShowPostLoginBanner(true), 800);
-            return () => clearTimeout(timer);
+            timer = setTimeout(() => setShowPostLoginBanner(true), 800);
           }
         }
       } catch (e) {
@@ -88,6 +88,9 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
     };
 
     fetchPostLoginBanner();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
   const daysRemaining = useMemo(() => {
