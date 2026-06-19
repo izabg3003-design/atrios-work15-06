@@ -64,9 +64,14 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
           .order('created_at', { ascending: false });
 
         if (!error && data && data.length > 0) {
-          // Filtrar banners por tipo de usuário
+          // Filtrar banners de login normais por tipo de usuário, descartando push notifications
           const targetType = isPro ? 'premium' : 'free';
-          const filteredBanners = data.map(parseDbBanner).filter(b => b.user_type === 'all' || b.user_type === targetType);
+          const filteredBanners = data.map(parseDbBanner).filter(b => {
+            const isPush = b.user_type === 'push_notification' || 
+                           b.title.toUpperCase().includes('[PUSH]') || 
+                           b.highlight?.toUpperCase()?.includes('[PUSH]');
+            return !isPush && (b.user_type === 'all' || b.user_type === targetType);
+          });
           
           if (filteredBanners.length > 0) {
             // Pega o banner mais recente para este tipo de usuário

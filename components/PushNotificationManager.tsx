@@ -71,11 +71,79 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     };
   }, [user.id]);
 
-  // 2. Poll/Escutar por Novas Notificações (Broadcasts do Admin no app_banners com tipo push)
+  // Auxiliares de sincronização de configurações com o cache partilhado do Service Worker
+  const saveToConfigCache = async (key: string, data: any) => {
+    if (!('caches' in window)) return;
+    try {
+      const cache = await caches.open('atrioswork-config-v1');
+      const response = new Response(JSON.stringify(data), {
+        headers: { 'Content-Type': 'application/json' }
+      });
+      await cache.put(new Request(`https://local-config/${key}`), response);
+    } catch (err) {
+      console.warn('Erro ao guardar config no CacheStorage:', err);
+    }
+  };
+
+  const markPushAsShown = async (pushId: string, currentShown: string[]) => {
+    if (!currentShown.includes(pushId)) {
+      currentShown.push(pushId);
+    }
+    localStorage.setItem('shown_push_notifications', JSON.stringify(currentShown));
+    await saveToConfigCache('shown_push_ids', currentShown);
+  };
+
+  // Guardar credenciais do Supabase e estado de subscrição ativas no CacheStorage para o Service Worker
+  useEffect(() => {
+    if (user.id) {
+      const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
+      saveToConfigCache('config', {
+        supabaseUrl: 'https://zuawenhgajcciefbwear.supabase.co',
+        supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8',
+        userId: user.id,
+        isPro: !!isPro
+      });
+
+      // Sincronizar IDs já exibidos do localStorage ao montar/atualizar
+      const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
+      try {
+        const shownPushes = JSON.parse(shownPushesRaw);
+        saveToConfigCache('shown_push_ids', shownPushes);
+      } catch (e) {}
+    }
+  }, [user.id, user.subscription]);
+
+  // Registar Periodic Background Sync no Service Worker para receber notificações mesmo com o app totalmente fechado
+  useEffect(() => {
+    if ('serviceWorker' in navigator && user.id) {
+      navigator.serviceWorker.ready.then(async (registration) => {
+        // Registar o Periodic Sync para checar em segundo plano / ecrã bloqueado
+        if ('periodicSync' in registration) {
+          try {
+            await (registration as any).periodicSync.register('check-new-pushes', {
+              minInterval: 15 * 60 * 1000, // A cada 15 minutos (mínimo exigido pelos sistemas operativos/browsers)
+            });
+            console.log('[AtriosWork PWA] Periodic Background Sync registado.');
+          } catch (err) {
+            console.warn('[AtriosWork PWA] Periodic Sync indisponível (requer app instalado na homescreen):', err);
+          }
+        }
+
+        // Trigger extra de navegação por Background Sync comum
+        if ('sync' in registration) {
+          try {
+            await (registration as any).sync.register('check-new-pushes');
+          } catch (e) {}
+        }
+      });
+    }
+  }, [user.id]);
+
+  // 2. Escuta ativa e Polling para novas notificações (Instantâneo em Tempo Real usando canais Postgres e backup de Polling a cada 15s)
   useEffect(() => {
     if (!user.id) return;
 
-    // Função de verificação
+    // Função de verificação (Backup & Polling)
     const checkBroadcastNotifications = async () => {
       try {
         const { data, error } = await supabase
@@ -98,10 +166,10 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             const shownPushes: string[] = JSON.parse(shownPushesRaw);
             
             if (!hasStoredPushes) {
-              // Primeira verificação nesta máquina/sessão: guardamos todos os IDs históricos ativos
-              // para não disparar dezenas de popups do passado ao mesmo tempo de uma só vez (Anti-Spam).
+              // Primeira verificação histórica nesta máquina/sessão: registar histórico antigo para evitar spam de popups
               const allActiveIds = pushes.map(p => p.id);
               localStorage.setItem('shown_push_notifications', JSON.stringify(allActiveIds));
+              await saveToConfigCache('shown_push_ids', allActiveIds);
               return;
             }
 
@@ -112,7 +180,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               // Inverter para mostrar em ordem cronológica (do mais antigo pro mais recente)
               const sortedFresh = [...freshPushes].reverse();
               
-              sortedFresh.forEach((freshPush, idx) => {
+              for (const freshPush of sortedFresh) {
                 const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
                 const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
                 
@@ -120,19 +188,15 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
                 triggerNativePush(cleanTitle, cleanBody, freshPush.id);
                 
                 // 2. Mostrar Alerta Visual no App (atualiza o state principal com a mais recente)
-                if (idx === sortedFresh.length - 1) {
-                  setNewPushAlert({
-                    id: freshPush.id,
-                    title: cleanTitle,
-                    subtitle: cleanBody
-                  });
-                }
+                setNewPushAlert({
+                  id: freshPush.id,
+                  title: cleanTitle,
+                  subtitle: cleanBody
+                });
                 
-                // 3. Registar como mostrado
-                shownPushes.push(freshPush.id);
-              });
-
-              localStorage.setItem('shown_push_notifications', JSON.stringify(shownPushes));
+                // 3. Registar como mostrado em ambos caches
+                await markPushAsShown(freshPush.id, shownPushes);
+              }
             }
           }
         }
@@ -141,11 +205,62 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       }
     };
 
-    // Verificar imediatamente e depois a cada 15 segundos (mais rápido para melhor feedback do admin)
+    // Verificar imediatamente e depois a cada 15 segundos (Backup)
     checkBroadcastNotifications();
     const interval = setInterval(checkBroadcastNotifications, 15000);
-    return () => clearInterval(interval);
-  }, [user.id]);
+
+    // INSCREVER EM EVENTOS EM TEMPO REAL IMEDIATO DA TABELA APP_BANNERS (Sub-segundo)
+    const channel = supabase
+      .channel('public:app_banners_push_instant')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'app_banners' },
+        async (payload) => {
+          try {
+            const newBanner = parseDbBanner(payload.new);
+            if (newBanner && newBanner.is_active) {
+              const isPush = newBanner.user_type === 'push_notification' || 
+                             newBanner.title.toUpperCase().includes('[PUSH]') || 
+                             newBanner.highlight?.toUpperCase()?.includes('[PUSH]');
+              
+              if (isPush) {
+                // Verificar compatibilidade de audiência (premium vs free vs público)
+                const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
+                const targetType = isPro ? 'premium' : 'free';
+                const isAudienceMatch = newBanner.user_type === 'all' || newBanner.user_type === targetType || newBanner.user_type === 'push_notification';
+                
+                if (isAudienceMatch) {
+                  const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
+                  const shownPushes: string[] = JSON.parse(shownPushesRaw);
+                  
+                  if (!shownPushes.includes(newBanner.id)) {
+                    const cleanTitle = newBanner.title.replace('[PUSH]', '').replace('[push]', '').trim();
+                    const cleanBody = `${newBanner.highlight || ''} ${newBanner.subtitle || ''}`.trim();
+                    
+                    triggerNativePush(cleanTitle, cleanBody, newBanner.id);
+                    setNewPushAlert({
+                      id: newBanner.id,
+                      title: cleanTitle,
+                      subtitle: cleanBody
+                    });
+                    
+                    await markPushAsShown(newBanner.id, shownPushes);
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            console.warn('Erro ao receber push em tempo real:', e);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(interval);
+      supabase.removeChannel(channel);
+    };
+  }, [user.id, user.subscription]);
 
   // 3. Verificar Expiração da Assinatura (Aviso prévio de expiração)
   useEffect(() => {

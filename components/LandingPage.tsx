@@ -30,7 +30,12 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
       try {
         const { data, error } = await supabase.from('app_banners').select('*').eq('is_active', true).order('created_at', { ascending: false });
         if (!error && data && data.length > 0) {
-          const publicBanners = data.map(parseDbBanner).filter(b => b.user_type === 'public');
+          const publicBanners = data.map(parseDbBanner).filter(b => {
+            const isPush = b.user_type === 'push_notification' || 
+                           b.title.toUpperCase().includes('[PUSH]') || 
+                           b.highlight?.toUpperCase()?.includes('[PUSH]');
+            return !isPush && b.user_type === 'public';
+          });
           if (publicBanners.length > 0) {
             setActiveBanners(publicBanners);
             setTimeout(() => setShowBannerOverlay(true), 1500);
