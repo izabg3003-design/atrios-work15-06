@@ -247,6 +247,81 @@ function saveSubscriptions(subs: PushSubscriptionContainer[]) {
   }
 }
 
+// -----------------------------------------------------------------------------
+// HISTÓRICO LOCAL FÍSICO DE NOTIFICAÇÕES ENVIADAS
+// -----------------------------------------------------------------------------
+interface PushHistoryEntry {
+  id: string;
+  title: string;
+  body: string;
+  userType: string;
+  sentAt: string;
+  devicesNotified: number;
+}
+
+const HISTORY_FILE = path.join(__dirname, 'push_history.json');
+
+function loadPushHistory(): PushHistoryEntry[] {
+  if (!fs.existsSync(HISTORY_FILE)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(HISTORY_FILE, 'utf-8'));
+  } catch (e) {
+    return [];
+  }
+}
+
+function savePushHistory(history: PushHistoryEntry[]) {
+  try {
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 2), 'utf-8');
+  } catch (err) {
+    console.error('[Push Server] Erro ao salvar histórico local de push:', err);
+  }
+}
+
+async function getUnifiedPushHistory(): Promise<PushHistoryEntry[]> {
+  const localHistory = loadPushHistory();
+  
+  // Se estiver vazia localmente, vamos ver se conseguimos recuperar algo de Supabase para manter tudo completo!
+  if (localHistory.length === 0) {
+    try {
+      const fetchUrl = `${supabaseUrl}/rest/v1/app_banners?select=*`;
+      const response = await fetch(fetchUrl, {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`
+        }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        const records = (data || []).filter((r: any) => r.title && r.title.startsWith('[PUSH]'));
+        const restored: PushHistoryEntry[] = records.map((r: any) => {
+          let userType = 'all';
+          let cta_link = r.cta_link || '';
+          if (cta_link.includes('||user_type:')) {
+            userType = cta_link.split('||user_type:')[1] || 'all';
+          }
+          return {
+            id: r.id?.toString() || `restored_${Date.now()}_${Math.random()}`,
+            title: r.title.replace('[PUSH]', '').trim(),
+            body: r.highlight || '',
+            userType: userType,
+            sentAt: r.created_at || new Date().toISOString(),
+            devicesNotified: 1
+          };
+        });
+        if (restored.length > 0) {
+          // Salvar localmente para cachear e unificar
+          savePushHistory(restored);
+          return restored;
+        }
+      }
+    } catch (e) {
+      console.warn('[Push Server] Erro ao carregar histórico legado de Supabase:', e);
+    }
+  }
+  return localHistory;
+}
+
 function loadSentBannerIds(): string[] {
   if (!fs.existsSync(SENT_IDS_FILE)) return [];
   try {
@@ -340,17 +415,61 @@ async function startServer() {
     }
 
     const totalSent = await deliverPushToDevices({ title, body, bannerId, userType });
+
+    // Salvar no histórico físico de envio local para carregamento garantido
+    try {
+      const history = loadPushHistory();
+      history.push({
+        id: `push_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        title,
+        body,
+        userType: userType || 'all',
+        sentAt: new Date().toISOString(),
+        devicesNotified: totalSent
+      });
+      savePushHistory(history);
+    } catch (err) {
+      console.error('[Push Server] Erro ao gravar entrada no array de histórico local:', err);
+    }
+
     res.json({ success: true, totalDevicesNotified: totalSent });
+  });
+
+  // API 5: Histórico de Notificações Enviadas (Evita flutuações e erros de RLS do Supabase)
+  app.get('/api/push/history', async (req, res) => {
+    try {
+      const history = await getUnifiedPushHistory();
+      res.json({ success: true, history: [...history].reverse() });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Erro ao unificar histórico' });
+    }
   });
 
   // FUNÇÃO DE ENVIO FÍSICO COM AUTO-PRUNING SE REJEITADO (Status 410 / 404 por FCM/APNS)
   async function deliverPushToDevices(payload: { title: string; body: string; bannerId?: string; userType?: string }) {
     const { title, body, bannerId, userType } = payload;
     
-    // Obter toda a lista unificada de dispositivos registrados do Supabase (Survive restarts!)
-    const subs = await fetchSubscriptionsFromSupabase();
+    // Obter toda a lista unificada de dispositivos registrados de Supabase E cache local (Resiliência Máxima contra RLS!)
+    const dbSubs = await fetchSubscriptionsFromSupabase();
+    const localSubs = loadSubscriptions();
+
+    // Fusão inteligente por Endpoint Único para evitar duplicações
+    const subsMap = new Map<string, PushSubscriptionContainer>();
+    for (const sub of dbSubs) {
+      if (sub && sub.subscription && sub.subscription.endpoint) {
+        subsMap.set(sub.subscription.endpoint, sub);
+      }
+    }
+    for (const sub of localSubs) {
+      if (sub && sub.subscription && sub.subscription.endpoint) {
+        subsMap.set(sub.subscription.endpoint, sub);
+      }
+    }
+
+    const subs = Array.from(subsMap.values());
+
     if (subs.length === 0) {
-      console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados.');
+      console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados ou localmente.');
       return 0;
     }
 
