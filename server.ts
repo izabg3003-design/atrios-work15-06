@@ -174,7 +174,7 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
 
 async function deleteSubscriptionFromSupabase(endpoint: string) {
   try {
-    const deleteUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}&title=like.%5BDEVICE_SUB%5D%25`;
+    const deleteUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}`;
     await fetch(deleteUrl, {
       method: 'DELETE',
       headers: {
@@ -190,7 +190,7 @@ async function deleteSubscriptionFromSupabase(endpoint: string) {
 
 async function fetchSubscriptionsFromSupabase(): Promise<PushSubscriptionContainer[]> {
   try {
-    const fetchUrl = `${supabaseUrl}/rest/v1/app_banners?title=like.%5BDEVICE_SUB%5D%25`;
+    const fetchUrl = `${supabaseUrl}/rest/v1/app_banners?select=*`;
     const response = await fetch(fetchUrl, {
       headers: {
         'apikey': supabaseKey,
@@ -199,7 +199,8 @@ async function fetchSubscriptionsFromSupabase(): Promise<PushSubscriptionContain
     });
 
     if (response.ok) {
-      const records = await response.json();
+      const allRecords = await response.json();
+      const records = (allRecords || []).filter((r: any) => r.title && r.title.startsWith('[DEVICE_SUB]'));
       const subs: PushSubscriptionContainer[] = [];
       
       for (const record of records) {
@@ -479,7 +480,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`[PWA Server] AtriosWork central a correr em http://localhost:${PORT}`);
+    console.log(`[PWA Server] Send Push central a correr em http://localhost:${PORT}`);
   });
 }
 

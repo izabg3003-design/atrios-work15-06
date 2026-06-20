@@ -1,6 +1,6 @@
 {
-  "name": "AtriosWork",
-  "short_name": "AtriosWork",
+  "name": "Send Push",
+  "short_name": "Send Push",
   "description": "Software Profissional de Controlo de Horas e Gestão de Assiduidade em Portugal.",
   "start_url": "/",
   "display": "standalone",

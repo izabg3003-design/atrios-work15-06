@@ -85,12 +85,12 @@ self.addEventListener('fetch', (event) => {
 
 // Suporte para Receber Notificações Push Locais ou de Servidor (Push API nativo)
 self.addEventListener('push', (event) => {
-  let data = { title: 'AtriosWork', body: 'Nova notificação do sistema!' };
+  let data = { title: 'Send Push', body: 'Nova notificação do sistema!' };
   if (event.data) {
     try {
       data = event.data.json();
     } catch (e) {
-      data = { title: 'AtriosWork', body: event.data.text() };
+      data = { title: 'Send Push', body: event.data.text() };
     }
   }
 
@@ -235,7 +235,7 @@ async function checkNewPushesInBackground() {
           icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
           badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
           vibrate: [200, 100, 200],
-          tag: `atrioswork-alert-${freshPush.id}`,
+          tag: `sendpush-alert-${freshPush.id}`,
           data: '/'
         });
 

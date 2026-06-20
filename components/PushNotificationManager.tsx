@@ -68,7 +68,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       setIsInstalled(true);
       setIsReadyToInstall(false);
       setShowInstallBanner(false);
-      triggerNativePush('AtriosWork Instalado!', 'Obrigado por instalar o aplicativo. Agora já pode registar horas diretamente do seu ecrã inicial.');
+      triggerNativePush('Send Push Instalado!', 'Obrigado por instalar o aplicativo. Agora já pode receber notificações push em tempo real diretamente do seu ecrã inicial.');
     };
 
     window.addEventListener('appinstalled', handleAppInstalled);
@@ -324,7 +324,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           if (!alreadyWarned) {
             triggerNativePush(
               '⚠️ Assinatura Prestes a Expirar!',
-              `A sua assinatura AtriosWork Pro expira em ${diffDays} ${diffDays === 1 ? 'dia' : 'dias'}. Renove para evitar interrupções.`
+              `A sua assinatura Send Push Pro expira em ${diffDays} ${diffDays === 1 ? 'dia' : 'dias'}. Renove para evitar interrupções.`
             );
             localStorage.setItem(warningKey, 'true');
           }
@@ -548,7 +548,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               <Megaphone className="w-5 h-5 animate-bounce" />
             </div>
             <div className="space-y-1 min-w-0 flex-1">
-              <h5 className="text-[10px] uppercase tracking-[0.2em] font-black text-amber-400">Notificação AtriosWork</h5>
+              <h5 className="text-[10px] uppercase tracking-[0.2em] font-black text-amber-400">Notificação Send Push</h5>
               <h4 className="text-xs font-black text-white truncate uppercase tracking-widest">{newPushAlert.title}</h4>
               <p className="text-[10px] font-medium text-slate-400 leading-normal">{newPushAlert.subtitle}</p>
             </div>

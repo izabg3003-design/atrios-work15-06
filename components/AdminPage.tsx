@@ -339,8 +339,9 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       if (error) throw error;
 
       // Chamar também o endpoint Express para disparo físico instantâneo Web Push (VAPID)
+      let devicesCount = 0;
       try {
-        await fetch('/api/push/send-broadcast', {
+        const pushResponse = await fetch('/api/push/send-broadcast', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
@@ -351,16 +352,28 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
           })
         });
+        if (pushResponse.ok) {
+          const pushResponseData = await pushResponse.json();
+          devicesCount = pushResponseData.totalDevicesNotified || 0;
+        }
       } catch (pushErr) {
         console.warn('Erro ao disparar direto por API VAPID, fallback de DB síncrono ativo:', pushErr);
       }
 
       setNewPushTitle('');
       setNewPushBody('');
-      setPushSendResult({
-        success: true,
-        msg: 'Notificação Push transmitida com sucesso! Todos os dispositivos e PWAs ativos serão notificados de imediato.'
-      });
+      
+      if (devicesCount > 0) {
+        setPushSendResult({
+          success: true,
+          msg: `Notificação Push transmitida com sucesso para os dispositivos PWA activos (${devicesCount} aparelhos notificados em tempo real de imediato!).`
+        });
+      } else {
+        setPushSendResult({
+          success: true,
+          msg: 'Notificação Push gravada com sucesso! Nota: Atualmente há 0 dispositivos com assinatura válida receptora ativa. Para testar e receber, certifique-se de que autorizou as notificações no banner azul do ecrã principal e que está com o PWA instalado!'
+        });
+      }
       fetchData();
     } catch (err: any) {
       setPushSendResult({
