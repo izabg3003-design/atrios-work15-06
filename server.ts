@@ -95,9 +95,8 @@ async function initVapidKeys() {
         highlight: vapidKeys.publicKey,
         subtitle: vapidKeys.privateKey,
         cta_text: 'system',
-        cta_link: 'system',
+        cta_link: 'system||user_type:push_notification',
         theme_color: 'emerald',
-        user_type: 'push_notification',
         is_active: false
       })
     });
@@ -136,9 +135,8 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
       highlight: endpoint,
       subtitle: JSON.stringify(container.subscription),
       cta_text: container.userId || 'anonymous',
-      cta_link: container.isPro ? 'premium' : 'free',
+      cta_link: `${container.isPro ? 'premium' : 'free'}||user_type:push_notification`,
       theme_color: 'purple',
-      user_type: 'push_notification',
       is_active: false
     };
 
@@ -207,11 +205,15 @@ async function fetchSubscriptionsFromSupabase(): Promise<PushSubscriptionContain
       for (const record of records) {
         try {
           const subscription = JSON.parse(record.subtitle);
+          let cta_link = record.cta_link || '';
+          if (cta_link.includes('||user_type:')) {
+            cta_link = cta_link.split('||user_type:')[0];
+          }
           subs.push({
             id: record.title.replace('[DEVICE_SUB]_', ''),
             subscription,
             userId: record.cta_text || 'anonymous',
-            isPro: record.cta_link === 'premium',
+            isPro: cta_link === 'premium',
             updatedAt: record.created_at || new Date().toISOString()
           });
         } catch (e) {

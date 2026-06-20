@@ -342,13 +342,22 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     try {
       const reg = await navigator.serviceWorker.ready;
       
-      // Obter configuração de chave pública (VAPID) do servidor Express
-      const keyResp = await fetch('/api/push/public-key');
-      if (!keyResp.ok) throw new Error('Não foi possível obter a chave VAPID pública do servidor');
-      const { publicKey } = await keyResp.json();
+      // Obter configuração de chave pública (VAPID) do servidor Express com um fallback estático robusto
+      let publicKey = 'BLR0Tcrj0UCGeZu48tn_ek6ueRPxVh4EmzpeA7wLgp0uvp4jASyVTiuScsGiMVJDalT_QFsV4uSWfY0lONhZ7x4';
+      try {
+        const keyResp = await fetch('/api/push/public-key');
+        if (keyResp.ok) {
+          const keyData = await keyResp.json();
+          if (keyData.publicKey) {
+            publicKey = keyData.publicKey;
+          }
+        }
+      } catch (err) {
+        console.warn('[Push Manager] Falha ao ir obter VAPID do backend, servindo fallback estático de segurança:', err);
+      }
       
       if (!publicKey) {
-        console.warn('[Push Manager] Chave pública VAPID vazia do backend.');
+        console.warn('[Push Manager] Chave pública VAPID vazia.');
         return;
       }
 
