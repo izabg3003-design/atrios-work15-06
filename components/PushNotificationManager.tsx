@@ -179,6 +179,17 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         }
       });
     }
+
+    const handleForceResubscribe = () => {
+      console.log('[AtriosWork PWA] Forçando re-subscrição de push solicitada pelo componente...');
+      syncPushSubscription();
+    };
+
+    window.addEventListener('force-push-resubscribe', handleForceResubscribe);
+
+    return () => {
+      window.removeEventListener('force-push-resubscribe', handleForceResubscribe);
+    };
   }, [user.id]);
 
   // 2. Escuta ativa e Polling para novas notificações (Instantâneo em Tempo Real usando canais Postgres e backup de Polling a cada 15s)
@@ -208,11 +219,19 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             const shownPushes: string[] = JSON.parse(shownPushesRaw);
             
             if (!hasStoredPushes) {
-              // Primeira verificação histórica nesta máquina/sessão: registar histórico antigo para evitar spam de popups
-              const allActiveIds = pushes.map(p => p.id);
-              localStorage.setItem('shown_push_notifications', JSON.stringify(allActiveIds));
-              await saveToConfigCache('shown_push_ids', allActiveIds);
-              return;
+              // Primeira verificação histórica nesta máquina/sessão: registar histórico antigo para evitar spam de popups.
+              // Mas se houver algum push enviado nos últimos 15 minutos, deixamos ele ser processado para aparecer de imediato!
+              const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
+              const historicalIds = pushes
+                .filter(p => !p.created_at || new Date(p.created_at).getTime() < fifteenMinutesAgo)
+                .map(p => p.id);
+              
+              localStorage.setItem('shown_push_notifications', JSON.stringify(historicalIds));
+              await saveToConfigCache('shown_push_ids', historicalIds);
+              
+              if (historicalIds.length === pushes.length) {
+                return;
+              }
             }
 
             // Filtrar todos os pushes frescos que ainda não foram exibidos

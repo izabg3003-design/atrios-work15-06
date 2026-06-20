@@ -111,6 +111,47 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [isSimulatingPush, setIsSimulatingPush] = useState(false);
   const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
 
+  const [clientPermission, setClientPermission] = useState<string>('default');
+  const [swReady, setSwReady] = useState(false);
+  const [pwaInstalled, setPwaInstalled] = useState(false);
+  const [isInIframe, setIsInIframe] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      setIsInIframe(window.self !== window.top);
+      if ('Notification' in window) {
+        setClientPermission(Notification.permission);
+      }
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(() => setSwReady(true));
+      }
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                            (window.navigator as any).standalone === true;
+      setPwaInstalled(isStandalone);
+    }
+  }, []);
+
+  const triggerResubscribe = async () => {
+    if (typeof window !== 'undefined') {
+      if ('Notification' in window) {
+        try {
+          const permission = await Notification.requestPermission();
+          setClientPermission(permission);
+          if (permission === 'granted') {
+            window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
+            // Refresh diagnostic states after a tiny delay
+            setTimeout(() => {
+              setClientPermission(Notification.permission);
+              fetchData();
+            }, 1000);
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+    }
+  };
+
   const triggerDemoNotification = () => {
     if (!('Notification' in window)) {
       alert('As notificações não são suportadas por este navegador.');
@@ -130,7 +171,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             badge: '/logo_atualizado.jpg?v=20260314_v1',
             vibrate: [200, 100, 200],
             tag: `demopush-${Date.now()}`
-          });
+          } as any);
         }).catch(() => {
           new Notification(title, {
             body: body,
@@ -644,6 +685,117 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       <span className="text-[10px] font-black text-blue-500 uppercase">Configurado</span>
                     </div>
                     <p className="text-[9px] text-slate-600 font-bold uppercase leading-snug">Transmissão em loop directo por eventos de sincronização Supabase.</p>
+                  </div>
+                </div>
+
+                {/* PAINEL DE DIAGNÓSTICO E ALERTA DE PUSH DO APARELHO */}
+                <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 relative z-10 text-left font-sans animate-[fadeIn_0.5s_ease-out]">
+                  <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                     <div className="flex items-center gap-3">
+                        <Activity className="w-5 h-5 text-indigo-400 animate-pulse" />
+                        <h4 className="text-xs font-black text-white uppercase tracking-widest font-sans">Sinal & Diagnóstico Local do seu Dispositivo</h4>
+                     </div>
+                     <span className="text-[8px] font-black uppercase text-indigo-500 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
+                        PWA Status
+                     </span>
+                  </div>
+
+                  {/* 1. Alerta Crítico para IFRAME */}
+                  {isInIframe ? (
+                    <div className="p-5 bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl space-y-3">
+                      <div className="flex items-start gap-3 text-amber-400">
+                        <Lock className="w-5 h-5 mt-0.5 shrink-0 animate-bounce" />
+                        <div>
+                          <h5 className="text-[10px] font-black uppercase tracking-wider">Estás dentro do Painel AI Studio (Iframe)!</h5>
+                          <p className="text-[9.5px] font-bold text-slate-400 uppercase mt-1 leading-relaxed">
+                            Os navegadores modernos bloqueiam permissões de Notificação e Service Workers em iframes por segurança.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 pt-2 border-t border-amber-500/10 justify-between flex-wrap gap-y-2">
+                        <span className="text-[8.5px] font-bold text-slate-500 uppercase leading-none">Abra em uma nova aba dedicada para testar de verdade:</span>
+                        <a 
+                          href={typeof window !== 'undefined' ? window.location.origin : '#'} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="px-4 py-2.5 bg-amber-500 font-black text-[9px] uppercase tracking-wider text-slate-950 rounded-xl flex items-center gap-1.5 hover:bg-amber-400 hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-amber-500/10"
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" /> Abrir numa Nova Aba
+                        </a>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-3 text-emerald-400">
+                      <CheckCircle className="w-5 h-5 shrink-0" />
+                      <div>
+                        <h5 className="text-[10px] font-black uppercase tracking-wider">Excelente! Executando em Ambiente Direto</h5>
+                        <p className="text-[8.5px] font-bold text-slate-400 uppercase leading-snug">Seu telemóvel/computador está conectado diretamente sem restrições de iframe.</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Grid de status modular */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Status de Permissões */}
+                    <div className={`p-5 rounded-2xl border flex flex-col justify-between ${
+                      clientPermission === 'granted' ? 'bg-emerald-500/5 border-emerald-500/15 text-emerald-400' :
+                      clientPermission === 'denied' ? 'bg-rose-500/10 border-rose-500/25 text-rose-400' :
+                      'bg-slate-900 border-slate-850 text-slate-400'
+                    }`}>
+                      <div className="space-y-1">
+                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none">Notificações no Browser</span>
+                        <h5 className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5">
+                          {clientPermission === 'granted' ? (
+                            <>🟢 Autorizado / Ativo</>
+                          ) : clientPermission === 'denied' ? (
+                            <>🔴 Bloqueado (Recusado)</>
+                          ) : (
+                            <>⏳ Não Solicitado (Pendente)</>
+                          )}
+                        </h5>
+                        <p className="text-[8.5px] font-medium text-slate-400 leading-normal mt-1 uppercase">
+                          {clientPermission === 'granted' ? 'Este aparelho está autorizado a receber as notificações push em segundo plano.' :
+                           clientPermission === 'denied' ? 'O navegador recusou os alertas. Clique no CADEADO 🔒 ao lado da barra de endereços do browser, altere Notificações para "Permitir" e atualize a página!' :
+                           'É necessário autorizar as notificações push para este dispositivo receber os alertas corporativos.'}
+                        </p>
+                      </div>
+                      
+                      {clientPermission !== 'granted' && (
+                        <button 
+                          onClick={triggerResubscribe}
+                          className="mt-4 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95"
+                        >
+                          🔑 SOLICITAR PERMISSÃO PUSH
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Status de Service Worker */}
+                    <div className="p-5 bg-slate-900 border border-slate-850 rounded-2xl flex flex-col justify-between text-slate-400">
+                      <div className="space-y-1">
+                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none">Service Worker & PWA</span>
+                        <h5 className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 font-mono">
+                          {swReady ? (
+                            <span className="text-emerald-400">🟢 Service Worker Ativo</span>
+                          ) : (
+                            <span className="text-slate-500">⏳ Conectando...</span>
+                          )}
+                        </h5>
+                        <p className="text-[8.5px] font-medium text-slate-400 leading-normal mt-1 uppercase">
+                          O Service Worker intercepta eventos offline e push.
+                          {pwaInstalled ? ' Executando como PWA Instalado Standalone.' : ' Instale no telemóvel para receber em ecrã bloqueado.'}
+                        </p>
+                      </div>
+
+                      <div className="mt-4 flex gap-2">
+                        <button 
+                          onClick={triggerResubscribe}
+                          className="flex-1 px-3 py-2.5 bg-slate-950 border border-slate-850 hover:border-slate-800 text-slate-300 font-black text-[8px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 active:scale-95"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5 text-indigo-400" /> Sincronizar Dispositivo
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
