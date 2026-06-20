@@ -18,7 +18,7 @@ const SplashScreen: React.FC<Props> = ({ t }) => {
 
       <div className="relative z-10 text-center px-4">
         <h1 className="text-4xl md:text-6xl font-bold bg-gradient-to-r from-purple-400 to-green-400 bg-clip-text text-transparent animate-[fadeIn_2s_ease-in-out]">
-          Send Push
+          AtriosWork
         </h1>
         <p className="mt-8 text-2xl md:text-3xl font-light text-slate-300 animate-[slideUp_3s_ease-out_forwards] opacity-0">
           "{t('splash.tagline')}"

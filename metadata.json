@@ -1,5 +1,5 @@
 {
-  "name": "Send Push",
+  "name": "AtriosWork",
   "description": "Aplicação profissional para controlo de horas de trabalho, gestão de horas extra e relatórios automáticos para IRS em Portugal.",
   "requestFramePermissions": [
     "camera"
