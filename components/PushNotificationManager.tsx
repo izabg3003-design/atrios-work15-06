@@ -355,6 +355,32 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       // Subscrever ou resgatar assinatura activa
       let subscription = await reg.pushManager.getSubscription();
       
+      if (subscription) {
+        // Verificar se as chaves batem para evitar tokens órfãos pós-reestatização
+        const currentKeyBuffer = subscription.options.applicationServerKey;
+        if (currentKeyBuffer) {
+          const expectedKeyArray = urlBase64ToUint8Array(publicKey);
+          const currentKeyArray = new Uint8Array(currentKeyBuffer);
+          let keyMatches = expectedKeyArray.length === currentKeyArray.length;
+          if (keyMatches) {
+            for (let i = 0; i < expectedKeyArray.length; i++) {
+              if (expectedKeyArray[i] !== currentKeyArray[i]) {
+                keyMatches = false;
+                break;
+              }
+            }
+          }
+          if (!keyMatches) {
+            console.log('[Push Manager] Chave VAPID alterada ou expirada. Desinscrever e subscrever novamente...');
+            await subscription.unsubscribe();
+            subscription = null;
+          }
+        } else {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+      }
+
       if (!subscription) {
         const applicationServerKey = urlBase64ToUint8Array(publicKey);
         subscription = await reg.pushManager.subscribe({

@@ -127,7 +127,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           setBanners([]);
           setShowSqlHelp(true);
         } else {
-          setBanners((data || []).map(parseDbBanner));
+          const parsed = (data || []).map(parseDbBanner);
+          setBanners(parsed.filter(b => b.title && !b.title.startsWith('[')));
         }
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã

@@ -15,41 +15,223 @@ interface PushSubscriptionContainer {
   updatedAt: string;
 }
 
-// 1. CARREGAR OU GERAR CHAVES VAPID ESTÁVEIS (vapid_keys.json)
-const VAPID_KEYS_FILE = path.join(__dirname, 'vapid_keys.json');
+// Chaves VAPID globais (carregadas assincronamente da BD na inicialização)
 let vapidKeys = { publicKey: '', privateKey: '' };
 
-if (fs.existsSync(VAPID_KEYS_FILE)) {
+const STORAGE_FILE = path.join(__dirname, 'push_subscriptions.json');
+const SENT_IDS_FILE = path.join(__dirname, 'sent_push_ids.json');
+
+// Supabase REST details
+const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
+const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8';
+
+// A. INICIALIZAR E RECUPERAR CHAVES VAPID DA BASE DE DADOS (SUPABASE)
+async function initVapidKeys() {
+  // 1. Tentar ler do Supabase na tabela app_banners (onde salvamos como chave-valor de sistema)
   try {
-    vapidKeys = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
-    console.log('[Push Server] Chaves VAPID estáveis carregadas com sucesso.');
+    const checkUrl = `${supabaseUrl}/rest/v1/app_banners?title=eq.%5BSYSTEM_VAPID_KEYS_CONFIG%5D&limit=1`;
+    const response = await fetch(checkUrl, {
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`
+      }
+    });
+
+    if (response.ok) {
+      const records = await response.json();
+      if (records && records.length > 0) {
+        vapidKeys.publicKey = records[0].highlight;
+        vapidKeys.privateKey = records[0].subtitle;
+        console.log('[Push Server - Supabase] Chaves VAPID estáveis recuperadas com sucesso da BD!');
+        return;
+      }
+    }
+  } catch (err: any) {
+    console.error('[Push Server - Supabase] Falha ao conectar ao Supabase para ler chaves VAPID:', err.message);
+  }
+
+  // 2. Se falhar ou não existir, verificar se existe localmente em vapid_keys.json
+  const VAPID_KEYS_FILE = path.join(__dirname, 'vapid_keys.json');
+  if (fs.existsSync(VAPID_KEYS_FILE)) {
+    try {
+      const localKeys = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
+      if (localKeys.publicKey && localKeys.privateKey) {
+        vapidKeys.publicKey = localKeys.publicKey;
+        vapidKeys.privateKey = localKeys.privateKey;
+        console.log('[Push Server - Local] Chaves VAPID estáveis carregadas do arquivo local.');
+      }
+    } catch (err) {
+      console.error('[Push Server - Local] Erro ao ler file local:', err);
+    }
+  }
+
+  // 3. Se não existir em nenhum lugar, gerar novas estáveis
+  if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
+    const keys = webpush.generateVAPIDKeys();
+    vapidKeys.publicKey = keys.publicKey;
+    vapidKeys.privateKey = keys.privateKey;
+    console.log('[Push Server] Novas chaves VAPID estáveis criadas e configuradas de origem.');
+  }
+
+  // 4. Salvar localmente
+  try {
+    fs.writeFileSync(VAPID_KEYS_FILE, JSON.stringify(vapidKeys, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[Push Server] Erro ao ler vapid_keys.json, gerando novas...', err);
+    console.error('[Push Server] Erro ao escrever chaves locais:', err);
+  }
+
+  // 5. Salvar na BD Supabase para futuras instâncias se não veio de lá
+  try {
+    const insertUrl = `${supabaseUrl}/rest/v1/app_banners`;
+    const response = await fetch(insertUrl, {
+      method: 'POST',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        title: '[SYSTEM_VAPID_KEYS_CONFIG]',
+        highlight: vapidKeys.publicKey,
+        subtitle: vapidKeys.privateKey,
+        cta_text: 'system',
+        cta_link: 'system',
+        theme_color: 'emerald',
+        user_type: 'push_notification',
+        is_active: false
+      })
+    });
+    if (response.ok) {
+      console.log('[Push Server - Supabase] Chaves VAPID gravadas na base de dados para garantir persistência 100%!');
+    }
+  } catch (err: any) {
+    console.error('[Push Server - Supabase] Erro ao sincronizar chaves VAPID para cima:', err.message);
   }
 }
 
-if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
-  vapidKeys = webpush.generateVAPIDKeys();
-  fs.writeFileSync(VAPID_KEYS_FILE, JSON.stringify(vapidKeys, null, 2), 'utf-8');
-  console.log('[Push Server] Novas chaves VAPID estáveis geradas e persistidas.');
+// B. CONTROLO DE DISPOSITIVOS EM BASE DE DADOS (SUPABASE)
+async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) {
+  try {
+    const endpoint = container.subscription.endpoint;
+    
+    // Verificar se já existe uma assinatura registada com esse endpoint
+    const checkUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}&title=like.%5BDEVICE_SUB%5D%25&limit=1`;
+    const checkResp = await fetch(checkUrl, {
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`
+      }
+    });
+
+    let existingRowId = null;
+    if (checkResp.ok) {
+      const records = await checkResp.json();
+      if (records && records.length > 0) {
+        existingRowId = records[0].id;
+      }
+    }
+
+    const payload = {
+      title: `[DEVICE_SUB]_${container.id}`,
+      highlight: endpoint,
+      subtitle: JSON.stringify(container.subscription),
+      cta_text: container.userId || 'anonymous',
+      cta_link: container.isPro ? 'premium' : 'free',
+      theme_color: 'purple',
+      user_type: 'push_notification',
+      is_active: false
+    };
+
+    if (existingRowId) {
+      // Atualizar record existente
+      const updateUrl = `${supabaseUrl}/rest/v1/app_banners?id=eq.${existingRowId}`;
+      await fetch(updateUrl, {
+        method: 'PATCH',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      console.log(`[Push DB Sync] Dispositivo atualizado na BD para o utilizador ${container.userId}`);
+    } else {
+      // Inserir novo record
+      const insertUrl = `${supabaseUrl}/rest/v1/app_banners`;
+      await fetch(insertUrl, {
+        method: 'POST',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      console.log(`[Push DB Sync] Novo dispositivo inserido com sucesso na BD para o utilizador ${container.userId}`);
+    }
+  } catch (err: any) {
+    console.error('[Push DB Sync] Falha ao sincronizar dispositivo com a BD do Supabase:', err.message);
+  }
 }
 
-// Configurar detalhes globais de VAPID
-webpush.setVapidDetails(
-  'mailto:info@atrioswork.com',
-  vapidKeys.publicKey,
-  vapidKeys.privateKey
-);
+async function deleteSubscriptionFromSupabase(endpoint: string) {
+  try {
+    const deleteUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}&title=like.%5BDEVICE_SUB%5D%25`;
+    await fetch(deleteUrl, {
+      method: 'DELETE',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`
+      }
+    });
+    console.log('[Push DB Sync] Dispositivo obsoleto/removido limpo com segurança da BD.');
+  } catch (err: any) {
+    console.error('[Push DB Sync] Falha ao apagar dispositivo obsoleto da BD:', err.message);
+  }
+}
 
-// 2. CARREGAR SUBSCRIPÇÕES DE DISPOSITIVOS PERSISTENTES (push_subscriptions.json)
-const STORAGE_FILE = path.join(__dirname, 'push_subscriptions.json');
+async function fetchSubscriptionsFromSupabase(): Promise<PushSubscriptionContainer[]> {
+  try {
+    const fetchUrl = `${supabaseUrl}/rest/v1/app_banners?title=like.%5BDEVICE_SUB%5D%25`;
+    const response = await fetch(fetchUrl, {
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`
+      }
+    });
 
+    if (response.ok) {
+      const records = await response.json();
+      const subs: PushSubscriptionContainer[] = [];
+      
+      for (const record of records) {
+        try {
+          const subscription = JSON.parse(record.subtitle);
+          subs.push({
+            id: record.title.replace('[DEVICE_SUB]_', ''),
+            subscription,
+            userId: record.cta_text || 'anonymous',
+            isPro: record.cta_link === 'premium',
+            updatedAt: record.created_at || new Date().toISOString()
+          });
+        } catch (e) {
+          // Ignorado
+        }
+      }
+      return subs;
+    }
+  } catch (err: any) {
+    console.error('[Push DB Sync] Erro ao buscar lista de dispositvos PWA na BD:', err.message);
+  }
+  return [];
+}
+
+// C. COMPLEMENTO LOCAL (FS-ACCELERATOR)
 function loadSubscriptions(): PushSubscriptionContainer[] {
   if (!fs.existsSync(STORAGE_FILE)) return [];
   try {
     return JSON.parse(fs.readFileSync(STORAGE_FILE, 'utf-8'));
   } catch (e) {
-    console.warn('[Push Server] Falha ao ler push_subscriptions.json, retornando vazio.');
     return [];
   }
 }
@@ -58,12 +240,10 @@ function saveSubscriptions(subs: PushSubscriptionContainer[]) {
   try {
     fs.writeFileSync(STORAGE_FILE, JSON.stringify(subs, null, 2), 'utf-8');
   } catch (err) {
-    console.error('[Push Server] Falha ao gravar push_subscriptions.json:', err);
+    console.error('[Push Server] Falha ao gravar local file subscriptions:', err);
   }
 }
 
-// 3. REGISTAR HISTÓRICO DE ENVIADOS (sent_push_ids.json) PARA EVITAR DUPLICIDADE
-const SENT_IDS_FILE = path.join(__dirname, 'sent_push_ids.json');
 function loadSentBannerIds(): string[] {
   if (!fs.existsSync(SENT_IDS_FILE)) return [];
   try {
@@ -72,6 +252,7 @@ function loadSentBannerIds(): string[] {
     return [];
   }
 }
+
 function saveSentBannerId(id: string) {
   const current = loadSentBannerIds();
   if (!current.includes(id)) {
@@ -82,24 +263,31 @@ function saveSentBannerId(id: string) {
 
 async function startServer() {
   const app = express();
-
-  // Middleware para JSON com limite maior para garantir payloads normais
   app.use(express.json());
+
+  // PRIMEIRA FASE: Garantir chaves VAPID estáveis e idênticas no arranque (Lê de Supabase/Arquivo)
+  await initVapidKeys();
+
+  // Configurar detalhes globais de VAPID
+  webpush.setVapidDetails(
+    'mailto:info@atrioswork.com',
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
 
   // API 1: Enviar Chave Pública para o App
   app.get('/api/push/public-key', (req, res) => {
     res.json({ publicKey: vapidKeys.publicKey });
   });
 
-  // API 2: Subscrever dispositivo / Sincronizar Token
-  app.post('/api/push/subscribe', (req, res) => {
+  // API 2: Subscrever dispositivo / Sincronizar Token (Chamado silenciosamente no App.tsx / PushNotificationManager)
+  app.post('/api/push/subscribe', async (req, res) => {
     const { subscription, userId, isPro } = req.body;
     if (!subscription || !subscription.endpoint) {
       return res.status(400).json({ error: 'Assinatura inválida.' });
     }
 
     const subs = loadSubscriptions();
-    // Impedir registros duplicados de mesma URL endpoint
     const existingIndex = subs.findIndex(s => s.subscription.endpoint === subscription.endpoint);
 
     const subscriptionData: PushSubscriptionContainer = {
@@ -116,28 +304,32 @@ async function startServer() {
       subs.push(subscriptionData);
     }
 
+    // Salvar localmente no container
     saveSubscriptions(subs);
-    console.log(`[Push Central] Dispositivo registado/atualizado. Total ativo: ${subs.length}`);
+    
+    // SALVAR PERSISTENTEMENTE EM SUPABASE (Garante que se desliga ou recarrega o servidor, a ligação continua activa!)
+    await syncSubscriptionToSupabase(subscriptionData);
+
+    console.log(`[PWA Subscribe] Dispositivo registado nos canais. ID: ${subscriptionData.id}`);
     res.json({ success: true, deviceId: subscriptionData.id });
   });
 
-  // API 3: Desinscrever ou remover dispositivo caso solicitado explicitamente
-  app.post('/api/push/unsubscribe', (req, res) => {
+  // API 3: Desinscrever voluntariamente ou desligar canal push
+  app.post('/api/push/unsubscribe', async (req, res) => {
     const { endpoint } = req.body;
     if (!endpoint) return res.status(400).json({ error: 'Missing endpoint' });
 
     let subs = loadSubscriptions();
-    const beforeCount = subs.length;
     subs = subs.filter(s => s.subscription.endpoint !== endpoint);
-    
-    if (subs.length !== beforeCount) {
-      saveSubscriptions(subs);
-      console.log(`[Push Central] Dispositivo desinstalado. Ativos: ${subs.length}`);
-    }
+    saveSubscriptions(subs);
+
+    // Apagar também da BD geral
+    await deleteSubscriptionFromSupabase(endpoint);
+
     res.json({ success: true });
   });
 
-  // API 4: Rota de Notificação Manual / Disparo Geral ou segmentado
+  // API 4: Rota de Notificação Manual de Administrador (Geral ou em Segmentos)
   app.post('/api/push/send-broadcast', async (req, res) => {
     const { title, body, bannerId, userType } = req.body;
     if (!title || !body) {
@@ -148,14 +340,17 @@ async function startServer() {
     res.json({ success: true, totalDevicesNotified: totalSent });
   });
 
-  // Função central de despacho físico via Web Push (Google FCM, Apple APNS, Mozilla)
+  // FUNÇÃO DE ENVIO FÍSICO COM AUTO-PRUNING SE REJEITADO (Status 410 / 404 por FCM/APNS)
   async function deliverPushToDevices(payload: { title: string; body: string; bannerId?: string; userType?: string }) {
     const { title, body, bannerId, userType } = payload;
-    let subs = loadSubscriptions();
-    if (subs.length === 0) return 0;
+    
+    // Obter toda a lista unificada de dispositivos registrados do Supabase (Survive restarts!)
+    const subs = await fetchSubscriptionsFromSupabase();
+    if (subs.length === 0) {
+      console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados.');
+      return 0;
+    }
 
-    // Segmentar dispositivos baseado no userType do banner
-    // Tipo: 'all', 'premium', 'free', 'public', etc.
     const target = userType || 'all';
     const filteredSubs = subs.filter(sub => {
       if (target === 'all' || target === 'push_notification' || target === 'public') return true;
@@ -164,7 +359,7 @@ async function startServer() {
       return false;
     });
 
-    console.log(`[Push Engine] Iniciando envio físico para ${filteredSubs.length} aparelhos de público: [${target}]`);
+    console.log(`[Push Engine] Enviando mensagem física para ${filteredSubs.length} receptor(es) activo(s) sob espectro: [${target}]`);
     let count = 0;
     const obsoleteEndpoints: string[] = [];
 
@@ -180,22 +375,25 @@ async function startServer() {
           await webpush.sendNotification(container.subscription, pushPayload);
           count++;
         } catch (err: any) {
-          // Lógica de auto-pruning de aparelhos obsoletos (status 410 / 404)
-          // FCM (Google) ou Mozilla retornam 410 se a subscrição expirou ou desinstalou
+          // Remover automatizado se utilizador desinstalou a PWA (HTTP 410 / 404)
           if (err.statusCode === 410 || err.statusCode === 404) {
             obsoleteEndpoints.push(container.subscription.endpoint);
           } else {
-            console.warn(`[Push Engine] Falha no envio para dispositivo do usuário ${container.userId}:`, err.message);
+            console.warn(`[Push Engine] Falha física canal para ${container.userId}:`, err.message);
           }
         }
       })
     );
 
-    // Prunar endpoints fora de serviço
+    // Prunar dispositivos obsoletos do Supabase e cache se houver
     if (obsoleteEndpoints.length > 0) {
-      const freshSubs = subs.filter(s => !obsoleteEndpoints.includes(s.subscription.endpoint));
-      saveSubscriptions(freshSubs);
-      console.log(`[Push Engine Auto-Pruning] Limpamos ${obsoleteEndpoints.length} tokens desinstalados ou expirados.`);
+      for (const obsEndpoint of obsoleteEndpoints) {
+        await deleteSubscriptionFromSupabase(obsEndpoint);
+      }
+      
+      const localSubs = loadSubscriptions();
+      const freshLocal = localSubs.filter(s => !obsoleteEndpoints.includes(s.subscription.endpoint));
+      saveSubscriptions(freshLocal);
     }
 
     if (bannerId) {
@@ -205,14 +403,9 @@ async function startServer() {
     return count;
   }
 
-  // 4. POLLED SUPABASE BACKUP LOOP - Verifica a tabela app_banners a cada 20 segundos
-  // Garante que mesmo que o Painel insira diretamente no Supabase ou de forma assíncrona,
-  // os telemóveis/computadores desligados recebem imediatamente o empurrão!
+  // 4. SUPABASE SYNC LOOP - Monitoriza e despacha a cada 20 segundos
   setInterval(async () => {
     try {
-      const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
-      const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8';
-      
       const restUrl = `${supabaseUrl}/rest/v1/app_banners?is_active=eq.true&order=created_at.desc&limit=10`;
       const response = await fetch(restUrl, {
         headers: {
@@ -228,10 +421,10 @@ async function startServer() {
       const sentIds = loadSentBannerIds();
 
       for (const banner of data) {
-        // Ignorar se já disparado
+        // Ignorar se já despachado
         if (sentIds.includes(banner.id)) continue;
 
-        // Descompatibilizar o user_type
+        // Descompactar user_type
         let user_type = 'all';
         let cta_link = banner.cta_link || '';
         if (cta_link.includes('||user_type:')) {
@@ -248,9 +441,8 @@ async function startServer() {
           const cleanTitle = banner.title.replace('[PUSH]', '').replace('[push]', '').trim();
           const cleanBody = `${banner.highlight || ''} ${banner.subtitle || ''}`.trim();
 
-          console.log(`[Polled Supabase Gateway] Novo push detectado via DB: "${cleanTitle}". Disparando agora!`);
+          console.log(`[PWA DB Poller] Novo aviso detectado no painel: "${cleanTitle}". Disparando transmissão física...`);
           
-          // Despachar a todos aparelhos compatíveis
           await deliverPushToDevices({
             title: cleanTitle,
             body: cleanBody,
@@ -258,23 +450,23 @@ async function startServer() {
             userType: user_type
           });
         } else {
-          // Se não for push, marcar como visto/processado para saltar verificações futuras
+          // Se for banner normal (visual e não push), registar como processado para não travar
           saveSentBannerId(banner.id);
         }
       }
     } catch (err: any) {
-      // Ignorar erros na checagem em background silenciosa
+      // Silencioso
     }
   }, 20000);
 
-  // 5. CONFIGURAÇÃO DE ROTEAMENTO VITE MIDDLEWARE OU ARQUIVOS ESTÁTICOS
+  // 5. CONFIGURAÇÃO DE ROTEAMENTO VITE MIDDLEWARE OU PASTAS ESTÁTICAS EM PRODUÇÃO
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
     });
     app.use(vite.middlewares);
-    console.log('[Vite Development] Middleware montado.');
+    console.log('[Vite Development] Middleware inicializado.');
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
