@@ -16,6 +16,17 @@ interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
 }
 
+const urlBase64ToUint8Array = (base64String: string) => {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+};
+
 const PushNotificationManager: React.FC<Props> = ({ user }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isReadyToInstall, setIsReadyToInstall] = useState(false);
@@ -324,6 +335,66 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   }, [user.id, user.subscription]);
 
+  const syncPushSubscription = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      
+      // Obter configuração de chave pública (VAPID) do servidor Express
+      const keyResp = await fetch('/api/push/public-key');
+      if (!keyResp.ok) throw new Error('Não foi possível obter a chave VAPID pública do servidor');
+      const { publicKey } = await keyResp.json();
+      
+      if (!publicKey) {
+        console.warn('[Push Manager] Chave pública VAPID vazia do backend.');
+        return;
+      }
+
+      // Subscrever ou resgatar assinatura activa
+      let subscription = await reg.pushManager.getSubscription();
+      
+      if (!subscription) {
+        const applicationServerKey = urlBase64ToUint8Array(publicKey);
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey
+        });
+      }
+
+      const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
+
+      // Sincronizar assinatura com o nosso servidor Express
+      const syncResp = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          subscription,
+          userId: user.id || 'anonymous',
+          isPro: !!isPro
+        })
+      });
+
+      if (syncResp.ok) {
+        console.log('[Push Manager] Registro de dispositivo sincronizado silenciosamente com servidor físico.');
+      } else {
+        console.warn('[Push Manager] Falha ao sincronizar dispositivo no servidor físico.');
+      }
+    } catch (err: any) {
+      console.warn('[Push Manager] Erro na subscrição push física:', err.message);
+    }
+  };
+
+  // Sincronização invisível automática (Client Auto-Subscribe)
+  useEffect(() => {
+    if (user.id && notificationPermission === 'granted') {
+      syncPushSubscription();
+    }
+  }, [user.id, notificationPermission, user.subscription]);
+
   // Função auxiliar para disparar notificação nativa do browser em PWA
   const triggerNativePush = (title: string, body: string, notificationId?: string) => {
     if (!('Notification' in window)) return;
@@ -373,6 +444,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           '🔔 Notificações Ativas!',
           'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
         );
+        syncPushSubscription();
       }
     } catch (err) {
       console.error('Erro ao pedir permissão de notificações:', err);

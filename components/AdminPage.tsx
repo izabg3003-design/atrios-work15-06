@@ -337,6 +337,23 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const { error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]);
       if (error) throw error;
 
+      // Chamar também o endpoint Express para disparo físico instantâneo Web Push (VAPID)
+      try {
+        await fetch('/api/push/send-broadcast', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            title: newPushTitle.trim(),
+            body: newPushBody.trim(),
+            userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
+          })
+        });
+      } catch (pushErr) {
+        console.warn('Erro ao disparar direto por API VAPID, fallback de DB síncrono ativo:', pushErr);
+      }
+
       setNewPushTitle('');
       setNewPushBody('');
       setPushSendResult({
