@@ -27,7 +27,13 @@ const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS
 
 // A. INICIALIZAR E RECUPERAR CHAVES VAPID DA BASE DE DADOS (SUPABASE)
 async function initVapidKeys() {
-  // 1. Tentar ler do Supabase na tabela app_banners (onde salvamos como chave-valor de sistema)
+  const MASTER_PUBLIC_KEY = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
+  const MASTER_PRIVATE_KEY = '6j5FNcDexsNTUsGe_4f2vVVtvrgXWXXofKkgiLzQhNQ';
+
+  vapidKeys.publicKey = MASTER_PUBLIC_KEY;
+  vapidKeys.privateKey = MASTER_PRIVATE_KEY;
+
+  // Sincronizar com Supabase para garantir que a tabela tenha sempre a chave estável Master correcta
   try {
     const checkUrl = `${supabaseUrl}/rest/v1/app_banners?title=eq.%5BSYSTEM_VAPID_KEYS_CONFIG%5D&limit=1`;
     const response = await fetch(checkUrl, {
@@ -40,50 +46,35 @@ async function initVapidKeys() {
     if (response.ok) {
       const records = await response.json();
       if (records && records.length > 0) {
-        vapidKeys.publicKey = records[0].highlight;
-        vapidKeys.privateKey = records[0].subtitle;
-        console.log('[Push Server - Supabase] Chaves VAPID estáveis recuperadas com sucesso da BD!');
+        const dbPubKey = records[0].highlight;
+        if (dbPubKey !== MASTER_PUBLIC_KEY) {
+          console.log('[Push Server] Chave legado detectada no Supabase. Atualizando para a Chave Master estável de produção...');
+          // Atualizar o registro legado existente para as chaves master
+          const updateUrl = `${supabaseUrl}/rest/v1/app_banners?id=eq.${records[0].id}`;
+          await fetch(updateUrl, {
+            method: 'PATCH',
+            headers: {
+              'apikey': supabaseKey,
+              'Authorization': `Bearer ${supabaseKey}`,
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              highlight: MASTER_PUBLIC_KEY,
+              subtitle: MASTER_PRIVATE_KEY,
+              is_active: false
+            })
+          });
+        } else {
+          console.log('[Push Server] Chave Master estável já registada e activa no Supabase!');
+        }
         return;
       }
     }
-  } catch (err: any) {
-    console.error('[Push Server - Supabase] Falha ao conectar ao Supabase para ler chaves VAPID:', err.message);
-  }
 
-  // 2. Se falhar ou não existir, verificar se existe localmente em vapid_keys.json
-  const VAPID_KEYS_FILE = path.join(__dirname, 'vapid_keys.json');
-  if (fs.existsSync(VAPID_KEYS_FILE)) {
-    try {
-      const localKeys = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
-      if (localKeys.publicKey && localKeys.privateKey) {
-        vapidKeys.publicKey = localKeys.publicKey;
-        vapidKeys.privateKey = localKeys.privateKey;
-        console.log('[Push Server - Local] Chaves VAPID estáveis carregadas do arquivo local.');
-      }
-    } catch (err) {
-      console.error('[Push Server - Local] Erro ao ler file local:', err);
-    }
-  }
-
-  // 3. Se não existir em nenhum lugar, gerar novas estáveis
-  if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
-    const keys = webpush.generateVAPIDKeys();
-    vapidKeys.publicKey = keys.publicKey;
-    vapidKeys.privateKey = keys.privateKey;
-    console.log('[Push Server] Novas chaves VAPID estáveis criadas e configuradas de origem.');
-  }
-
-  // 4. Salvar localmente
-  try {
-    fs.writeFileSync(VAPID_KEYS_FILE, JSON.stringify(vapidKeys, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('[Push Server] Erro ao escrever chaves locais:', err);
-  }
-
-  // 5. Salvar na BD Supabase para futuras instâncias se não veio de lá
-  try {
+    // Se não existia nenhum registro, salvar novo
+    console.log('[Push Server] Registando nova configuração de Chaves Master estável no Supabase...');
     const insertUrl = `${supabaseUrl}/rest/v1/app_banners`;
-    const response = await fetch(insertUrl, {
+    const postResp = await fetch(insertUrl, {
       method: 'POST',
       headers: {
         'apikey': supabaseKey,
@@ -92,19 +83,19 @@ async function initVapidKeys() {
       },
       body: JSON.stringify({
         title: '[SYSTEM_VAPID_KEYS_CONFIG]',
-        highlight: vapidKeys.publicKey,
-        subtitle: vapidKeys.privateKey,
+        highlight: MASTER_PUBLIC_KEY,
+        subtitle: MASTER_PRIVATE_KEY,
         cta_text: 'system',
         cta_link: 'system||user_type:push_notification',
         theme_color: 'emerald',
         is_active: false
       })
     });
-    if (response.ok) {
-      console.log('[Push Server - Supabase] Chaves VAPID gravadas na base de dados para garantir persistência 100%!');
+    if (postResp.ok) {
+      console.log('[Push Server] Chaves Master gravadas com sucesso na base de dados!');
     }
   } catch (err: any) {
-    console.error('[Push Server - Supabase] Erro ao sincronizar chaves VAPID para cima:', err.message);
+    console.error('[Push Server] Erro ao sincronizar Chaves Master com Supabase:', err.message);
   }
 }
 
@@ -442,6 +433,49 @@ async function startServer() {
       res.json({ success: true, history: [...history].reverse() });
     } catch (err: any) {
       res.status(500).json({ error: err.message || 'Erro ao unificar histórico' });
+    }
+  });
+
+  // API DEBUG: Diagnóstico do sistema de Push e VAPID
+  app.get('/api/push/debug', async (req, res) => {
+    try {
+      const localSubs = loadSubscriptions();
+      const dbSubs = await fetchSubscriptionsFromSupabase();
+      
+      // Consultar VAPID directamente do Supabase para verificar duplicatas ou mismatches
+      let dbVapidRecords: any[] = [];
+      try {
+        const checkUrl = `${supabaseUrl}/rest/v1/app_banners?title=eq.%5BSYSTEM_VAPID_KEYS_CONFIG%5D`;
+        const checkResp = await fetch(checkUrl, {
+          headers: {
+            'apikey': supabaseKey,
+            'Authorization': `Bearer ${supabaseKey}`
+          }
+        });
+        if (checkResp.ok) {
+          dbVapidRecords = await checkResp.json();
+        }
+      } catch (e: any) {
+        dbVapidRecords = [{ error: e.message }];
+      }
+
+      res.json({
+        success: true,
+        serverMemoryVapidPublicKey: vapidKeys.publicKey,
+        serverMemoryVapidPrivateKeyLength: vapidKeys.privateKey ? vapidKeys.privateKey.length : 0,
+        supabaseVapidRecordsCount: dbVapidRecords.length,
+        supabaseVapidRecords: dbVapidRecords.map(r => ({
+          id: r.id,
+          created_at: r.created_at,
+          publicKey: r.highlight,
+          privateKeyLength: r.subtitle ? r.subtitle.length : 0
+        })),
+        localSubscriptionsCount: localSubs.length,
+        supabaseSubscriptionsCount: dbSubs.length,
+        supabaseRawEndpoints: dbSubs.map(s => s.subscription.endpoint)
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 

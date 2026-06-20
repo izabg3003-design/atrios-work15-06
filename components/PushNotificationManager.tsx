@@ -343,7 +343,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       const reg = await navigator.serviceWorker.ready;
       
       // Obter configuração de chave pública (VAPID) do servidor Express com um fallback estático robusto
-      let publicKey = 'BLR0Tcrj0UCGeZu48tn_ek6ueRPxVh4EmzpeA7wLgp0uvp4jASyVTiuScsGiMVJDalT_QFsV4uSWfY0lONhZ7x4';
+      let publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
       try {
         const keyResp = await fetch('/api/push/public-key');
         if (keyResp.ok) {
