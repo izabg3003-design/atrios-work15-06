@@ -106,6 +106,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [newPushBody, setNewPushBody] = useState('');
   const [newPushAudience, setNewPushAudience] = useState<'all' | 'free' | 'premium'>('all');
   const [isSendingPush, setIsSendingPush] = useState(false);
+  const [isSimulatingPush, setIsSimulatingPush] = useState(false);
   const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
 
   const fetchData = async () => {
@@ -128,7 +129,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           setShowSqlHelp(true);
         } else {
           const parsed = (data || []).map(parseDbBanner);
-          setBanners(parsed.filter(b => b.title && !b.title.startsWith('[')));
+          setBanners(parsed.filter(b => b.title && (!b.title.startsWith('[') || b.title.startsWith('[PUSH]'))));
         }
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
@@ -594,68 +595,70 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10">
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
                   {/* Formulário de Envio */}
-                  <form onSubmit={handleSendPushNotification} className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6">
-                    <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-                      <Megaphone className="w-5 h-5 text-amber-500 animate-pulse" />
-                      <h4 className="text-xs font-black text-white uppercase tracking-widest font-sans">Escrever Notificação Push</h4>
-                    </div>
-
-                    {pushSendResult && (
-                      <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
-                        {pushSendResult.msg}
+                  <form onSubmit={handleSendPushNotification} className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col justify-between h-[460px]">
+                    <div className="space-y-6">
+                      <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+                        <Megaphone className="w-5 h-5 text-amber-500 animate-pulse" />
+                        <h4 className="text-xs font-black text-white uppercase tracking-widest font-sans">Escrever Send Push</h4>
                       </div>
-                    )}
 
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
-                      <input 
-                        type="text" 
-                        placeholder="Ex: ⚠️ Atualização de Assinatura" 
-                        value={newPushTitle}
-                        onChange={(e) => setNewPushTitle(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                        required
-                      />
-                    </div>
+                      {pushSendResult && (
+                        <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                          {pushSendResult.msg}
+                        </div>
+                      )}
 
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
-                      <textarea 
-                        rows={3}
-                        placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já no menu de faturamento." 
-                        value={newPushBody}
-                        onChange={(e) => setNewPushBody(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                        required
-                      />
-                    </div>
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
+                        <input 
+                          type="text" 
+                          placeholder="Ex: ⚠️ Atualização de Assinatura" 
+                          value={newPushTitle}
+                          onChange={(e) => setNewPushTitle(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                        />
+                      </div>
 
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Filtro de Audiência</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { id: 'all', label: 'Todos' },
-                          { id: 'free', label: 'Grátis' },
-                          { id: 'premium', label: 'Pro' }
-                        ].map((aud) => (
-                          <button
-                            key={aud.id}
-                            type="button"
-                            onClick={() => setNewPushAudience(aud.id as any)}
-                            className={`py-3 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border ${newPushAudience === aud.id ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-white'}`}
-                          >
-                            {aud.label}
-                          </button>
-                        ))}
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
+                        <textarea 
+                          rows={2}
+                          placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já." 
+                          value={newPushBody}
+                          onChange={(e) => setNewPushBody(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-3 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                          required
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Filtro de Audiência</label>
+                        <div className="grid grid-cols-3 gap-2">
+                          {[
+                            { id: 'all', label: 'Todos' },
+                            { id: 'free', label: 'Grátis' },
+                            { id: 'premium', label: 'Pro' }
+                          ].map((aud) => (
+                            <button
+                              key={aud.id}
+                              type="button"
+                              onClick={() => setNewPushAudience(aud.id as any)}
+                              className={`py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border ${newPushAudience === aud.id ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-white'}`}
+                            >
+                              {aud.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     </div>
 
                     <button
                       type="submit"
                       disabled={isSendingPush}
-                      className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shrink-0"
                     >
                       {isSendingPush ? (
                         <>
@@ -669,8 +672,92 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     </button>
                   </form>
 
+                  {/* Smartphone Simulator */}
+                  <div className="bg-slate-950/70 p-6 rounded-[2.5rem] border border-white/5 space-y-4 flex flex-col items-center justify-between h-[460px]">
+                    <div className="flex items-center gap-2 border-b border-white/5 pb-3 w-full justify-center">
+                      <Smartphone className="w-4 h-4 text-indigo-400" />
+                      <h4 className="text-[10px] font-black text-slate-300 uppercase tracking-widest font-sans">Simulador de Telemóvel</h4>
+                    </div>
+                    
+                    {/* Phone Frame */}
+                    <div className="w-56 h-[290px] bg-slate-950 border-4 border-slate-800 rounded-[2rem] shadow-2xl relative overflow-hidden flex flex-col group select-none shrink-0">
+                      {/* Dynamic Notch / Island */}
+                      <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-16 h-3.5 bg-black rounded-full z-40 flex items-center justify-center">
+                        <div className="w-1 h-1 bg-slate-900 rounded-full absolute right-2.5"></div>
+                      </div>
+                      
+                      {/* Status Bar */}
+                      <div className="px-4 pt-2.5 pb-0.5 flex justify-between items-center text-[7px] text-white/95 font-bold tracking-wider bg-transparent z-30 shrink-0 font-sans">
+                        <span>11:06</span>
+                        <div className="flex items-center gap-1">
+                          <span className="font-sans text-[6px]">5G</span>
+                          <div className="w-3 h-1.5 border border-white/80 rounded-[2px] p-[1px] flex items-center">
+                            <div className="h-full w-2 bg-white rounded-[1px]"></div>
+                          </div>
+                        </div>
+                      </div>
+                      
+                      {/* Background Wallpaper */}
+                      <div className="absolute inset-0 bg-gradient-to-b from-[#0f111a] via-[#101931] to-[#040406] z-10"></div>
+                      
+                      {/* Lockscreen Time/Date */}
+                      <div className="relative z-20 text-center mt-3.5">
+                        <span className="text-2xl font-extralight text-white font-sans tracking-tight leading-none">11:06</span>
+                        <div className="text-[6px] font-black text-slate-400 uppercase tracking-widest mt-0.5">SÁBADO, 20 DE JUNHO</div>
+                      </div>
+
+                      {/* Interactive slide-down banner inside Lockscreen */}
+                      <div className={`absolute left-2 right-2 z-50 transition-all duration-500 ease-out ${
+                        isSimulatingPush 
+                          ? 'top-8 scale-100 opacity-100 translate-y-0' 
+                          : 'top-[-80px] scale-95 opacity-0 pointer-events-none -translate-y-2'
+                      }`}>
+                        <div className="bg-slate-900/95 backdrop-blur-md border border-white/10 rounded-xl p-2.5 flex gap-2 items-start text-left text-white shadow-xl">
+                          <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center font-black text-white italic text-[8px] shadow-sm shrink-0">
+                            SP
+                          </div>
+                          <div className="min-w-0 flex-1 space-y-0.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-widest font-sans">Send Push</span>
+                              <span className="text-[6px] font-medium text-slate-500 font-mono">AGORA</span>
+                            </div>
+                            <h5 className="text-[8.5px] font-black text-white truncate uppercase tracking-widest leading-none">
+                              {newPushTitle.trim() || 'Sem Título'}
+                            </h5>
+                            <p className="text-[7.5px] text-slate-300 font-medium leading-normal line-clamp-2">
+                              {newPushBody.trim() || 'Altere os campos ao lado para simular o recebimento direto no telemóvel.'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Home Indicator */}
+                      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-14 h-[3px] bg-white/40 rounded-full z-20"></div>
+                    </div>
+                    
+                    {/* Simulation trigger */}
+                    <div className="w-full space-y-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsSimulatingPush(true);
+                          // Auto reset after 4.5 seconds
+                          setTimeout(() => {
+                            setIsSimulatingPush(false);
+                          }, 4500);
+                        }}
+                        className="w-full py-2.5 bg-slate-900 hover:bg-slate-850 border border-white/5 active:scale-95 transition-all text-white text-[8px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-1 shadow"
+                      >
+                        <Zap className="w-3 h-3 text-amber-400 animate-bounce" /> {isSimulatingPush ? 'A Simular Notificação...' : 'Simular Recebimento'}
+                      </button>
+                      <p className="text-[7.5px] text-slate-500 font-bold uppercase text-center leading-normal">
+                        * As notificações nativas de PWA chegam em tempo real mesmo com a aplicação e o ecrã fechados.
+                      </p>
+                    </div>
+                  </div>
+
                   {/* Histórico de Notificações Enviadas */}
-                  <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col h-[400px]">
+                  <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col h-[460px]">
                     <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0 font-sans">
                       <div className="flex items-center gap-3">
                         <BellRing className="w-5 h-5 text-blue-400" />
