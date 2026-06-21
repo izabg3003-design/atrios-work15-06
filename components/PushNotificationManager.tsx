@@ -401,7 +401,29 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
       setGuidedState(prev => ({ ...prev, step: 'sw' }));
       console.log('[Push Guided] Verificando Service Worker ativo...');
-      const reg = await navigator.serviceWorker.ready;
+      
+      let reg: ServiceWorkerRegistration;
+      if ('serviceWorker' in navigator) {
+        reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        if (!reg.active) {
+          await new Promise<void>((resolve) => {
+            const sw = reg.installing || reg.waiting;
+            if (sw) {
+              const stateChange = () => {
+                if (sw.state === 'activated') {
+                  sw.removeEventListener('statechange', stateChange);
+                  resolve();
+                }
+              };
+              sw.addEventListener('statechange', stateChange);
+            } else {
+              resolve();
+            }
+          });
+        }
+      } else {
+        throw new Error('Service Worker não suportado neste navegador.');
+      }
       
       setGuidedState(prev => ({ ...prev, step: 'subscribe' }));
       console.log('[Push Guided] Obtendo ou atualizando subscrição push...');
@@ -493,7 +515,25 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     if (Notification.permission !== 'granted') return;
 
     try {
-      const reg = await navigator.serviceWorker.ready;
+      let reg: ServiceWorkerRegistration;
+      reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      if (!reg.active) {
+        await new Promise<void>((resolve) => {
+          const sw = reg.installing || reg.waiting;
+          if (sw) {
+            const stateChange = () => {
+              if (sw.state === 'activated') {
+                sw.removeEventListener('statechange', stateChange);
+                resolve();
+              }
+            };
+            sw.addEventListener('statechange', stateChange);
+          } else {
+            resolve();
+          }
+        });
+      }
+      
       let publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
       try {
         const keyResp = await fetch('/api/push/public-key');

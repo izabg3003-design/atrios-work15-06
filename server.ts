@@ -104,8 +104,8 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
   try {
     const endpoint = container.subscription.endpoint;
     
-    // Verificar se já existe uma assinatura registada com esse endpoint
-    const checkUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}&title=like.%5BDEVICE_SUB%5D%25&limit=1`;
+    // Verificar se já existe uma assinatura registada com esse endpoint (match exato e infalível pelo endpoint guardado no highlight)
+    const checkUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}&limit=1`;
     const checkResp = await fetch(checkUrl, {
       headers: {
         'apikey': supabaseKey,
@@ -351,9 +351,26 @@ async function startServer() {
 
   // API 2: Subscrever dispositivo / Sincronizar Token (Chamado silenciosamente no App.tsx / PushNotificationManager)
   app.post('/api/push/subscribe', async (req, res) => {
-    const { subscription, userId, isPro } = req.body;
+    let { subscription, userId, isPro } = req.body;
+    
+    // Tratamento ultra-robusto para assinaturas stringificadas
+    if (subscription && typeof subscription === 'string') {
+      try {
+        subscription = JSON.parse(subscription);
+      } catch (err) {
+        console.error('[PWA Subscribe] Erro ao analisar string de assinatura corporativa:', err);
+      }
+    }
+
+    console.log('[PWA Subscribe API] Recebida tentativa de registo de canal:', {
+      hasSubscription: !!subscription,
+      hasEndpoint: !!subscription?.endpoint,
+      userId,
+      isPro
+    });
+
     if (!subscription || !subscription.endpoint) {
-      return res.status(400).json({ error: 'Assinatura inválida.' });
+      return res.status(400).json({ error: 'Assinatura inválida (endpoint em falta).' });
     }
 
     const subs = loadSubscriptions();
@@ -379,7 +396,7 @@ async function startServer() {
     // SALVAR PERSISTENTEMENTE EM SUPABASE (Garante que se desliga ou recarrega o servidor, a ligação continua activa!)
     await syncSubscriptionToSupabase(subscriptionData);
 
-    console.log(`[PWA Subscribe] Dispositivo registado nos canais. ID: ${subscriptionData.id}`);
+    console.log(`[PWA Subscribe] Dispositivo registado nos canais com sucesso absoluto. ID: ${subscriptionData.id}`);
     res.json({ success: true, deviceId: subscriptionData.id });
   });
 
