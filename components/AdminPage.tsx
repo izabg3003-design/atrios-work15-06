@@ -207,7 +207,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
         if (activeSubTab === 'notifications') {
-          const { data: userData } = await supabase.from('profiles').select('id, name, email');
+          const { data: userData } = await supabase.from('profiles').select('id, name, email, role, subscription, created_at');
           if (userData) {
             setUsers(userData as any);
           }
@@ -1038,9 +1038,9 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                         <Smartphone className="w-6 h-6" />
                       </div>
                       <div className="text-left font-sans">
-                        <h4 className="text-xs font-black text-white uppercase tracking-widest">Dispositivos Receptores Web Push Registados ({registeredDevices.length})</h4>
+                        <h4 className="text-xs font-black text-white uppercase tracking-widest">Utilizadores do Banco de Dados para Envios ({users.length})</h4>
                         <p className="text-[9px] text-slate-500 font-bold uppercase mt-1 leading-normal">
-                          Estes são os aparelhos que registaram assinaturas VAPID reais e receberão fisicamente as notificações push de fundo, mesmo fechados!
+                          Todos os utilizadores cadastrados no banco estão listados abaixo. Aqueles com PWA Ativo receberão notificações de fundo. Os restantes receberão via popup In-App imediatos no sistema!
                         </p>
                       </div>
                     </div>
@@ -1087,65 +1087,101 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                   )}
 
                   {/* Lista de Dispositivos */}
-                  {registeredDevices.length === 0 ? (
+                  {users.length === 0 ? (
                     <div className="py-12 flex flex-col items-center justify-center space-y-4 border-2 border-dashed border-slate-900 rounded-[2rem] text-center p-8 font-sans">
                       <BellRing className="w-12 h-12 text-slate-800 animate-bounce" />
                       <div className="max-w-md space-y-1">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nenhum Dispositivo Conetado Ainda</p>
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nenhum Utilizador Carregado</p>
                         <p className="text-[9px] text-slate-500 leading-normal uppercase font-bold">
-                          Para testar do telemóvel ou computador, clique no botão azul do ecrã principal para autorizar notificações (ou vá a "Definições") acedendo ao link direto fora do ecrã do AI Studio!
+                          Não foram encontrados utilizadores registados na base de dados.
                         </p>
                       </div>
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 font-sans text-left">
-                      {registeredDevices.map((dev) => {
-                        const endpoint = dev.subscription?.endpoint || '';
-                        let brand = 'Servidor WebPush';
-                        let brandColor = 'text-indigo-400 bg-indigo-500/10 border-indigo-550/20';
-                        if (endpoint.includes('fcm.googleapis.com')) {
-                          brand = 'Google Chrome / Android';
-                          brandColor = 'text-green-400 bg-green-500/10 border-green-500/20';
-                        } else if (endpoint.includes('apple.com')) {
-                          brand = 'iOS Safari / macOS';
-                          brandColor = 'text-sky-400 bg-sky-500/10 border-sky-500/20';
-                        } else if (endpoint.includes('mozilla.com')) {
-                          brand = 'Mozilla Firefox';
-                          brandColor = 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+                      {users.map((u) => {
+                        const userDevices = registeredDevices.filter(dev => 
+                          (dev.userId && dev.userId !== 'anonymous' && (dev.userId === u.id || dev.userId === u.email))
+                        );
+                        const hasActiveDevice = userDevices.length > 0;
+                        const uRole = u.role || 'user';
+                        
+                        let isProUser = false;
+                        if (u.subscription) {
+                          try {
+                            const parsedSub = typeof u.subscription === 'string' ? JSON.parse(u.subscription) : u.subscription;
+                            isProUser = parsedSub?.isActive === true || parsedSub?.status === 'active';
+                          } catch (e) {
+                            isProUser = false;
+                          }
                         }
 
-                        // Lookup user profile by id if any
-                        const matchingUser = users.find(u => u.id === dev.userId);
-                        const userName = matchingUser ? matchingUser.name : (dev.userId === 'anonymous' ? 'Visitante Anónimo' : dev.userId);
-                        const userMail = matchingUser ? matchingUser.email : null;
-
                         return (
-                          <div key={dev.id} className="p-5 bg-slate-900 border border-white/5 rounded-3xl hover:border-slate-800 transition-all flex flex-col justify-between gap-4">
-                            <div className="space-y-2">
+                          <div key={u.id} className="p-5 bg-slate-900 border border-white/5 rounded-3xl hover:border-slate-800 transition-all flex flex-col justify-between gap-4">
+                            <div className="space-y-3">
                               <div className="flex justify-between items-start gap-2">
-                                <span className={`px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-wider border ${brandColor}`}>
-                                  {brand}
-                                </span>
+                                {hasActiveDevice ? (
+                                  <span className="px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-wider border text-green-400 bg-green-500/10 border-green-500/20">
+                                    🟢 PWA Ativo ({userDevices.length} Ap)
+                                  </span>
+                                ) : (
+                                  <span className="px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-wider border text-amber-500 bg-amber-500/10 border-amber-500/20">
+                                    🟡 In-App Ativo
+                                  </span>
+                                )}
                                 <span className="text-[7.5px] font-mono text-slate-500 font-bold uppercase">
-                                  {dev.isPro ? '💎 Pro Client' : '💤 Free Client'}
+                                  {isProUser ? '💎 Pro User' : '💤 Free User'}
                                 </span>
                               </div>
-                              <div className="space-y-0.5">
+                              <div className="space-y-1">
                                 <h5 className="text-[10px] font-black text-white uppercase tracking-wider truncate">
-                                  {userName}
+                                  {u.name}
                                 </h5>
-                                {userMail && (
+                                {u.email && (
                                   <p className="text-[8px] font-bold text-slate-500 uppercase truncate">
-                                    {userMail}
+                                    {u.email}
                                   </p>
                                 )}
+                                <p className="text-[7.5px] font-bold text-slate-400 uppercase tracking-wide">
+                                  Cargo: <span className="text-blue-400 capitalize">{uRole}</span>
+                                </p>
                               </div>
                             </div>
 
+                            {/* Mostrar detalhes dos aparelhos se houver */}
+                            {hasActiveDevice ? (
+                              <div className="space-y-1 bg-slate-950/40 p-2.5 rounded-xl border border-white/5">
+                                <span className="text-[6.5px] font-black text-slate-500 uppercase tracking-widest block">Dispositivos Vinculados:</span>
+                                {userDevices.map((dev, idx) => {
+                                  const endpoint = dev.subscription?.endpoint || '';
+                                  let brand = 'Servidor WebPush';
+                                  if (endpoint.includes('fcm.googleapis.com')) {
+                                    brand = 'Google Chrome / Android';
+                                  } else if (endpoint.includes('apple.com')) {
+                                    brand = 'iOS Safari / macOS';
+                                  } else if (endpoint.includes('mozilla.com')) {
+                                    brand = 'Mozilla Firefox';
+                                  }
+                                  return (
+                                    <div key={dev.id || idx} className="text-[7px] text-slate-400 uppercase font-mono truncate flex justify-between gap-1">
+                                      <span>📲 {brand}</span>
+                                      <span className="text-slate-600 font-bold">
+                                        {new Date(dev.updatedAt || Date.now()).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
+                                      </span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            ) : (
+                              <div className="text-[7px] text-slate-550 font-semibold uppercase leading-normal">
+                                * Notificação garantida via banner do painel ou push ao autorizar o banner azul.
+                              </div>
+                            )}
+
                             <div className="flex justify-between items-center border-t border-white/5 pt-3">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase font-sans">Sincronizado:</span>
+                              <span className="text-[7px] font-bold text-slate-500 uppercase font-sans">Cadastrado em:</span>
                               <span className="text-[7.5px] font-mono text-white/80 font-bold">
-                                {new Date(dev.updatedAt || Date.now()).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                                {u.created_at ? new Date(u.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Pendente'}
                               </span>
                             </div>
                           </div>
