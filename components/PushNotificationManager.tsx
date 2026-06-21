@@ -404,23 +404,8 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       
       let reg: ServiceWorkerRegistration;
       if ('serviceWorker' in navigator) {
-        reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-        if (!reg.active) {
-          await new Promise<void>((resolve) => {
-            const sw = reg.installing || reg.waiting;
-            if (sw) {
-              const stateChange = () => {
-                if (sw.state === 'activated') {
-                  sw.removeEventListener('statechange', stateChange);
-                  resolve();
-                }
-              };
-              sw.addEventListener('statechange', stateChange);
-            } else {
-              resolve();
-            }
-          });
-        }
+        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        reg = await navigator.serviceWorker.ready;
       } else {
         throw new Error('Service Worker não suportado neste navegador.');
       }
@@ -516,23 +501,8 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
     try {
       let reg: ServiceWorkerRegistration;
-      reg = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-      if (!reg.active) {
-        await new Promise<void>((resolve) => {
-          const sw = reg.installing || reg.waiting;
-          if (sw) {
-            const stateChange = () => {
-              if (sw.state === 'activated') {
-                sw.removeEventListener('statechange', stateChange);
-                resolve();
-              }
-            };
-            sw.addEventListener('statechange', stateChange);
-          } else {
-            resolve();
-          }
-        });
-      }
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      reg = await navigator.serviceWorker.ready;
       
       let publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
       try {

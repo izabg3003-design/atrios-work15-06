@@ -362,6 +362,16 @@ async function startServer() {
       }
     }
 
+    const logPath = path.join(__dirname, 'subscribe_attempts.log');
+
+    // Registar tentativa no log físico persistente
+    try {
+      const attemptLine = `[${new Date().toISOString()}] ATTEMPT: userId=${userId || 'anonymous'}, endpoint=${subscription?.endpoint ? subscription.endpoint.slice(0, 60) + '...' : 'null'}\n`;
+      fs.appendFileSync(logPath, attemptLine, 'utf-8');
+    } catch (e) {
+      console.error('[PWA Subscribe] Erro ao gravar log físico:', e);
+    }
+
     console.log('[PWA Subscribe API] Recebida tentativa de registo de canal:', {
       hasSubscription: !!subscription,
       hasEndpoint: !!subscription?.endpoint,
@@ -370,6 +380,9 @@ async function startServer() {
     });
 
     if (!subscription || !subscription.endpoint) {
+      try {
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] ERROR: Assinatura inválida (endpoint em falta).\n`, 'utf-8');
+      } catch (e) {}
       return res.status(400).json({ error: 'Assinatura inválida (endpoint em falta).' });
     }
 
@@ -394,7 +407,15 @@ async function startServer() {
     saveSubscriptions(subs);
     
     // SALVAR PERSISTENTEMENTE EM SUPABASE (Garante que se desliga ou recarrega o servidor, a ligação continua activa!)
-    await syncSubscriptionToSupabase(subscriptionData);
+    try {
+      await syncSubscriptionToSupabase(subscriptionData);
+      fs.appendFileSync(logPath, `[${new Date().toISOString()}] SUCCESS: Register devId=${subscriptionData.id}, userId=${userId || 'anonymous'}, endpoint=${subscription.endpoint.slice(0, 60)}...\n`, 'utf-8');
+    } catch (dbErr: any) {
+      try {
+        fs.appendFileSync(logPath, `[${new Date().toISOString()}] DB_SYNC_ERROR: ${dbErr.message}\n`, 'utf-8');
+      } catch (e) {}
+      console.error('[PWA Subscribe] Erro ao gravar na BD:', dbErr);
+    }
 
     console.log(`[PWA Subscribe] Dispositivo registado nos canais com sucesso absoluto. ID: ${subscriptionData.id}`);
     res.json({ success: true, deviceId: subscriptionData.id });
@@ -476,6 +497,14 @@ async function startServer() {
         dbVapidRecords = [{ error: e.message }];
       }
 
+      let subscribeLogs: string[] = [];
+      const logPath = path.join(__dirname, 'subscribe_attempts.log');
+      if (fs.existsSync(logPath)) {
+        try {
+          subscribeLogs = fs.readFileSync(logPath, 'utf-8').split('\n').filter(Boolean).slice(-65);
+        } catch (e) {}
+      }
+
       res.json({
         success: true,
         serverMemoryVapidPublicKey: vapidKeys.publicKey,
@@ -490,6 +519,7 @@ async function startServer() {
         localSubscriptionsCount: localSubs.length,
         supabaseSubscriptionsCount: dbSubs.length,
         supabaseRawEndpoints: dbSubs.map(s => s.subscription.endpoint),
+        subscribeLogs,
         devices: dbSubs
       });
     } catch (err: any) {
