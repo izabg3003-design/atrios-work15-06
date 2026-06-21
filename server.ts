@@ -25,7 +25,7 @@ const SENT_IDS_FILE = path.join(__dirname, 'sent_push_ids.json');
 const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8';
 
-// A. INICIALIZAR E RECUPERAR CHAVES VAPID DA BASE DE DADOS (SUPABASE)
+// A. INICIALIZAR E RECUPERAR CHAVES VAPID DA BASE DE DADOS
 async function initVapidKeys() {
   const MASTER_PUBLIC_KEY = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
   const MASTER_PRIVATE_KEY = '6j5FNcDexsNTUsGe_4f2vVVtvrgXWXXofKkgiLzQhNQ';
@@ -33,79 +33,16 @@ async function initVapidKeys() {
   vapidKeys.publicKey = MASTER_PUBLIC_KEY;
   vapidKeys.privateKey = MASTER_PRIVATE_KEY;
 
-  // Sincronizar com Supabase para garantir que a tabela tenha sempre a chave estável Master correcta
-  try {
-    const checkUrl = `${supabaseUrl}/rest/v1/app_banners?title=eq.%5BSYSTEM_VAPID_KEYS_CONFIG%5D&limit=1`;
-    const response = await fetch(checkUrl, {
-      headers: {
-        'apikey': supabaseKey,
-        'Authorization': `Bearer ${supabaseKey}`
-      }
-    });
-
-    if (response.ok) {
-      const records = await response.json();
-      if (records && records.length > 0) {
-        const dbPubKey = records[0].highlight;
-        if (dbPubKey !== MASTER_PUBLIC_KEY) {
-          console.log('[Push Server] Chave legado detectada no Supabase. Atualizando para a Chave Master estável de produção...');
-          // Atualizar o registro legado existente para as chaves master
-          const updateUrl = `${supabaseUrl}/rest/v1/app_banners?id=eq.${records[0].id}`;
-          await fetch(updateUrl, {
-            method: 'PATCH',
-            headers: {
-              'apikey': supabaseKey,
-              'Authorization': `Bearer ${supabaseKey}`,
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              highlight: MASTER_PUBLIC_KEY,
-              subtitle: MASTER_PRIVATE_KEY,
-              is_active: true
-            })
-          });
-        } else {
-          console.log('[Push Server] Chave Master estável já registada e activa no Supabase!');
-        }
-        return;
-      }
-    }
-
-    // Se não existia nenhum registro, salvar novo
-    console.log('[Push Server] Registando nova configuração de Chaves Master estável no Supabase...');
-    const insertUrl = `${supabaseUrl}/rest/v1/app_banners`;
-    const postResp = await fetch(insertUrl, {
-      method: 'POST',
-      headers: {
-        'apikey': supabaseKey,
-        'Authorization': `Bearer ${supabaseKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        title: '[SYSTEM_VAPID_KEYS_CONFIG]',
-        highlight: MASTER_PUBLIC_KEY,
-        subtitle: MASTER_PRIVATE_KEY,
-        cta_text: 'system',
-        cta_link: 'system||user_type:push_notification',
-        theme_color: 'emerald',
-        is_active: true
-      })
-    });
-    if (postResp.ok) {
-      console.log('[Push Server] Chaves Master gravadas com sucesso na base de dados!');
-    }
-  } catch (err: any) {
-    console.error('[Push Server] Erro ao sincronizar Chaves Master com Supabase:', err.message);
-  }
+  console.log('[Push Server] Chave Master estável de produção inicializada localmente com sucesso absoluto!');
 }
 
-// B. CONTROLO DE DISPOSITIVOS EM BASE DE DADOS (SUPABASE)
+// B. CONTROLO DE DISPOSITIVOS EM BASE DE DADOS (SUPABASE - TABELA DEDICADA)
 async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) {
   try {
     const endpoint = container.subscription.endpoint;
     
-    // Verificar se já existe uma assinatura registada com esse endpoint (match exato e infalível pelo endpoint guardado no highlight)
-    const checkUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}&limit=1`;
+    // Verificar se já existe uma assinatura registada com esse endpoint na nova tabela push_subscriptions
+    const checkUrl = `${supabaseUrl}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}&limit=1`;
     const checkResp = await fetch(checkUrl, {
       headers: {
         'apikey': supabaseKey,
@@ -122,18 +59,17 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
     }
 
     const payload = {
-      title: `[DEVICE_SUB]_${container.id}`,
-      highlight: endpoint,
-      subtitle: JSON.stringify(container.subscription),
-      cta_text: container.userId || 'anonymous',
-      cta_link: `${container.isPro ? 'premium' : 'free'}||user_type:push_notification`,
-      theme_color: 'purple',
-      is_active: true
+      device_id: container.id,
+      endpoint: endpoint,
+      subscription: typeof container.subscription === 'string' ? container.subscription : JSON.stringify(container.subscription),
+      user_id: container.userId || 'anonymous',
+      is_pro: container.isPro,
+      updated_at: new Date().toISOString()
     };
 
     if (existingRowId) {
       // Atualizar record existente
-      const updateUrl = `${supabaseUrl}/rest/v1/app_banners?id=eq.${existingRowId}`;
+      const updateUrl = `${supabaseUrl}/rest/v1/push_subscriptions?id=eq.${existingRowId}`;
       await fetch(updateUrl, {
         method: 'PATCH',
         headers: {
@@ -143,10 +79,10 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
         },
         body: JSON.stringify(payload)
       });
-      console.log(`[Push DB Sync] Dispositivo atualizado na BD para o utilizador ${container.userId}`);
+      console.log(`[Push DB Sync] Dispositivo atualizado na BD push_subscriptions para o utilizador ${container.userId}`);
     } else {
       // Inserir novo record
-      const insertUrl = `${supabaseUrl}/rest/v1/app_banners`;
+      const insertUrl = `${supabaseUrl}/rest/v1/push_subscriptions`;
       await fetch(insertUrl, {
         method: 'POST',
         headers: {
@@ -156,7 +92,7 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
         },
         body: JSON.stringify(payload)
       });
-      console.log(`[Push DB Sync] Novo dispositivo inserido com sucesso na BD para o utilizador ${container.userId}`);
+      console.log(`[Push DB Sync] Novo dispositivo inserido com sucesso na BD push_subscriptions para o utilizador ${container.userId}`);
     }
   } catch (err: any) {
     console.error('[Push DB Sync] Falha ao sincronizar dispositivo com a BD do Supabase:', err.message);
@@ -165,7 +101,7 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
 
 async function deleteSubscriptionFromSupabase(endpoint: string) {
   try {
-    const deleteUrl = `${supabaseUrl}/rest/v1/app_banners?highlight=eq.${encodeURIComponent(endpoint)}`;
+    const deleteUrl = `${supabaseUrl}/rest/v1/push_subscriptions?endpoint=eq.${encodeURIComponent(endpoint)}`;
     await fetch(deleteUrl, {
       method: 'DELETE',
       headers: {
@@ -173,15 +109,15 @@ async function deleteSubscriptionFromSupabase(endpoint: string) {
         'Authorization': `Bearer ${supabaseKey}`
       }
     });
-    console.log('[Push DB Sync] Dispositivo obsoleto/removido limpo com segurança da BD.');
+    console.log('[Push DB Sync] Dispositivo obsoleto/removido limpo com segurança da BD push_subscriptions.');
   } catch (err: any) {
-    console.error('[Push DB Sync] Falha ao apagar dispositivo obsoleto da BD:', err.message);
+    console.error('[Push DB Sync] Falha ao apagar dispositivo obsoleto da BD push_subscriptions:', err.message);
   }
 }
 
 async function fetchSubscriptionsFromSupabase(): Promise<PushSubscriptionContainer[]> {
   try {
-    const fetchUrl = `${supabaseUrl}/rest/v1/app_banners?select=*`;
+    const fetchUrl = `${supabaseUrl}/rest/v1/push_subscriptions?select=*`;
     const response = await fetch(fetchUrl, {
       headers: {
         'apikey': supabaseKey,
@@ -191,22 +127,17 @@ async function fetchSubscriptionsFromSupabase(): Promise<PushSubscriptionContain
 
     if (response.ok) {
       const allRecords = await response.json();
-      const records = (allRecords || []).filter((r: any) => r.title && r.title.startsWith('[DEVICE_SUB]'));
       const subs: PushSubscriptionContainer[] = [];
       
-      for (const record of records) {
+      for (const record of allRecords) {
         try {
-          const subscription = JSON.parse(record.subtitle);
-          let cta_link = record.cta_link || '';
-          if (cta_link.includes('||user_type:')) {
-            cta_link = cta_link.split('||user_type:')[0];
-          }
+          const subscription = typeof record.subscription === 'string' ? JSON.parse(record.subscription) : record.subscription;
           subs.push({
-            id: record.title.replace('[DEVICE_SUB]_', ''),
+            id: record.device_id || `device_${record.id}`,
             subscription,
-            userId: record.cta_text || 'anonymous',
-            isPro: cta_link === 'premium',
-            updatedAt: record.created_at || new Date().toISOString()
+            userId: record.user_id || 'anonymous',
+            isPro: record.is_pro === true,
+            updatedAt: record.updated_at || record.created_at || new Date().toISOString()
           });
         } catch (e) {
           // Ignorado
@@ -215,7 +146,7 @@ async function fetchSubscriptionsFromSupabase(): Promise<PushSubscriptionContain
       return subs;
     }
   } catch (err: any) {
-    console.error('[Push DB Sync] Erro ao buscar lista de dispositvos PWA na BD:', err.message);
+    console.error('[Push DB Sync] Erro ao buscar lista de dispositvos PWA na BD push_subscriptions:', err.message);
   }
   return [];
 }
@@ -270,47 +201,33 @@ function savePushHistory(history: PushHistoryEntry[]) {
 }
 
 async function getUnifiedPushHistory(): Promise<PushHistoryEntry[]> {
-  const localHistory = loadPushHistory();
-  
-  // Se estiver vazia localmente, vamos ver se conseguimos recuperar algo de Supabase para manter tudo completo!
-  if (localHistory.length === 0) {
-    try {
-      const fetchUrl = `${supabaseUrl}/rest/v1/app_banners?select=*`;
-      const response = await fetch(fetchUrl, {
-        headers: {
-          'apikey': supabaseKey,
-          'Authorization': `Bearer ${supabaseKey}`
-        }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        const records = (data || []).filter((r: any) => r.title && r.title.startsWith('[PUSH]'));
-        const restored: PushHistoryEntry[] = records.map((r: any) => {
-          let userType = 'all';
-          let cta_link = r.cta_link || '';
-          if (cta_link.includes('||user_type:')) {
-            userType = cta_link.split('||user_type:')[1] || 'all';
-          }
-          return {
-            id: r.id?.toString() || `restored_${Date.now()}_${Math.random()}`,
-            title: r.title.replace('[PUSH]', '').trim(),
-            body: r.highlight || '',
-            userType: userType,
-            sentAt: r.created_at || new Date().toISOString(),
-            devicesNotified: 1
-          };
-        });
-        if (restored.length > 0) {
-          // Salvar localmente para cachear e unificar
-          savePushHistory(restored);
-          return restored;
-        }
+  try {
+    const fetchUrl = `${supabaseUrl}/rest/v1/push_notifications?select=*&order=created_at.asc`;
+    const response = await fetch(fetchUrl, {
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`
       }
-    } catch (e) {
-      console.warn('[Push Server] Erro ao carregar histórico legado de Supabase:', e);
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const restored: PushHistoryEntry[] = (data || []).map((r: any) => ({
+        id: r.id?.toString() || `push_${Date.now()}_${Math.random()}`,
+        title: r.title || '',
+        body: r.body || '',
+        userType: r.user_type || 'all',
+        sentAt: r.created_at || new Date().toISOString(),
+        devicesNotified: r.sent_count || 1
+      }));
+      if (restored.length > 0) {
+        savePushHistory(restored);
+        return restored;
+      }
     }
+  } catch (e) {
+    console.warn('[Push Server] Erro ao carregar histórico de Supabase a partir de push_notifications:', e);
   }
-  return localHistory;
+  return loadPushHistory();
 }
 
 function loadSentBannerIds(): string[] {
@@ -438,12 +355,38 @@ async function startServer() {
 
   // API 4: Rota de Notificação Manual de Administrador (Geral ou em Segmentos)
   app.post('/api/push/send-broadcast', async (req, res) => {
-    const { title, body, bannerId, userType } = req.body;
+    const { title, body, userType } = req.body;
     if (!title || !body) {
       return res.status(400).json({ error: 'Faltam campos essenciais no payload' });
     }
 
-    const totalSent = await deliverPushToDevices({ title, body, bannerId, userType });
+    const totalSent = await deliverPushToDevices({ title, body, userType });
+
+    // Salvar no histórico de Supabase na tabela dedicada de 'push_notifications'
+    try {
+      const response = await fetch(`${supabaseUrl}/rest/v1/push_notifications`, {
+        method: 'POST',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=representation'
+        },
+        body: JSON.stringify({
+          title: title.trim(),
+          body: body.trim(),
+          user_type: userType || 'all',
+          sent_count: totalSent,
+          is_active: true,
+          created_at: new Date().toISOString()
+        })
+      });
+      if (!response.ok) {
+        console.error('[Push Server] Erro ao salvar notificação no Supabase:', await response.text());
+      }
+    } catch (dbErr: any) {
+      console.error('[Push Server] Erro ao sincronizar nova notificação no Supabase:', dbErr.message);
+    }
 
     // Salvar no histórico físico de envio local para carregamento garantido
     try {
@@ -480,23 +423,6 @@ async function startServer() {
       const localSubs = loadSubscriptions();
       const dbSubs = await fetchSubscriptionsFromSupabase();
       
-      // Consultar VAPID directamente do Supabase para verificar duplicatas ou mismatches
-      let dbVapidRecords: any[] = [];
-      try {
-        const checkUrl = `${supabaseUrl}/rest/v1/app_banners?title=eq.%5BSYSTEM_VAPID_KEYS_CONFIG%5D`;
-        const checkResp = await fetch(checkUrl, {
-          headers: {
-            'apikey': supabaseKey,
-            'Authorization': `Bearer ${supabaseKey}`
-          }
-        });
-        if (checkResp.ok) {
-          dbVapidRecords = await checkResp.json();
-        }
-      } catch (e: any) {
-        dbVapidRecords = [{ error: e.message }];
-      }
-
       let subscribeLogs: string[] = [];
       const logPath = path.join(__dirname, 'subscribe_attempts.log');
       if (fs.existsSync(logPath)) {
@@ -509,13 +435,6 @@ async function startServer() {
         success: true,
         serverMemoryVapidPublicKey: vapidKeys.publicKey,
         serverMemoryVapidPrivateKeyLength: vapidKeys.privateKey ? vapidKeys.privateKey.length : 0,
-        supabaseVapidRecordsCount: dbVapidRecords.length,
-        supabaseVapidRecords: dbVapidRecords.map(r => ({
-          id: r.id,
-          created_at: r.created_at,
-          publicKey: r.highlight,
-          privateKeyLength: r.subtitle ? r.subtitle.length : 0
-        })),
         localSubscriptionsCount: localSubs.length,
         supabaseSubscriptionsCount: dbSubs.length,
         supabaseRawEndpoints: dbSubs.map(s => s.subscription.endpoint),
@@ -610,7 +529,7 @@ async function startServer() {
   // 4. SUPABASE SYNC LOOP - Monitoriza e despacha a cada 20 segundos
   setInterval(async () => {
     try {
-      const restUrl = `${supabaseUrl}/rest/v1/app_banners?is_active=eq.true&order=created_at.desc&limit=10`;
+      const restUrl = `${supabaseUrl}/rest/v1/push_notifications?is_active=eq.true&order=created_at.desc&limit=10`;
       const response = await fetch(restUrl, {
         headers: {
           'apikey': supabaseKey,
@@ -624,38 +543,22 @@ async function startServer() {
 
       const sentIds = loadSentBannerIds();
 
-      for (const banner of data) {
+      for (const msg of data) {
+        const idStr = msg.id.toString();
         // Ignorar se já despachado
-        if (sentIds.includes(banner.id)) continue;
+        if (sentIds.includes(idStr)) continue;
 
-        // Descompactar user_type
-        let user_type = 'all';
-        let cta_link = banner.cta_link || '';
-        if (cta_link.includes('||user_type:')) {
-          const parts = cta_link.split('||user_type:');
-          cta_link = parts[0];
-          user_type = parts[1];
-        }
-
-        const isPush = user_type === 'push_notification' || 
-                       banner.title.toUpperCase().includes('[PUSH]') || 
-                       (banner.highlight && banner.highlight.toUpperCase().includes('[PUSH]'));
-
-        if (banner.is_active && isPush) {
-          const cleanTitle = banner.title.replace('[PUSH]', '').replace('[push]', '').trim();
-          const cleanBody = `${banner.highlight || ''} ${banner.subtitle || ''}`.trim();
-
-          console.log(`[PWA DB Poller] Novo aviso detectado no painel: "${cleanTitle}". Disparando transmissão física...`);
+        if (msg.is_active) {
+          console.log(`[PWA DB Poller] Novo aviso detectado em push_notifications: "${msg.title}". Disparando transmissão física...`);
           
           await deliverPushToDevices({
-            title: cleanTitle,
-            body: cleanBody,
-            bannerId: banner.id,
-            userType: user_type
+            title: msg.title,
+            body: msg.body,
+            bannerId: idStr,
+            userType: msg.user_type
           });
         } else {
-          // Se for banner normal (visual e não push), registar como processado para não travar
-          saveSentBannerId(banner.id);
+          saveSentBannerId(idStr);
         }
       }
     } catch (err: any) {
