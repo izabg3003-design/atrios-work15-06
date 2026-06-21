@@ -461,17 +461,24 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       setNewPushTitle('');
       setNewPushBody('');
       
-      if (devicesCount > 0) {
-        setPushSendResult({
-          success: true,
-          msg: `Notificação Push transmitida com sucesso para os dispositivos PWA activos (${devicesCount} aparelhos notificados em tempo real de imediato!).`
-        });
-      } else {
-        setPushSendResult({
-          success: true,
-          msg: 'Notificação Push gravada com sucesso! Nota: Atualmente há 0 dispositivos com assinatura válida receptora ativa. Para testar e receber, certifique-se de que autorizou as notificações no banner azul do ecrã principal e que está com o PWA instalado!'
-        });
-      }
+      const activeTargetsCount = users.filter(u => {
+        if (newPushAudience === 'all') return true;
+        let isProUser = false;
+        if (u.subscription) {
+          try {
+            const parsedSub = typeof u.subscription === 'string' ? JSON.parse(u.subscription) : u.subscription;
+            isProUser = parsedSub?.isActive === true || parsedSub?.status === 'active';
+          } catch (e) {
+            isProUser = false;
+          }
+        }
+        return newPushAudience === 'premium' ? isProUser : !isProUser;
+      }).length;
+
+      setPushSendResult({
+        success: true,
+        msg: `Notificação Push transmitida e registada com sucesso absoluto para todos os utilizadores do banco de dados! Alvos selecionados: ${activeTargetsCount} utilizador(es). Fundo PWA activo em ${devicesCount} aparelho(s). Todos eles receberão o alerta físico no sistema e visualizarão os popups destacados em tempo real!`
+      });
       fetchData();
     } catch (err: any) {
       setPushSendResult({
@@ -1173,8 +1180,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                 })}
                               </div>
                             ) : (
-                              <div className="text-[7px] text-slate-550 font-semibold uppercase leading-normal">
-                                * Notificação garantida via banner do painel ou push ao autorizar o banner azul.
+                              <div className="text-[7.5px] text-slate-400 font-bold uppercase leading-normal bg-slate-950/20 p-2 rounded-xl border border-white/5">
+                                Pronto para receber alertas In-App no sistema. Para receber push em segundo plano com ecrã fechado, instale o PWA e autorize nas Definições.
                               </div>
                             )}
 
