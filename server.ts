@@ -472,7 +472,8 @@ async function startServer() {
         })),
         localSubscriptionsCount: localSubs.length,
         supabaseSubscriptionsCount: dbSubs.length,
-        supabaseRawEndpoints: dbSubs.map(s => s.subscription.endpoint)
+        supabaseRawEndpoints: dbSubs.map(s => s.subscription.endpoint),
+        devices: dbSubs
       });
     } catch (err: any) {
       res.status(500).json({ error: err.message });

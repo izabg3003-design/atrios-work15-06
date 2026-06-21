@@ -484,7 +484,33 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   // Pedir Permissão de Notificações
   const requestPermission = async () => {
     if (!('Notification' in window)) {
-      alert('As notificações não são suportadas por este navegador.');
+      alert('⚠️ O seu navegador ou dispositivo atual não oferece suporte ao sistema de Notificações Web Push (PWA).');
+      return;
+    }
+
+    if (Notification.permission === 'denied') {
+      alert(
+        '⚠️ Permissão Bloqueada no Navegador!\n\n' +
+        'O seu navegador já bloqueou as notificações para este site anteriormente.\n\n' +
+        'Como resolver:\n' +
+        '1. Clique no ícone de "CADEADO" ou "CONFIGURAÇÕES DE SITE" à esquerda do endereço do site (URL) no topo do navegador.\n' +
+        '2. Mude a opção "Notificações" de "Bloquear" para "Permitir" / "Autorizar".\n' +
+        '3. Recarregue a página e tente novamente.'
+      );
+      return;
+    }
+
+    // Verificar se está dentro de um frame de pré-visualização (iframe) de desenvolvimento
+    const isInsideIframe = window.self !== window.top;
+    if (isInsideIframe) {
+      alert(
+        '⚠️ Bloqueio de Segurança do Navegador (Iframe)!\n\n' +
+        'Não é possível autorizar notificações nativas dentro da janela de pré-visualização do desenvolvedor.\n\n' +
+        'Como testar com sucesso:\n' +
+        '1. Abra o aplicativo numa nova aba de navegação real usando o link no topo.\n' +
+        '2. No ecrã principal ou em "Definições/Configurações", clique para autorizar.\n' +
+        '3. O seu dispositivo será registado imediatamente.'
+      );
       return;
     }
 
@@ -496,12 +522,18 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       if (permission === 'granted') {
         triggerNativePush(
           '🔔 Notificações Ativas!',
-          'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
+          'Excelente! O seu dispositivo foi emparelhado e receberá alertas em segundo plano.'
         );
-        syncPushSubscription();
+        await syncPushSubscription();
+        alert('🎉 Excelente! Permissão concedida com sucesso. O seu dispositivo está registado e ativo para receber notificações push!');
+      } else if (permission === 'denied') {
+        alert(
+          '⚠️ Permissão Recusada!\n\n' +
+          'Se deseja receber notificações no seu tlm/computador, clique no cadeado à esquerda do endereço (URL) do site e altere as permissões de notificação para "Permitir".'
+        );
       }
-    } catch (err) {
-      console.error('Erro ao pedir permissão de notificações:', err);
+    } catch (err: any) {
+      alert(`⚠️ Erro ao solicitar permissão de notificações: ${err.message || err}`);
     }
   };
 

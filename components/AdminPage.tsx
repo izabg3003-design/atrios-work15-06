@@ -55,6 +55,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [supportStaff, setSupportStaff] = useState<UserProfile[]>([]);
   const [banners, setBanners] = useState<AppBanner[]>([]);
   const [pushHistory, setPushHistory] = useState<any[]>([]);
+  const [registeredDevices, setRegisteredDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -230,6 +231,17 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             }
           } catch (hErr) {
             console.warn('Erro ao obter histórico de push no painel de administração:', hErr);
+          }
+
+          // Buscar dispositivos registados no backend
+          try {
+            const dResp = await fetch('/api/push/debug');
+            if (dResp.ok) {
+              const dData = await dResp.json();
+              setRegisteredDevices(dData.devices || []);
+            }
+          } catch (dErr) {
+            console.warn('Erro ao obter dispositivos registados no painel de administração:', dErr);
           }
         }
       }
@@ -1024,6 +1036,131 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       )}
                     </div>
                   </div>
+                </div>
+
+                {/* NOVO: Painel de Diagnóstico e Dispositivos Registados */}
+                <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 relative overflow-hidden text-left">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-2xl flex items-center justify-center border border-indigo-500/20 shrink-0">
+                        <Smartphone className="w-6 h-6" />
+                      </div>
+                      <div className="text-left font-sans">
+                        <h4 className="text-xs font-black text-white uppercase tracking-widest">Dispositivos Receptores Web Push Registados ({registeredDevices.length})</h4>
+                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-1 leading-normal">
+                          Estes são os aparelhos que registaram assinaturas VAPID reais e receberão fisicamente as notificações push de fundo, mesmo fechados!
+                        </p>
+                      </div>
+                    </div>
+                    {/* Botão de Atualizar e Forçar Subscrição */}
+                    <div className="flex gap-2 flex-wrap shrink-0">
+                      <button
+                        onClick={fetchData}
+                        type="button"
+                        className="px-4 py-2 bg-slate-900 border border-white/5 rounded-xl text-[9px] font-black uppercase text-slate-300 hover:text-white tracking-wider flex items-center gap-1.5 transition-all text-center"
+                      >
+                        <RefreshCw className="w-3 h-3" /> Atualizar Lista
+                      </button>
+                      <button
+                        onClick={triggerResubscribe}
+                        type="button"
+                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-[1.02] rounded-xl text-[9px] font-black uppercase text-white tracking-wider flex items-center gap-1.5 shadow-lg shadow-indigo-600/10 transition-all text-center"
+                      >
+                        <BellRing className="w-3 h-3" /> Assinar Este Aparelho
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="border-t border-slate-900/60 my-4" />
+
+                  {/* Informação sobre limitações de Teste no Iframe */}
+                  {isInIframe && (
+                    <div className="p-5 bg-amber-500/10 border border-amber-500/20 rounded-3xl flex gap-4 items-start text-left font-sans animate-pulse">
+                      <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                      <div className="space-y-1">
+                        <h5 className="text-[10px] font-black uppercase tracking-wider text-amber-400">🚨 Atenção: Está a correr o aplicativo dentro de um Iframe!</h5>
+                        <p className="text-[9px] font-semibold text-slate-400 leading-normal uppercase">
+                          Os navegadores modernos (Google Chrome, Safari, Firefox) bloqueiam completamente solicitações de permissão push de dentro de iframes para evitar spam.
+                          <strong> O botão "Autorizar Push" não fará nada ou falhará enquanto estiver no ambiente web do AI Studio.</strong>
+                        </p>
+                        <button
+                          onClick={() => window.open(window.location.origin, '_blank')}
+                          type="button"
+                          className="mt-2 px-4 py-1.5 bg-amber-500 text-slate-950 rounded-lg text-[8px] font-black uppercase tracking-wider hover:bg-amber-400 active:scale-95 transition-all inline-block"
+                        >
+                          Clique Aqui para Abrir a Aplicação Numa Nova Aba de Navegação Real
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Lista de Dispositivos */}
+                  {registeredDevices.length === 0 ? (
+                    <div className="py-12 flex flex-col items-center justify-center space-y-4 border-2 border-dashed border-slate-900 rounded-[2rem] text-center p-8 font-sans">
+                      <BellRing className="w-12 h-12 text-slate-800 animate-bounce" />
+                      <div className="max-w-md space-y-1">
+                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nenhum Dispositivo Conetado Ainda</p>
+                        <p className="text-[9px] text-slate-500 leading-normal uppercase font-bold">
+                          Para testar do telemóvel ou computador, clique no botão azul do ecrã principal para autorizar notificações (ou vá a "Definições") acedendo ao link direto fora do ecrã do AI Studio!
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 font-sans text-left">
+                      {registeredDevices.map((dev) => {
+                        const endpoint = dev.subscription?.endpoint || '';
+                        let brand = 'Servidor WebPush';
+                        let brandColor = 'text-indigo-400 bg-indigo-500/10 border-indigo-550/20';
+                        if (endpoint.includes('fcm.googleapis.com')) {
+                          brand = 'Google Chrome / Android';
+                          brandColor = 'text-green-400 bg-green-500/10 border-green-500/20';
+                        } else if (endpoint.includes('apple.com')) {
+                          brand = 'iOS Safari / macOS';
+                          brandColor = 'text-sky-400 bg-sky-500/10 border-sky-500/20';
+                        } else if (endpoint.includes('mozilla.com')) {
+                          brand = 'Mozilla Firefox';
+                          brandColor = 'text-amber-400 bg-amber-500/10 border-amber-500/20';
+                        }
+
+                        // Lookup user profile by id if any
+                        const matchingUser = users.find(u => u.id === dev.userId);
+                        const userName = matchingUser ? matchingUser.name : (dev.userId === 'anonymous' ? 'Visitante Anónimo' : dev.userId);
+                        const userMail = matchingUser ? matchingUser.email : null;
+
+                        return (
+                          <div key={dev.id} className="p-5 bg-slate-900 border border-white/5 rounded-3xl hover:border-slate-800 transition-all flex flex-col justify-between gap-4">
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-start gap-2">
+                                <span className={`px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-wider border ${brandColor}`}>
+                                  {brand}
+                                </span>
+                                <span className="text-[7.5px] font-mono text-slate-500 font-bold uppercase">
+                                  {dev.isPro ? '💎 Pro Client' : '💤 Free Client'}
+                                </span>
+                              </div>
+                              <div className="space-y-0.5">
+                                <h5 className="text-[10px] font-black text-white uppercase tracking-wider truncate">
+                                  {userName}
+                                </h5>
+                                {userMail && (
+                                  <p className="text-[8px] font-bold text-slate-500 uppercase truncate">
+                                    {userMail}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex justify-between items-center border-t border-white/5 pt-3">
+                              <span className="text-[7px] font-bold text-slate-500 uppercase font-sans">Sincronizado:</span>
+                              <span className="text-[7.5px] font-mono text-white/80 font-bold">
+                                {new Date(dev.updatedAt || Date.now()).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Ajuda/Avisos de Webhooks legados preservados */}
