@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v6.0';
+const CACHE_NAME = 'atrioswork-v7.0';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -85,30 +85,38 @@ self.addEventListener('fetch', (event) => {
 
 // Suporte para Receber Notificações Push Locais ou de Servidor (Push API nativo)
 self.addEventListener('push', (event) => {
-  let data = { title: 'Send Push', body: 'Nova notificação do sistema!' };
+  let data = { title: 'Nova Notificação', body: 'Mensagem recebida.' };
   if (event.data) {
     try {
       data = event.data.json();
     } catch (e) {
-      data = { title: 'Send Push', body: event.data.text() };
+      try {
+        data = { title: 'Notificação', body: event.data.text() || '' };
+      } catch (err) {}
     }
   }
 
   const origin = self.location.origin;
-  const options = {
-    body: data.body,
+  const showPromise = self.registration.showNotification(data.title || 'AtriosWork', {
+    body: data.body || '',
     icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
     badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
     vibrate: [200, 100, 200],
     data: data.url || '/',
     actions: [
-      { action: 'open', title: 'Ver App' }
+      { action: 'open', title: 'Abrir App' }
     ]
-  };
+  }).catch((err) => {
+    console.warn('[Service Worker] Falha ao exibir com opções ricas (específico de iOS/Safari/Mobile sem suporte total), exibindo simplificado:', err);
+    return self.registration.showNotification(data.title || 'AtriosWork', {
+      body: data.body || '',
+      icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+      badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+      data: data.url || '/'
+    });
+  });
 
-  event.waitUntil(
-    self.registration.showNotification(data.title, options)
-  );
+  event.waitUntil(showPromise);
 });
 
 // Lidar com o toque ou clique na notificação push
