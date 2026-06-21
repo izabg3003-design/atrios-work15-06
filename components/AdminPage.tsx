@@ -134,22 +134,14 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
   const triggerResubscribe = async () => {
     if (typeof window !== 'undefined') {
-      if ('Notification' in window) {
-        try {
-          const permission = await Notification.requestPermission();
-          setClientPermission(permission);
-          if (permission === 'granted') {
-            window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
-            // Refresh diagnostic states after a tiny delay
-            setTimeout(() => {
-              setClientPermission(Notification.permission);
-              fetchData();
-            }, 1000);
-          }
-        } catch (err) {
-          console.error(err);
+      window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
+      // Atualizar dados do painel reativamente à medida que o canal sincroniza
+      setTimeout(() => {
+        if ('Notification' in window) {
+          setClientPermission(Notification.permission);
         }
-      }
+        fetchData();
+      }, 5000);
     }
   };
 

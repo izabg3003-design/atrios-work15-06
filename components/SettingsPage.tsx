@@ -42,59 +42,16 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
   }, []);
 
   const handleRequestNotifPermission = async () => {
-    if (typeof window === 'undefined' || !('Notification' in window)) {
-      alert('⚠️ O seu navegador ou dispositivo atual não oferece suporte ao sistema de Notificações Web Push (PWA).');
-      return;
-    }
-
-    if (Notification.permission === 'denied') {
-      alert(
-        '⚠️ Permissão Bloqueada no Navegador!\n\n' +
-        'O seu navegador já bloqueou as notificações para este site anteriormente.\n\n' +
-        'Como resolver:\n' +
-        '1. Clique no ícone de "CADEADO" ou "CONFIGURAÇÕES DE SITE" à esquerda do endereço do site (URL) no topo do navegador.\n' +
-        '2. Mude a opção "Notificações" de "Bloquear" para "Permitir" / "Autorizar".\n' +
-        '3. Recarregue a página e tente novamente.'
-      );
-      return;
-    }
-
-    // Verificar se está dentro de um frame de pré-visualização (iframe) de desenvolvimento
-    const isInsideIframe = window.self !== window.top;
-    if (isInsideIframe) {
-      alert(
-        '⚠️ Bloqueio de Segurança do Navegador (Iframe)!\n\n' +
-        'Não é possível autorizar notificações nativas dentro da janela de pré-visualização do desenvolvedor.\n\n' +
-        'Como testar com sucesso:\n' +
-        '1. Abra o aplicativo numa nova aba de navegação real usando o link no topo.\n' +
-        '2. No ecrã principal ou em "Definições", clique para autorizar.\n' +
-        '3. O seu dispositivo será registado imediatamente.'
-      );
-      return;
-    }
-
-    setIsSyncingPush(true);
-    try {
-      const permission = await Notification.requestPermission();
-      setNotifPermission(permission);
-      
-      if (permission === 'granted') {
-        // Enviar evento global para o PushNotificationManager subscrever/sincronizar imediatamente
-        window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
-        alert('🎉 Excelente! Permissão de notificações concedida com sucesso. O seu dispositivo está agora registado para receber avisos físicos, mesmo fechado!');
-      } else if (permission === 'denied') {
-        alert(
-          '⚠️ Permissão Recusada!\n\n' +
-          'Se quer receber alertas e avisos físicos no seu tlm/computador, por favor clique no cadeado à esquerda do endereço (URL) do site e altere as permissões de notificação para "Permitir".'
-        );
-      } else {
-        alert('As notificações continuam no estado padrão. Certifique-se de aceitar o pedido do sistema se ele aparecer.');
+    // Despacha o evento global para abrir o Assistente Guiado de Sincronização Push do PWA
+    window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
+    
+    // Atualizar permissão de forma reativa a cada segundo se o usuário mudar
+    const interval = setInterval(() => {
+      if (typeof window !== 'undefined' && 'Notification' in window) {
+        setNotifPermission(Notification.permission);
       }
-    } catch (err: any) {
-      alert(`⚠️ Erro ao solicitar permissão de notificações: ${err.message}`);
-    } finally {
-      setIsSyncingPush(false);
-    }
+    }, 1500);
+    setTimeout(() => clearInterval(interval), 10000);
   };
 
   const handleForceRegistration = () => {
