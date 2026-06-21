@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles } from 'lucide-react';
+import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles, Bell, BellRing } from 'lucide-react';
 import { UserProfile, Language, Currency } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -25,6 +25,53 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
   const [passwords, setPasswords] = useState({ new: '', confirm: '' });
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
   const [passUpdateSuccess, setPassUpdateSuccess] = useState(false);
+
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission>('default');
+  const [hasSW, setHasSW] = useState(false);
+  const [isSyncingPush, setIsSyncingPush] = useState(false);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'Notification' in window) {
+      setNotifPermission(Notification.permission);
+    }
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistration().then(reg => {
+        setHasSW(!!reg);
+      });
+    }
+  }, []);
+
+  const handleRequestNotifPermission = async () => {
+    if (typeof window === 'undefined' || !('Notification' in window)) {
+      alert('As notificações não são suportadas por este navegador ou aparelho.');
+      return;
+    }
+
+    setIsSyncingPush(true);
+    try {
+      const permission = await Notification.requestPermission();
+      setNotifPermission(permission);
+      
+      if (permission === 'granted') {
+        // Enviar evento global para o PushNotificationManager subscrever/sincronizar imediatamente
+        window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
+        alert('Excelente! Permissão de notificações concedida com sucesso. O seu dispositivo está agora registado para receber avisos físicos.');
+      } else if (permission === 'denied') {
+        alert('As notificações foram negadas. Se deseja receber notificações, por favor clique no ícone do cadeado à esquerda do endereço do site (URL) no seu navegador, altere a permissão para "Permitir" e tente novamente.');
+      } else {
+        alert('As notificações continuam no estado padrão. Certifique-se de aceitar o pedido do sistema.');
+      }
+    } catch (err: any) {
+      alert(`Erro ao solicitar permissão de notificações: ${err.message}`);
+    } finally {
+      setIsSyncingPush(false);
+    }
+  };
+
+  const handleForceRegistration = () => {
+    window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
+    alert('Tentativa de sincronizar subscrição imediata enviada ao Service Worker. Se já concedeu permissões, o seu dispositivo foi emparelhado agora!');
+  };
 
   useEffect(() => { 
     setFormUser({
@@ -357,6 +404,87 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
             >
               Baixar Agora
             </button>
+          </div>
+
+          {/* SECÇÃO NOTIFICAÇÕES WEB PUSH (NOVO) */}
+          <div className="bg-slate-800/20 border border-slate-800 p-8 rounded-[2.5rem] space-y-6 shadow-xl relative">
+            <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center shrink-0 border border-blue-500/20 shadow-inner">
+                  <Bell className="w-6 h-6" />
+                </div>
+                <div className="text-left">
+                  <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                    Notificações Web Push (PWA)
+                  </h4>
+                  <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 leading-normal">
+                    Gerencie o recebimento de alertas físicos diretamente no seu computador ou telemóvel.
+                  </p>
+                </div>
+              </div>
+
+              {/* Status Badge */}
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <span className="text-[9px] font-black uppercase text-slate-500 tracking-wider">Permissão:</span>
+                {notifPermission === 'granted' ? (
+                  <span className="px-3 py-1 bg-green-500/20 border border-green-500/30 text-green-400 text-[8px] font-black rounded-full uppercase tracking-widest animate-pulse">
+                    Ativa / Autorizada
+                  </span>
+                ) : notifPermission === 'denied' ? (
+                  <span className="px-3 py-1 bg-rose-500/20 border border-rose-500/30 text-rose-400 text-[8px] font-black rounded-full uppercase tracking-widest">
+                    Bloqueada
+                  </span>
+                ) : (
+                  <span className="px-3 py-1 bg-amber-500/20 border border-amber-500/30 text-amber-400 text-[8px] font-black rounded-full uppercase tracking-widest">
+                    Padrão / Desativa
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="border-t border-slate-800/60 my-4" />
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {/* Box Informações */}
+              <div className="p-5 bg-slate-950/60 rounded-3xl border border-white/5 space-y-3">
+                <h5 className="text-[10px] font-black text-blue-400 uppercase tracking-widest">Estado da Célula local</h5>
+                <div className="space-y-2 text-[9px] uppercase tracking-wider font-bold text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Navegador Compatível:</span>
+                    <span className="text-white">Sim ({'Notification' in window ? 'Push API' : 'Sem Suporte'})</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Cérebro (Service Worker):</span>
+                    <span className={hasSW ? 'text-green-400' : 'text-amber-400'}>
+                      {hasSW ? 'Ativo e Operacional' : 'Em Registo...'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Box Dica de Depuração */}
+              <div className="p-5 bg-blue-950/20 rounded-3xl border border-blue-900/30 text-[9px] leading-relaxed uppercase tracking-wider font-bold text-slate-400 flex flex-col justify-center">
+                <span className="text-blue-400 font-black mb-1 block">⚠️ Atenção à Pré-Visualização!</span>
+                Caso esteja a testar de dentro da janela (iframe) do desenvolvedor, os navegadores bloqueiam solicitações de permissão por segurança. <span className="text-white underline cursor-pointer" onClick={() => window.open(window.location.origin, '_blank')}>Clique aqui para abrir este projeto numa nova aba de navegação real</span> para registar as suas subscrições push com sucesso!
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={handleRequestNotifPermission}
+                disabled={isSyncingPush}
+                className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black rounded-2xl text-[10px] tracking-widest uppercase shadow-lg shadow-blue-600/10 transition-all hover:scale-[1.02] active:scale-95 duration-150 text-center"
+              >
+                {isSyncingPush ? 'A Solicitar...' : 'Pedir Permissão Manual de Notificação'}
+              </button>
+
+              <button
+                onClick={handleForceRegistration}
+                className="flex-1 py-4 bg-slate-950 border border-slate-800 text-slate-300 hover:text-white font-black rounded-2xl text-[10px] tracking-widest uppercase transition-all hover:bg-slate-900 text-center"
+              >
+                Sincronizar Assinatura PWA
+              </button>
+            </div>
           </div>
         </div>
       </div>
