@@ -232,7 +232,7 @@
     <!-- Service Worker Registration Fixed for TWA/Store -->
     <script>
       if ('serviceWorker' in navigator) {
-        window.addEventListener('load', () => {
+        const registerSW = () => {
           // Unregister any old service workers that are NOT /sw.js to prevent conflicts
           navigator.serviceWorker.getRegistrations().then(registrations => {
             for (let registration of registrations) {
@@ -253,7 +253,13 @@
           }).catch(err => {
             console.warn('Registro de SW ignorado ou falhou:', err.message);
           });
-        });
+        };
+
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+          registerSW();
+        } else {
+          window.addEventListener('load', registerSW);
+        }
       }
     </script>
 </body>

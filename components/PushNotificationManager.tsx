@@ -426,7 +426,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          subscription,
+          subscription: subscription.toJSON ? subscription.toJSON() : subscription,
           userId: user.id || 'anonymous',
           isPro: !!isPro
         })

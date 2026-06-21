@@ -61,7 +61,7 @@ async function initVapidKeys() {
             body: JSON.stringify({
               highlight: MASTER_PUBLIC_KEY,
               subtitle: MASTER_PRIVATE_KEY,
-              is_active: false
+              is_active: true
             })
           });
         } else {
@@ -88,7 +88,7 @@ async function initVapidKeys() {
         cta_text: 'system',
         cta_link: 'system||user_type:push_notification',
         theme_color: 'emerald',
-        is_active: false
+        is_active: true
       })
     });
     if (postResp.ok) {
@@ -128,7 +128,7 @@ async function syncSubscriptionToSupabase(container: PushSubscriptionContainer) 
       cta_text: container.userId || 'anonymous',
       cta_link: `${container.isPro ? 'premium' : 'free'}||user_type:push_notification`,
       theme_color: 'purple',
-      is_active: false
+      is_active: true
     };
 
     if (existingRowId) {
