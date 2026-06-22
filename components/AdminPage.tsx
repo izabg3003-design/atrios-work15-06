@@ -214,27 +214,78 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           }
           
           // Buscar histórico estável e unificado diretamente do nosso backend expresso (100% livre de RLS Rígido)
+          let historyLoaded = false;
           try {
             const hResp = await fetch('/api/push/history');
-            if (hResp.ok) {
+            if (hResp.ok && hResp.headers.get('content-type')?.includes('application/json')) {
               const hData = await hResp.json();
-              if (hData.success) {
+              if (hData && hData.success) {
                 setPushHistory(hData.history || []);
+                historyLoaded = true;
               }
             }
           } catch (hErr) {
-            console.warn('Erro ao obter histórico de push no painel de administração:', hErr);
+            console.warn('Erro ao obter histórico de push no painel de administração da API:', hErr);
+          }
+
+          // Fallback de carregamento de histórico direto por Supabase (Para ambientes estáticos de produção)
+          if (!historyLoaded) {
+            try {
+              const { data: fallbackData, error: fallbackErr } = await supabase
+                .from('push_notifications')
+                .select('*')
+                .order('created_at', { ascending: false });
+              
+              if (!fallbackErr && fallbackData) {
+                const formattedHistory = fallbackData.map((item: any) => ({
+                  id: item.id?.toString() || `push_${Date.now()}`,
+                  title: item.title,
+                  body: item.body,
+                  userType: item.user_type || 'all',
+                  sentAt: item.created_at,
+                  devicesNotified: item.sent_count || 0
+                }));
+                setPushHistory(formattedHistory);
+              }
+            } catch (fallbackErr) {
+              console.error('Falha no fallback de histórico de notificações:', fallbackErr);
+            }
           }
 
           // Buscar dispositivos registados no backend
+          let devicesLoaded = false;
           try {
             const dResp = await fetch('/api/push/debug');
-            if (dResp.ok) {
+            if (dResp.ok && dResp.headers.get('content-type')?.includes('application/json')) {
               const dData = await dResp.json();
-              setRegisteredDevices(dData.devices || []);
+              if (dData && dData.devices) {
+                setRegisteredDevices(dData.devices || []);
+                devicesLoaded = true;
+              }
             }
           } catch (dErr) {
-            console.warn('Erro ao obter dispositivos registados no painel de administração:', dErr);
+            console.warn('Erro ao obter dispositivos registados no painel de administração da API:', dErr);
+          }
+
+          // Fallback de carregamento de dispositivos registados direto por Supabase (Para ambientes estáticos de produção)
+          if (!devicesLoaded) {
+            try {
+              const { data: fallbackDevs, error: fallbackDevsErr } = await supabase
+                .from('push_subscriptions')
+                .select('*');
+              
+              if (!fallbackDevsErr && fallbackDevs) {
+                const formattedDevices = fallbackDevs.map((item: any) => ({
+                  id: item.device_id || `device_${item.id}`,
+                  userId: item.user_id || 'anonymous',
+                  isPro: item.is_pro || false,
+                  updatedAt: item.updated_at || new Date().toISOString()
+                }));
+                setRegisteredDevices(formattedDevices);
+              }
+            } catch (fallbackDevsErr) {
+              console.error('Falha no fallback de dispositivos de subscrição:', fallbackDevsErr);
+            }
           }
         }
       }
@@ -446,9 +497,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
           })
         });
-        if (pushResponse.ok) {
-          const pushResponseData = await pushResponse.json();
-          devicesCount = pushResponseData.totalDevicesNotified || 0;
+        if (pushResponse.ok && pushResponse.headers.get('content-type')?.includes('application/json')) {
+          try {
+            const pushResponseData = await pushResponse.json();
+            devicesCount = pushResponseData.totalDevicesNotified || 0;
+          } catch (jsonErr) {
+            console.warn('Erro ao ler JSON de broadcast:', jsonErr);
+          }
         }
       } catch (pushErr) {
         console.warn('Erro ao disparar direto por API VAPID, fallback de DB síncrono ativo:', pushErr);

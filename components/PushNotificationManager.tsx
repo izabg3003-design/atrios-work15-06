@@ -416,10 +416,14 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       let publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE'; // MASTER_PUBLIC_KEY
       try {
         const keyResp = await fetch('/api/push/public-key');
-        if (keyResp.ok) {
-          const keyData = await keyResp.json();
-          if (keyData.publicKey) {
-            publicKey = keyData.publicKey;
+        if (keyResp.ok && keyResp.headers.get('content-type')?.includes('application/json')) {
+          try {
+            const keyData = await keyResp.json();
+            if (keyData && keyData.publicKey) {
+              publicKey = keyData.publicKey;
+            }
+          } catch (jsonErr) {
+            console.warn('[Push Guided] Falha ao ler JSON da chave pública:', jsonErr);
           }
         }
       } catch (err) {
@@ -507,9 +511,15 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       let publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
       try {
         const keyResp = await fetch('/api/push/public-key');
-        if (keyResp.ok) {
-          const keyData = await keyResp.json();
-          if (keyData.publicKey) publicKey = keyData.publicKey;
+        if (keyResp.ok && keyResp.headers.get('content-type')?.includes('application/json')) {
+          try {
+            const keyData = await keyResp.json();
+            if (keyData && keyData.publicKey) {
+              publicKey = keyData.publicKey;
+            }
+          } catch (jsonErr) {
+            console.warn('[Push Auto] Falha ao ler JSON da chave pública:', jsonErr);
+          }
         }
       } catch (err) {}
 
