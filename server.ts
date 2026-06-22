@@ -309,7 +309,7 @@ async function startServer() {
   };
 
   app.use(cors(corsOptions));
-  app.options('*', cors(corsOptions));
+  app.options('*all', cors(corsOptions));
 
   // PRIMEIRA FASE: Garantir chaves VAPID estáveis e idênticas no arranque (Lê de Supabase/Arquivo)
   await initVapidKeys();
