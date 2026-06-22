@@ -180,7 +180,7 @@ async function checkNewPushesInBackground() {
     const config = await readFromCache('config');
     if (!config || !config.supabaseUrl || !config.supabaseKey) return;
 
-    const fetchUrl = `${config.supabaseUrl}/rest/v1/push_notifications?is_active=eq.true&order=created_at.desc`;
+    const fetchUrl = `${config.supabaseUrl}/rest/v1/app_banners?is_active=eq.true&order=created_at.desc`;
     const response = await fetch(fetchUrl, {
       headers: {
         'apikey': config.supabaseKey,
@@ -192,10 +192,32 @@ async function checkNewPushesInBackground() {
     const data = await response.json();
     if (!data || data.length === 0) return;
 
+    // Utiliza a mesma lógica de descompatibilização do cta_link e user_type
+    const parsedBanners = data.map(dbBanner => {
+      let user_type = 'all';
+      let cta_link = dbBanner.cta_link || '';
+
+      if (cta_link.includes('||user_type:')) {
+        const parts = cta_link.split('||user_type:');
+        cta_link = parts[0];
+        user_type = parts[1];
+      }
+
+      return {
+        ...dbBanner,
+        cta_link,
+        user_type
+      };
+    });
+
     const targetType = config.isPro ? 'premium' : 'free';
-    const pushes = data.filter(b => {
-      const isAudienceMatch = b.user_type === 'all' || b.user_type === targetType || b.user_type === 'push_notification' || b.user_type === 'public';
-      return b.is_active && isAudienceMatch;
+    const pushes = parsedBanners.filter(b => {
+      const isPush = b.user_type === 'push_notification' || 
+                     b.title.toUpperCase().includes('[PUSH]') || 
+                     (b.highlight && b.highlight.toUpperCase().includes('[PUSH]'));
+      
+      const isAudienceMatch = b.user_type === 'all' || b.user_type === targetType || b.user_type === 'push_notification';
+      return b.is_active && isPush && isAudienceMatch;
     });
 
     if (pushes.length === 0) return;
@@ -205,8 +227,11 @@ async function checkNewPushesInBackground() {
 
     if (freshPushes.length > 0) {
       for (const freshPush of freshPushes) {
-        await self.registration.showNotification(freshPush.title || 'Aviso AtriosWork', {
-          body: freshPush.body || '',
+        const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
+        const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
+
+        await self.registration.showNotification(cleanTitle, {
+          body: cleanBody,
           icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
           badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
           vibrate: [200, 100, 200],

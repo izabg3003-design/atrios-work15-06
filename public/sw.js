@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v7.0';
+const CACHE_NAME = 'atrioswork-v6.0';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -85,46 +85,30 @@ self.addEventListener('fetch', (event) => {
 
 // Suporte para Receber Notificações Push Locais ou de Servidor (Push API nativo)
 self.addEventListener('push', (event) => {
-  event.waitUntil((async () => {
-    let data = { title: 'Nova Notificação', body: 'Mensagem recebida.' };
-    if (event.data) {
-      try {
-        data = event.data.json();
-      } catch (e) {
-        try {
-          data = { title: 'Notificação', body: event.data.text() || '' };
-        } catch (err) {}
-      }
-    }
-
-    const origin = self.location.origin;
+  let data = { title: 'Send Push', body: 'Nova notificação do sistema!' };
+  if (event.data) {
     try {
-      // Tentar mostrar com todas as opções (Ícone, Vibração, Ações)
-      await self.registration.showNotification(data.title || 'AtriosWork', {
-        body: data.body || '',
-        icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-        badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-        vibrate: [200, 100, 200],
-        data: data.url || '/',
-        actions: [
-          { action: 'open', title: 'Abrir App' }
-        ]
-      });
-    } catch (richError) {
-      console.warn('[Service Worker] Falha ao exibir com opções ricas (iOS / Safari), tentando formato simplificado:', richError);
-      try {
-        // Fallback simplificado sem botões de ação e vibração (compatibilidade máxima com iOS e Safari do macOS)
-        await self.registration.showNotification(data.title || 'AtriosWork', {
-          body: data.body || '',
-          icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-          badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-          data: data.url || '/'
-        });
-      } catch (basicError) {
-        console.error('[Service Worker] Falha catastrófica ao exibir qualquer notificação:', basicError);
-      }
+      data = event.data.json();
+    } catch (e) {
+      data = { title: 'Send Push', body: event.data.text() };
     }
-  })());
+  }
+
+  const origin = self.location.origin;
+  const options = {
+    body: data.body,
+    icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+    badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+    vibrate: [200, 100, 200],
+    data: data.url || '/',
+    actions: [
+      { action: 'open', title: 'Ver App' }
+    ]
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(data.title, options)
+  );
 });
 
 // Lidar com o toque ou clique na notificação push
@@ -196,7 +180,7 @@ async function checkNewPushesInBackground() {
     const config = await readFromCache('config');
     if (!config || !config.supabaseUrl || !config.supabaseKey) return;
 
-    const fetchUrl = `${config.supabaseUrl}/rest/v1/push_notifications?is_active=eq.true&order=created_at.desc`;
+    const fetchUrl = `${config.supabaseUrl}/rest/v1/app_banners?is_active=eq.true&order=created_at.desc`;
     const response = await fetch(fetchUrl, {
       headers: {
         'apikey': config.supabaseKey,
@@ -208,10 +192,32 @@ async function checkNewPushesInBackground() {
     const data = await response.json();
     if (!data || data.length === 0) return;
 
+    // Utiliza a mesma lógica de descompatibilização do cta_link e user_type
+    const parsedBanners = data.map(dbBanner => {
+      let user_type = 'all';
+      let cta_link = dbBanner.cta_link || '';
+
+      if (cta_link.includes('||user_type:')) {
+        const parts = cta_link.split('||user_type:');
+        cta_link = parts[0];
+        user_type = parts[1];
+      }
+
+      return {
+        ...dbBanner,
+        cta_link,
+        user_type
+      };
+    });
+
     const targetType = config.isPro ? 'premium' : 'free';
-    const pushes = data.filter(b => {
-      const isAudienceMatch = b.user_type === 'all' || b.user_type === targetType || b.user_type === 'push_notification' || b.user_type === 'public';
-      return b.is_active && isAudienceMatch;
+    const pushes = parsedBanners.filter(b => {
+      const isPush = b.user_type === 'push_notification' || 
+                     b.title.toUpperCase().includes('[PUSH]') || 
+                     (b.highlight && b.highlight.toUpperCase().includes('[PUSH]'));
+      
+      const isAudienceMatch = b.user_type === 'all' || b.user_type === targetType || b.user_type === 'push_notification';
+      return b.is_active && isPush && isAudienceMatch;
     });
 
     if (pushes.length === 0) return;
@@ -221,29 +227,17 @@ async function checkNewPushesInBackground() {
 
     if (freshPushes.length > 0) {
       for (const freshPush of freshPushes) {
-        try {
-          await self.registration.showNotification(freshPush.title || 'Aviso AtriosWork', {
-            body: freshPush.body || '',
-            icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-            badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-            vibrate: [200, 100, 200],
-            tag: `sendpush-alert-${freshPush.id}`,
-            data: '/'
-          });
-        } catch (richError) {
-          console.warn('[Service Worker Background] Falha ao exibir com opções de vibração, tentando formato simplificado para iOS/Safari:', richError);
-          try {
-            await self.registration.showNotification(freshPush.title || 'Aviso AtriosWork', {
-              body: freshPush.body || '',
-              icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-              badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-              tag: `sendpush-alert-${freshPush.id}`,
-              data: '/'
-            });
-          } catch (basicError) {
-            console.error('[Service Worker Background] Falha catastrófica ao exibir notificação em background:', basicError);
-          }
-        }
+        const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
+        const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
+
+        await self.registration.showNotification(cleanTitle, {
+          body: cleanBody,
+          icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
+          badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
+          vibrate: [200, 100, 200],
+          tag: `sendpush-alert-${freshPush.id}`,
+          data: '/'
+        });
 
         shownIds.push(freshPush.id);
       }

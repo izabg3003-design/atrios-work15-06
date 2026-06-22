@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Sparkles, Megaphone, Loader2, AlertTriangle } from 'lucide-react';
+import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Sparkles, Megaphone } from 'lucide-react';
 import { UserProfile } from '../types';
 import { supabase, parseDbBanner } from '../lib/supabase';
 
@@ -35,15 +35,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   const [showPermissionBanner, setShowPermissionBanner] = useState(false);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [newPushAlert, setNewPushAlert] = useState<{ id: string; title: string; subtitle: string } | null>(null);
-  const [guidedState, setGuidedState] = useState<{
-    isOpen: boolean;
-    step: 'idle' | 'permission' | 'sw' | 'subscribe' | 'pairing' | 'success' | 'error';
-    error: string | null;
-  }>({
-    isOpen: false,
-    step: 'idle',
-    error: null
-  });
   
   // 1. Detectar suporte a PWA e evento de instalação
   useEffect(() => {
@@ -188,17 +179,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         }
       });
     }
-
-    const handleForceResubscribe = () => {
-      console.log('[AtriosWork PWA] Forçando re-subscrição de push guiada pelo componente...');
-      runGuidedRegistration();
-    };
-
-    window.addEventListener('force-push-resubscribe', handleForceResubscribe);
-
-    return () => {
-      window.removeEventListener('force-push-resubscribe', handleForceResubscribe);
-    };
   }, [user.id]);
 
   // 2. Escuta ativa e Polling para novas notificações (Instantâneo em Tempo Real usando canais Postgres e backup de Polling a cada 15s)
@@ -228,19 +208,11 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             const shownPushes: string[] = JSON.parse(shownPushesRaw);
             
             if (!hasStoredPushes) {
-              // Primeira verificação histórica nesta máquina/sessão: registar histórico antigo para evitar spam de popups.
-              // Mas se houver algum push enviado nos últimos 15 minutos, deixamos ele ser processado para aparecer de imediato!
-              const fifteenMinutesAgo = Date.now() - 15 * 60 * 1000;
-              const historicalIds = pushes
-                .filter(p => !p.created_at || new Date(p.created_at).getTime() < fifteenMinutesAgo)
-                .map(p => p.id);
-              
-              localStorage.setItem('shown_push_notifications', JSON.stringify(historicalIds));
-              await saveToConfigCache('shown_push_ids', historicalIds);
-              
-              if (historicalIds.length === pushes.length) {
-                return;
-              }
+              // Primeira verificação histórica nesta máquina/sessão: registar histórico antigo para evitar spam de popups
+              const allActiveIds = pushes.map(p => p.id);
+              localStorage.setItem('shown_push_notifications', JSON.stringify(allActiveIds));
+              await saveToConfigCache('shown_push_ids', allActiveIds);
+              return;
             }
 
             // Filtrar todos os pushes frescos que ainda não foram exibidos
@@ -363,75 +335,37 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   }, [user.id, user.subscription]);
 
-  const runGuidedRegistration = async () => {
-    setGuidedState({ isOpen: true, step: 'permission', error: null });
-
-    if (!('Notification' in window)) {
-      setGuidedState(prev => ({ 
-        ...prev, 
-        step: 'error', 
-        error: '⚠️ O seu navegador ou dispositivo atual não oferece suporte nativo ao sistema de Notificações Web Push (PWA). Se está no iPhone, tente instalar a App no ecrã inicial primeiro.' 
-      }));
-      return;
-    }
-
-    const isInsideIframe = window.self !== window.top;
-    if (isInsideIframe) {
-      setGuidedState(prev => ({
-        ...prev, 
-        step: 'error', 
-        error: '⚠️ Bloqueio de Segurança do Navegador (Iframe)!\n\nNão é possível registar notificações nativas dentro da janela de pré-visualização. Por favor, clique na aba exterior no topo para abrir do lado de fora do iframe de testes do AI Studio, e tente novamente nas Definições!' 
-      }));
-      return;
-    }
+  const syncPushSubscription = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    if (Notification.permission !== 'granted') return;
 
     try {
-      console.log('[Push Guided] Solicitando permissão de notificações...');
-      const permission = await Notification.requestPermission();
-      setNotificationPermission(permission);
+      const reg = await navigator.serviceWorker.ready;
       
-      if (permission !== 'granted') {
-        setGuidedState(prev => ({ 
-          ...prev, 
-          step: 'error', 
-          error: 'A permissão para receber notificações foi recusada ou bloqueada no seu navegador. Para testar com sucesso, clique no "círculo/cadeado" do endereço URL no topo e mude a permissão de "Notificações" de Bloqueado para "Permitir"!' 
-        }));
-        return;
-      }
-
-      setGuidedState(prev => ({ ...prev, step: 'sw' }));
-      console.log('[Push Guided] Verificando Service Worker ativo...');
-      
-      let reg: ServiceWorkerRegistration;
-      if ('serviceWorker' in navigator) {
-        await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-        reg = await navigator.serviceWorker.ready;
-      } else {
-        throw new Error('Service Worker não suportado neste navegador.');
-      }
-      
-      setGuidedState(prev => ({ ...prev, step: 'subscribe' }));
-      console.log('[Push Guided] Obtendo ou atualizando subscrição push...');
-      
-      let publicKey = 'BA1eOGWzfozSy5qEZbP3keg6nmeaDIi5AOZcJH9ium3GyNjA0O8pw45T-uUlg8p5aY77SNXgZJXwNHWC5Ba4GdE'; // MASTER_PUBLIC_KEY
+      // Obter configuração de chave pública (VAPID) do servidor Express com um fallback estático robusto
+      let publicKey = 'BLR0Tcrj0UCGeZu48tn_ek6ueRPxVh4EmzpeA7wLgp0uvp4jASyVTiuScsGiMVJDalT_QFsV4uSWfY0lONhZ7x4';
       try {
         const keyResp = await fetch('/api/push/public-key');
-        if (keyResp.ok && keyResp.headers.get('content-type')?.includes('application/json')) {
-          try {
-            const keyData = await keyResp.json();
-            if (keyData && keyData.publicKey) {
-              publicKey = keyData.publicKey;
-            }
-          } catch (jsonErr) {
-            console.warn('[Push Guided] Falha ao ler JSON da chave pública:', jsonErr);
+        if (keyResp.ok) {
+          const keyData = await keyResp.json();
+          if (keyData.publicKey) {
+            publicKey = keyData.publicKey;
           }
         }
       } catch (err) {
-        console.warn('[Push Guided] Falha ao ir obter VAPID do backend, usando fallback estático:', err);
+        console.warn('[Push Manager] Falha ao ir obter VAPID do backend, servindo fallback estático de segurança:', err);
+      }
+      
+      if (!publicKey) {
+        console.warn('[Push Manager] Chave pública VAPID vazia.');
+        return;
       }
 
+      // Subscrever ou resgatar assinatura activa
       let subscription = await reg.pushManager.getSubscription();
+      
       if (subscription) {
+        // Verificar se as chaves batem para evitar tokens órfãos pós-reestatização
         const currentKeyBuffer = subscription.options.applicationServerKey;
         if (currentKeyBuffer) {
           const expectedKeyArray = urlBase64ToUint8Array(publicKey);
@@ -446,7 +380,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             }
           }
           if (!keyMatches) {
-            console.log('[Push Guided] Recriando subscrição expirada ou inconsistente...');
+            console.log('[Push Manager] Chave VAPID alterada ou expirada. Desinscrever e subscrever novamente...');
             await subscription.unsubscribe();
             subscription = null;
           }
@@ -464,112 +398,28 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         });
       }
 
-      setGuidedState(prev => ({ ...prev, step: 'pairing' }));
-      console.log('[Push Guided] Enviando credenciais de recepção ao servidor físico...');
-      
       const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
-      
+
+      // Sincronizar assinatura com o nosso servidor Express
       const syncResp = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          subscription: subscription.toJSON ? subscription.toJSON() : subscription,
+          subscription,
           userId: user.id || 'anonymous',
           isPro: !!isPro
         })
       });
 
       if (syncResp.ok) {
-        console.log('[Push Guided] Ligado ao canal ativo com sucesso absoluto!');
-        setGuidedState(prev => ({ ...prev, step: 'success' }));
-        triggerNativePush('🔔 Notificações Ativadas!', 'O seu dispositivo está agora registado e associado para suporte remoto.');
+        console.log('[Push Manager] Registro de dispositivo sincronizado silenciosamente com servidor físico.');
       } else {
-        const errText = await syncResp.text();
-        throw new Error(errText || `Falha de validação web push (HTTP ${syncResp.status})`);
+        console.warn('[Push Manager] Falha ao sincronizar dispositivo no servidor físico.');
       }
     } catch (err: any) {
-      console.error('[Push Guided Error]', err);
-      setGuidedState(prev => ({ 
-        ...prev, 
-        step: 'error', 
-        error: err.message || 'Mecanismo Web Push rejeitado pelo browser. Verifique se está em navegação privada extrema que desativa push.' 
-      }));
-    }
-  };
-
-  const syncPushSubscription = async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    if (Notification.permission !== 'granted') return;
-
-    try {
-      let reg: ServiceWorkerRegistration;
-      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-      reg = await navigator.serviceWorker.ready;
-      
-      let publicKey = 'BA1eOGWzfozSy5qEZbP3keg6nmeaDIi5AOZcJH9ium3GyNjA0O8pw45T-uUlg8p5aY77SNXgZJXwNHWC5Ba4GdE';
-      try {
-        const keyResp = await fetch('/api/push/public-key');
-        if (keyResp.ok && keyResp.headers.get('content-type')?.includes('application/json')) {
-          try {
-            const keyData = await keyResp.json();
-            if (keyData && keyData.publicKey) {
-              publicKey = keyData.publicKey;
-            }
-          } catch (jsonErr) {
-            console.warn('[Push Auto] Falha ao ler JSON da chave pública:', jsonErr);
-          }
-        }
-      } catch (err) {}
-
-      let subscription = await reg.pushManager.getSubscription();
-      if (subscription) {
-        const currentKeyBuffer = subscription.options.applicationServerKey;
-        if (currentKeyBuffer) {
-          const expectedKeyArray = urlBase64ToUint8Array(publicKey);
-          const currentKeyArray = new Uint8Array(currentKeyBuffer);
-          let keyMatches = expectedKeyArray.length === currentKeyArray.length;
-          if (keyMatches) {
-            for (let i = 0; i < expectedKeyArray.length; i++) {
-              if (expectedKeyArray[i] !== currentKeyArray[i]) {
-                keyMatches = false;
-                break;
-              }
-            }
-          }
-          if (!keyMatches) {
-            await subscription.unsubscribe();
-            subscription = null;
-          }
-        } else {
-          await subscription.unsubscribe();
-          subscription = null;
-        }
-      }
-
-      if (!subscription) {
-        const applicationServerKey = urlBase64ToUint8Array(publicKey);
-        subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey
-        });
-      }
-
-      const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          subscription: subscription.toJSON ? subscription.toJSON() : subscription,
-          userId: user.id || 'anonymous',
-          isPro: !!isPro
-        })
-      });
-    } catch (err) {
-      console.warn('[Push Manager] Falha silenciosa no auto-subscribe:', err);
+      console.warn('[Push Manager] Erro na subscrição push física:', err.message);
     }
   };
 
@@ -585,6 +435,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     if (!('Notification' in window)) return;
     
     if (Notification.permission === 'granted') {
+      // 1. Tentar por Service Worker (Ideal para disparar no ecran em segundo plano)
       if (navigator.serviceWorker) {
         navigator.serviceWorker.ready.then(reg => {
           reg.showNotification(title, {
@@ -595,12 +446,14 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             tag: notificationId ? `atrioswork-alert-${notificationId}` : undefined
           } as any);
         }).catch(() => {
+          // Fallback para Notificação normal de janela
           new Notification(title, {
             body: body,
             icon: '/logo_atualizado.jpg?v=20260314_v1',
           });
         });
       } else {
+        // Fallback direta
         new Notification(title, {
           body: body,
           icon: '/logo_atualizado.jpg?v=20260314_v1',
@@ -609,9 +462,28 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   };
 
-  // Pedir Permissão de Notificações via Guided Flow
+  // Pedir Permissão de Notificações
   const requestPermission = async () => {
-    await runGuidedRegistration();
+    if (!('Notification' in window)) {
+      alert('As notificações não são suportadas por este navegador.');
+      return;
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      setNotificationPermission(permission);
+      setShowPermissionBanner(false);
+      
+      if (permission === 'granted') {
+        triggerNativePush(
+          '🔔 Notificações Ativas!',
+          'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
+        );
+        syncPushSubscription();
+      }
+    } catch (err) {
+      console.error('Erro ao pedir permissão de notificações:', err);
+    }
   };
 
   // Executar Instalação do PWA
@@ -694,110 +566,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             >
               Entendido
             </button>
-          </div>
-        </div>
-      )}
-      {/* 4. Modal Guiado de Registo/Emparelhamento Push */}
-      {guidedState.isOpen && (
-        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-xl z-[9000] flex items-center justify-center p-4 transition-all duration-300">
-          <div className="bg-slate-900 border-2 border-blue-500/40 p-8 rounded-[2.5rem] max-w-sm w-full shadow-[0_20px_50px_rgba(59,130,246,0.3)] flex flex-col gap-6 text-center text-white animate-in fade-in zoom-in-95 duration-200">
-            
-            {/* Cabeçalho */}
-            <div className="flex flex-col items-center gap-2">
-              <div className="p-4 bg-blue-500/10 rounded-full border border-blue-500/20 text-blue-400 relative">
-                {guidedState.step === 'success' ? (
-                  <CheckCircle2 className="w-8 h-8 text-emerald-400 animate-bounce" />
-                ) : guidedState.step === 'error' ? (
-                  <AlertTriangle className="w-8 h-8 text-amber-500 animate-pulse" />
-                ) : (
-                  <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-                )}
-              </div>
-              <h3 className="text-sm font-black uppercase tracking-widest text-slate-100 mt-2">
-                {guidedState.step === 'success' ? 'Emparelhado!' : guidedState.step === 'error' ? 'Falha de Emparelhamento' : 'Sincronizando Canal'}
-              </h3>
-              <p className="text-[10px] text-slate-400 uppercase tracking-wider font-bold">
-                Mecanismo Sentinel Push PWA
-              </p>
-            </div>
-
-            {/* Linha de Progresso Visual */}
-            {guidedState.step !== 'success' && guidedState.step !== 'error' && (
-              <div className="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
-                <div 
-                  className="bg-blue-500 h-full transition-all duration-500 rounded-full"
-                  style={{
-                    width: 
-                      guidedState.step === 'permission' ? '25%' : 
-                      guidedState.step === 'sw' ? '50%' : 
-                      guidedState.step === 'subscribe' ? '75%' : 
-                      guidedState.step === 'pairing' ? '90%' : '10%'
-                  }}
-                />
-              </div>
-            )}
-
-            {/* Texto Descritivo por Passo */}
-            <div className="bg-slate-950 border border-slate-800/80 p-5 rounded-2xl text-[11px] font-bold leading-relaxed text-slate-300">
-              {guidedState.step === 'permission' && (
-                <div className="space-y-2">
-                  <p className="text-blue-400 uppercase tracking-wider text-[9px] font-black">Passo 1 de 4</p>
-                  <p>A solicitar permissão de notificações nativas no seu navegador...</p>
-                  <p className="text-[9px] text-slate-400">Por favor, clique em "Permitir" ou "Autorizar" no pop-up padrão do seu browser se ele surgir.</p>
-                </div>
-              )}
-              {guidedState.step === 'sw' && (
-                <div className="space-y-2">
-                  <p className="text-blue-400 uppercase tracking-wider text-[9px] font-black">Passo 2 de 4</p>
-                  <p>A iniciar e sintonizar canal seguro de segundo plano (Service Worker)...</p>
-                </div>
-              )}
-              {guidedState.step === 'subscribe' && (
-                <div className="space-y-2">
-                  <p className="text-blue-400 uppercase tracking-wider text-[9px] font-black">Passo 3 de 4</p>
-                  <p>A descarregar chaves criptográficas VAPID de canais seguros de mensagem...</p>
-                </div>
-              )}
-              {guidedState.step === 'pairing' && (
-                <div className="space-y-2">
-                  <p className="text-blue-400 uppercase tracking-wider text-[9px] font-black">Passo 4 de 4</p>
-                  <p>A registar a sua assinatura física ativa nos servidores de produção...</p>
-                </div>
-              )}
-              {guidedState.step === 'success' && (
-                <div className="space-y-2">
-                  <div className="py-1 text-emerald-400 uppercase tracking-widest text-[10px] font-black">🎉 Parabéns! Ligado com Sucesso!</div>
-                  <p className="text-slate-200">Este dispositivo está agora configurado e emparelhado.</p>
-                  <p className="text-[10px] text-slate-400">Receberá alertas em tempo real e em background, mesmo que o seu navegador ou aplicativo estejam completamente FECHADOS!</p>
-                </div>
-              )}
-              {guidedState.step === 'error' && (
-                <div className="space-y-3">
-                  <p className="text-amber-500 uppercase tracking-widest text-[9px] font-black">Causa Detetada:</p>
-                  <p className="text-slate-200 whitespace-pre-wrap leading-normal font-medium text-[10px] bg-amber-500/5 p-3 rounded-xl border border-amber-500/20">{guidedState.error}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Ações */}
-            <div className="flex gap-2 mt-2">
-              {guidedState.step === 'error' && (
-                <button
-                  onClick={runGuidedRegistration}
-                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] uppercase tracking-wider rounded-2xl transition-all"
-                >
-                  Tentar De Novo
-                </button>
-              )}
-              {(guidedState.step === 'success' || guidedState.step === 'error') && (
-                <button
-                  onClick={() => setGuidedState(prev => ({ ...prev, isOpen: false }))}
-                  className="flex-1 py-3 bg-slate-950 hover:bg-slate-800 border border-slate-800 text-slate-300 font-black text-[9px] uppercase tracking-wider rounded-2xl transition-all"
-                >
-                  Fechar Janela
-                </button>
-              )}
-            </div>
           </div>
         </div>
       )}

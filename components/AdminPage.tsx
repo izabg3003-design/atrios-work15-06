@@ -54,8 +54,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [vendors, setVendors] = useState<any[]>([]);
   const [supportStaff, setSupportStaff] = useState<UserProfile[]>([]);
   const [banners, setBanners] = useState<AppBanner[]>([]);
-  const [pushHistory, setPushHistory] = useState<any[]>([]);
-  const [registeredDevices, setRegisteredDevices] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -65,7 +63,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [showAddVendor, setShowAddVendor] = useState(false);
   const [showAddBanner, setShowAddBanner] = useState(false);
   const [showSqlHelp, setShowSqlHelp] = useState(false);
-  const [copiedSql, setCopiedSql] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{ id: string, name: string, type: 'user' | 'vendor' | 'support' | 'banner' } | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -109,78 +106,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [newPushBody, setNewPushBody] = useState('');
   const [newPushAudience, setNewPushAudience] = useState<'all' | 'free' | 'premium'>('all');
   const [isSendingPush, setIsSendingPush] = useState(false);
-  const [isSimulatingPush, setIsSimulatingPush] = useState(false);
   const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
-
-  const [clientPermission, setClientPermission] = useState<string>('default');
-  const [swReady, setSwReady] = useState(false);
-  const [pwaInstalled, setPwaInstalled] = useState(false);
-  const [isInIframe, setIsInIframe] = useState(false);
-
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      setIsInIframe(window.self !== window.top);
-      if ('Notification' in window) {
-        setClientPermission(Notification.permission);
-      }
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready.then(() => setSwReady(true));
-      }
-      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
-                            (window.navigator as any).standalone === true;
-      setPwaInstalled(isStandalone);
-    }
-  }, []);
-
-  const triggerResubscribe = async () => {
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(new CustomEvent('force-push-resubscribe'));
-      // Atualizar dados do painel reativamente à medida que o canal sincroniza
-      setTimeout(() => {
-        if ('Notification' in window) {
-          setClientPermission(Notification.permission);
-        }
-        fetchData();
-      }, 5000);
-    }
-  };
-
-  const triggerDemoNotification = () => {
-    if (!('Notification' in window)) {
-      alert('As notificações não são suportadas por este navegador.');
-      return;
-    }
-    
-    if (Notification.permission === 'granted') {
-      const title = newPushTitle.trim() || '🔔 NOTIFICAÇÃO ATRIOSWORK';
-      const body = newPushBody.trim() || 'Simulação de mensagem do AtriosWork Sentinel ativa!';
-      
-      // Disparo em background real no ecran para testar o comportamento nativo!
-      if (navigator.serviceWorker) {
-        navigator.serviceWorker.ready.then(reg => {
-          reg.showNotification(title, {
-            body: body,
-            icon: '/logo_atualizado.jpg?v=20260314_v1',
-            badge: '/logo_atualizado.jpg?v=20260314_v1',
-            vibrate: [200, 100, 200],
-            tag: `demopush-${Date.now()}`
-          } as any);
-        }).catch(() => {
-          new Notification(title, {
-            body: body,
-            icon: '/logo_atualizado.jpg?v=20260314_v1'
-          });
-        });
-      } else {
-        new Notification(title, {
-          body: body,
-          icon: '/logo_atualizado.jpg?v=20260314_v1'
-        });
-      }
-    } else {
-      alert('Aviso AtriosWork: Para receber notificações de simulação reais no seu sistema de trabalho, certifique-se de carregar primeiro em "Autorizar Push" no balão azul do ecrã principal!');
-    }
-  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -202,90 +128,14 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           setShowSqlHelp(true);
         } else {
           const parsed = (data || []).map(parseDbBanner);
-          // Apenas banners reais visuais são carregados para a aba de banners
           setBanners(parsed.filter(b => b.title && !b.title.startsWith('[')));
         }
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
         if (activeSubTab === 'notifications') {
-          const { data: userData } = await supabase.from('profiles').select('*');
+          const { data: userData } = await supabase.from('profiles').select('id, name, email');
           if (userData) {
             setUsers(userData as any);
-          }
-          
-          // Buscar histórico estável e unificado diretamente do nosso backend expresso (100% livre de RLS Rígido)
-          let historyLoaded = false;
-          try {
-            const hResp = await fetch('/api/push/history');
-            if (hResp.ok && hResp.headers.get('content-type')?.includes('application/json')) {
-              const hData = await hResp.json();
-              if (hData && hData.success) {
-                setPushHistory(hData.history || []);
-                historyLoaded = true;
-              }
-            }
-          } catch (hErr) {
-            console.warn('Erro ao obter histórico de push no painel de administração da API:', hErr);
-          }
-
-          // Fallback de carregamento de histórico direto por Supabase (Para ambientes estáticos de produção)
-          if (!historyLoaded) {
-            try {
-              const { data: fallbackData, error: fallbackErr } = await supabase
-                .from('push_notifications')
-                .select('*')
-                .order('created_at', { ascending: false });
-              
-              if (!fallbackErr && fallbackData) {
-                const formattedHistory = fallbackData.map((item: any) => ({
-                  id: item.id?.toString() || `push_${Date.now()}`,
-                  title: item.title,
-                  body: item.body,
-                  userType: item.user_type || 'all',
-                  sentAt: item.created_at,
-                  devicesNotified: item.sent_count || 0
-                }));
-                setPushHistory(formattedHistory);
-              }
-            } catch (fallbackErr) {
-              console.error('Falha no fallback de histórico de notificações:', fallbackErr);
-            }
-          }
-
-          // Buscar dispositivos registados no backend
-          let devicesLoaded = false;
-          try {
-            const dResp = await fetch('/api/push/debug');
-            if (dResp.ok && dResp.headers.get('content-type')?.includes('application/json')) {
-              const dData = await dResp.json();
-              if (dData && dData.devices) {
-                setRegisteredDevices(dData.devices || []);
-                devicesLoaded = true;
-              }
-            }
-          } catch (dErr) {
-            console.warn('Erro ao obter dispositivos registados no painel de administração da API:', dErr);
-          }
-
-          // Fallback de carregamento de dispositivos registados direto por Supabase (Para ambientes estáticos de produção)
-          if (!devicesLoaded) {
-            try {
-              const { data: fallbackDevs, error: fallbackDevsErr } = await supabase
-                .from('push_subscriptions')
-                .select('*');
-              
-              if (!fallbackDevsErr && fallbackDevs) {
-                const formattedDevices = fallbackDevs.map((item: any) => ({
-                  id: item.device_id || `device_${item.id}`,
-                  userId: item.user_id || 'anonymous',
-                  isPro: item.is_pro || false,
-                  updatedAt: item.updated_at || new Date().toISOString()
-                }));
-                setRegisteredDevices(formattedDevices);
-              }
-            } catch (fallbackDevsErr) {
-              console.error('Falha no fallback de dispositivos de subscrição:', fallbackDevsErr);
-            }
           }
         }
       }
@@ -472,55 +322,58 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     setIsSendingPush(true);
     setPushSendResult(null);
     try {
-      // Chamar o endpoint Express para disparo físico instantâneo Web Push (VAPID) e gravação no BD usando service_role (Bypass RLS)
+      // Marcamos o banner como [PUSH] no título ou colocamos o tipo 'push_notification'
+      const pushRecord: Partial<AppBanner> = {
+        title: `[PUSH] ${newPushTitle.trim()}`,
+        highlight: newPushBody.trim(),
+        subtitle: 'Notificação AtriosWork Push',
+        cta_text: 'Abrir App',
+        cta_link: '/',
+        theme_color: 'amber',
+        is_active: true,
+        user_type: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free'),
+        image_url: null
+      };
+
+      const { error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]);
+      if (error) throw error;
+
+      // Chamar também o endpoint Express para disparo físico instantâneo Web Push (VAPID)
       let devicesCount = 0;
-      const pushResponse = await fetch('/api/push/send-broadcast', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          title: newPushTitle.trim(),
-          body: newPushBody.trim(),
-          userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
-        })
-      });
-
-      if (!pushResponse.ok) {
-        throw new Error(`Erro na API do servidor: ${pushResponse.status} ${pushResponse.statusText}`);
-      }
-
-      const contentType = pushResponse.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        try {
+      try {
+        const pushResponse = await fetch('/api/push/send-broadcast', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            title: newPushTitle.trim(),
+            body: newPushBody.trim(),
+            userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
+          })
+        });
+        if (pushResponse.ok) {
           const pushResponseData = await pushResponse.json();
           devicesCount = pushResponseData.totalDevicesNotified || 0;
-        } catch (jsonErr) {
-          console.warn('Erro ao ler JSON de broadcast:', jsonErr);
         }
+      } catch (pushErr) {
+        console.warn('Erro ao disparar direto por API VAPID, fallback de DB síncrono ativo:', pushErr);
       }
 
       setNewPushTitle('');
       setNewPushBody('');
       
-      const activeTargetsCount = users.filter(u => {
-        if (newPushAudience === 'all') return true;
-        let isProUser = false;
-        if (u.subscription) {
-          try {
-            const parsedSub = typeof u.subscription === 'string' ? JSON.parse(u.subscription) : u.subscription;
-            isProUser = parsedSub?.isActive === true || parsedSub?.status === 'active';
-          } catch (e) {
-            isProUser = false;
-          }
-        }
-        return newPushAudience === 'premium' ? isProUser : !isProUser;
-      }).length;
-
-      setPushSendResult({
-        success: true,
-        msg: `Notificação Push transmitida e registada com sucesso absoluto para todos os utilizadores do banco de dados! Alvos selecionados: ${activeTargetsCount} utilizador(es). Fundo PWA activo em ${devicesCount} aparelho(s). Todos eles receberão o alerta físico no sistema e visualizarão os popups destacados em tempo real!`
-      });
+      if (devicesCount > 0) {
+        setPushSendResult({
+          success: true,
+          msg: `Notificação Push transmitida com sucesso para os dispositivos PWA activos (${devicesCount} aparelhos notificados em tempo real de imediato!).`
+        });
+      } else {
+        setPushSendResult({
+          success: true,
+          msg: 'Notificação Push gravada com sucesso! Nota: Atualmente há 0 dispositivos com assinatura válida receptora ativa. Para testar e receber, certifique-se de que autorizou as notificações no banner azul do ecrã principal e que está com o PWA instalado!'
+        });
+      }
       fetchData();
     } catch (err: any) {
       setPushSendResult({
@@ -741,181 +594,68 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                   </div>
                 </div>
 
-                {/* PAINEL DE DIAGNÓSTICO E ALERTA DE PUSH DO APARELHO */}
-                <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 relative z-10 text-left font-sans animate-[fadeIn_0.5s_ease-out]">
-                  <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                     <div className="flex items-center gap-3">
-                        <Activity className="w-5 h-5 text-indigo-400 animate-pulse" />
-                        <h4 className="text-xs font-black text-white uppercase tracking-widest font-sans">Sinal & Diagnóstico Local do seu Dispositivo</h4>
-                     </div>
-                     <span className="text-[8px] font-black uppercase text-indigo-500 bg-indigo-500/10 px-3 py-1 rounded-full border border-indigo-500/20">
-                        PWA Status
-                     </span>
-                  </div>
-
-                  {/* 1. Alerta Crítico para IFRAME */}
-                  {isInIframe ? (
-                    <div className="p-5 bg-amber-500/10 border-2 border-amber-500/30 rounded-2xl space-y-3">
-                      <div className="flex items-start gap-3 text-amber-400">
-                        <Lock className="w-5 h-5 mt-0.5 shrink-0 animate-bounce" />
-                        <div>
-                          <h5 className="text-[10px] font-black uppercase tracking-wider">Estás dentro do Painel AI Studio (Iframe)!</h5>
-                          <p className="text-[9.5px] font-bold text-slate-400 uppercase mt-1 leading-relaxed">
-                            Os navegadores modernos bloqueiam permissões de Notificação e Service Workers em iframes por segurança.
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 pt-2 border-t border-amber-500/10 justify-between flex-wrap gap-y-2">
-                        <span className="text-[8.5px] font-bold text-slate-500 uppercase leading-none">Abra em uma nova aba dedicada para testar de verdade:</span>
-                        <a 
-                          href={typeof window !== 'undefined' ? window.location.origin : '#'} 
-                          target="_blank" 
-                          rel="noopener noreferrer"
-                          className="px-4 py-2.5 bg-amber-500 font-black text-[9px] uppercase tracking-wider text-slate-950 rounded-xl flex items-center gap-1.5 hover:bg-amber-400 hover:scale-[1.02] active:scale-95 transition-all shadow-lg shadow-amber-500/10"
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> Abrir numa Nova Aba
-                        </a>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl flex items-center gap-3 text-emerald-400">
-                      <CheckCircle className="w-5 h-5 shrink-0" />
-                      <div>
-                        <h5 className="text-[10px] font-black uppercase tracking-wider">Excelente! Executando em Ambiente Direto</h5>
-                        <p className="text-[8.5px] font-bold text-slate-400 uppercase leading-snug">Seu telemóvel/computador está conectado diretamente sem restrições de iframe.</p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Grid de status modular */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {/* Status de Permissões */}
-                    <div className={`p-5 rounded-2xl border flex flex-col justify-between ${
-                      clientPermission === 'granted' ? 'bg-emerald-500/5 border-emerald-500/15 text-emerald-400' :
-                      clientPermission === 'denied' ? 'bg-rose-500/10 border-rose-500/25 text-rose-400' :
-                      'bg-slate-900 border-slate-850 text-slate-400'
-                    }`}>
-                      <div className="space-y-1">
-                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none">Notificações no Browser</span>
-                        <h5 className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5">
-                          {clientPermission === 'granted' ? (
-                            <>🟢 Autorizado / Ativo</>
-                          ) : clientPermission === 'denied' ? (
-                            <>🔴 Bloqueado (Recusado)</>
-                          ) : (
-                            <>⏳ Não Solicitado (Pendente)</>
-                          )}
-                        </h5>
-                        <p className="text-[8.5px] font-medium text-slate-400 leading-normal mt-1 uppercase">
-                          {clientPermission === 'granted' ? 'Este aparelho está autorizado a receber as notificações push em segundo plano.' :
-                           clientPermission === 'denied' ? 'O navegador recusou os alertas. Clique no CADEADO 🔒 ao lado da barra de endereços do browser, altere Notificações para "Permitir" e atualize a página!' :
-                           'É necessário autorizar as notificações push para este dispositivo receber os alertas corporativos.'}
-                        </p>
-                      </div>
-                      
-                      {clientPermission !== 'granted' && (
-                        <button 
-                          onClick={triggerResubscribe}
-                          className="mt-4 px-4 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] uppercase tracking-wider rounded-xl transition-all shadow-md active:scale-95"
-                        >
-                          🔑 SOLICITAR PERMISSÃO PUSH
-                        </button>
-                      )}
-                    </div>
-
-                    {/* Status de Service Worker */}
-                    <div className="p-5 bg-slate-900 border border-slate-850 rounded-2xl flex flex-col justify-between text-slate-400">
-                      <div className="space-y-1">
-                        <span className="text-[8px] font-bold text-slate-500 uppercase tracking-widest leading-none">Service Worker & PWA</span>
-                        <h5 className="text-[11px] font-black uppercase tracking-wider flex items-center gap-1.5 font-mono">
-                          {swReady ? (
-                            <span className="text-emerald-400">🟢 Service Worker Ativo</span>
-                          ) : (
-                            <span className="text-slate-500">⏳ Conectando...</span>
-                          )}
-                        </h5>
-                        <p className="text-[8.5px] font-medium text-slate-400 leading-normal mt-1 uppercase">
-                          O Service Worker intercepta eventos offline e push.
-                          {pwaInstalled ? ' Executando como PWA Instalado Standalone.' : ' Instale no telemóvel para receber em ecrã bloqueado.'}
-                        </p>
-                      </div>
-
-                      <div className="mt-4 flex gap-2">
-                        <button 
-                          onClick={triggerResubscribe}
-                          className="flex-1 px-3 py-2.5 bg-slate-950 border border-slate-850 hover:border-slate-800 text-slate-300 font-black text-[8px] uppercase tracking-wider rounded-xl transition-all flex items-center justify-center gap-1.5 active:scale-95"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5 text-indigo-400" /> Sincronizar Dispositivo
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 relative z-10">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10">
                   {/* Formulário de Envio */}
-                  <form onSubmit={handleSendPushNotification} className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col justify-between h-[460px]">
-                    <div className="space-y-6">
-                      <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-                        <Megaphone className="w-5 h-5 text-amber-500 animate-pulse" />
-                        <h4 className="text-xs font-black text-white uppercase tracking-widest font-sans">Escrever Send Push</h4>
+                  <form onSubmit={handleSendPushNotification} className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6">
+                    <div className="flex items-center gap-3 border-b border-white/5 pb-4">
+                      <Megaphone className="w-5 h-5 text-amber-500 animate-pulse" />
+                      <h4 className="text-xs font-black text-white uppercase tracking-widest font-sans">Escrever Notificação Push</h4>
+                    </div>
+
+                    {pushSendResult && (
+                      <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                        {pushSendResult.msg}
                       </div>
+                    )}
 
-                      {pushSendResult && (
-                        <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
-                          {pushSendResult.msg}
-                        </div>
-                      )}
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
+                      <input 
+                        type="text" 
+                        placeholder="Ex: ⚠️ Atualização de Assinatura" 
+                        value={newPushTitle}
+                        onChange={(e) => setNewPushTitle(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
 
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
-                        <input 
-                          type="text" 
-                          placeholder="Ex: ⚠️ Atualização de Assinatura" 
-                          value={newPushTitle}
-                          onChange={(e) => setNewPushTitle(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
-                      </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
+                      <textarea 
+                        rows={3}
+                        placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já no menu de faturamento." 
+                        value={newPushBody}
+                        onChange={(e) => setNewPushBody(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        required
+                      />
+                    </div>
 
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
-                        <textarea 
-                          rows={2}
-                          placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já." 
-                          value={newPushBody}
-                          onChange={(e) => setNewPushBody(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-3 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                          required
-                        />
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Filtro de Audiência</label>
-                        <div className="grid grid-cols-3 gap-2">
-                          {[
-                            { id: 'all', label: 'Todos' },
-                            { id: 'free', label: 'Grátis' },
-                            { id: 'premium', label: 'Pro' }
-                          ].map((aud) => (
-                            <button
-                              key={aud.id}
-                              type="button"
-                              onClick={() => setNewPushAudience(aud.id as any)}
-                              className={`py-2 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border ${newPushAudience === aud.id ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-white'}`}
-                            >
-                              {aud.label}
-                            </button>
-                          ))}
-                        </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Filtro de Audiência</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          { id: 'all', label: 'Todos' },
+                          { id: 'free', label: 'Grátis' },
+                          { id: 'premium', label: 'Pro' }
+                        ].map((aud) => (
+                          <button
+                            key={aud.id}
+                            type="button"
+                            onClick={() => setNewPushAudience(aud.id as any)}
+                            className={`py-3 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border ${newPushAudience === aud.id ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-white'}`}
+                          >
+                            {aud.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
 
                     <button
                       type="submit"
                       disabled={isSendingPush}
-                      className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2 mt-4 shrink-0"
+                      className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                       {isSendingPush ? (
                         <>
@@ -929,315 +669,65 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     </button>
                   </form>
 
-                  {/* Smartphone Simulator */}
-                  <div className="bg-slate-950/70 p-6 rounded-[2.5rem] border border-white/5 space-y-4 flex flex-col items-center justify-between h-[460px]">
-                    <div className="flex items-center gap-2 border-b border-white/5 pb-3 w-full justify-center">
-                      <Smartphone className="w-4 h-4 text-indigo-400" />
-                      <h4 className="text-[10px] font-black text-slate-300 uppercase tracking-widest font-sans">Simulador de Telemóvel</h4>
-                    </div>
-                    
-                    {/* Phone Frame */}
-                    <div className="w-56 h-[290px] bg-slate-950 border-4 border-slate-800 rounded-[2rem] shadow-2xl relative overflow-hidden flex flex-col group select-none shrink-0">
-                      {/* Dynamic Notch / Island */}
-                      <div className="absolute top-1.5 left-1/2 -translate-x-1/2 w-16 h-3.5 bg-black rounded-full z-40 flex items-center justify-center">
-                        <div className="w-1 h-1 bg-slate-900 rounded-full absolute right-2.5"></div>
-                      </div>
-                      
-                      {/* Status Bar */}
-                      <div className="px-4 pt-2.5 pb-0.5 flex justify-between items-center text-[7px] text-white/95 font-bold tracking-wider bg-transparent z-30 shrink-0 font-sans">
-                        <span>11:06</span>
-                        <div className="flex items-center gap-1">
-                          <span className="font-sans text-[6px]">5G</span>
-                          <div className="w-3 h-1.5 border border-white/80 rounded-[2px] p-[1px] flex items-center">
-                            <div className="h-full w-2 bg-white rounded-[1px]"></div>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      {/* Background Wallpaper */}
-                      <div className="absolute inset-0 bg-gradient-to-b from-[#0f111a] via-[#101931] to-[#040406] z-10"></div>
-                      
-                      {/* Lockscreen Time/Date */}
-                      <div className="relative z-20 text-center mt-3.5">
-                        <span className="text-2xl font-extralight text-white font-sans tracking-tight leading-none">11:06</span>
-                        <div className="text-[6px] font-black text-slate-400 uppercase tracking-widest mt-0.5">SÁBADO, 20 DE JUNHO</div>
-                      </div>
-
-                      {/* Interactive slide-down banner inside Lockscreen */}
-                      <div className={`absolute left-2 right-2 z-50 transition-all duration-500 ease-out ${
-                        isSimulatingPush 
-                          ? 'top-8 scale-100 opacity-100 translate-y-0' 
-                          : 'top-[-80px] scale-95 opacity-0 pointer-events-none -translate-y-2'
-                      }`}>
-                        <div className="bg-slate-900/95 backdrop-blur-md border border-white/10 rounded-xl p-2.5 flex gap-2 items-start text-left text-white shadow-xl">
-                          <div className="w-6 h-6 rounded-md bg-indigo-600 flex items-center justify-center font-black text-white italic text-[8px] shadow-sm shrink-0">
-                            SP
-                          </div>
-                          <div className="min-w-0 flex-1 space-y-0.5">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[7.5px] font-black text-slate-400 uppercase tracking-widest font-sans">Send Push</span>
-                              <span className="text-[6px] font-medium text-slate-500 font-mono">AGORA</span>
-                            </div>
-                            <h5 className="text-[8.5px] font-black text-white truncate uppercase tracking-widest leading-none">
-                              {newPushTitle.trim() || 'Sem Título'}
-                            </h5>
-                            <p className="text-[7.5px] text-slate-300 font-medium leading-normal line-clamp-2">
-                              {newPushBody.trim() || 'Altere os campos ao lado para simular o recebimento direto no telemóvel.'}
-                            </p>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Home Indicator */}
-                      <div className="absolute bottom-1 left-1/2 -translate-x-1/2 w-14 h-[3px] bg-white/40 rounded-full z-20"></div>
-                    </div>
-                    
-                    {/* Simulation trigger */}
-                    <div className="w-full space-y-1.5 shrink-0">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setIsSimulatingPush(true);
-                          triggerDemoNotification();
-                          // Auto reset after 4.5 seconds
-                          setTimeout(() => {
-                            setIsSimulatingPush(false);
-                          }, 4500);
-                        }}
-                        className="w-full py-2.5 bg-slate-900 hover:bg-slate-850 border border-white/5 active:scale-95 transition-all text-white text-[8px] font-black uppercase tracking-widest rounded-xl flex items-center justify-center gap-1 shadow"
-                      >
-                        <Zap className="w-3 h-3 text-amber-400 animate-bounce" /> {isSimulatingPush ? 'A Simular Notificação...' : 'Simular Recebimento'}
-                      </button>
-                      <p className="text-[7.5px] text-slate-500 font-bold uppercase text-center leading-normal">
-                        * As notificações nativas de PWA chegam em tempo real mesmo com a aplicação e o ecrã fechados.
-                      </p>
-                    </div>
-                  </div>
-
                   {/* Histórico de Notificações Enviadas */}
-                  <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col h-[460px]">
+                  <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col h-[400px]">
                     <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0 font-sans">
                       <div className="flex items-center gap-3">
                         <BellRing className="w-5 h-5 text-blue-400" />
                         <h4 className="text-xs font-black text-white uppercase tracking-widest">Histórico de Enviadas</h4>
                       </div>
                       <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">
-                        {pushHistory.length} Enviadas
+                        {banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length} Enviadas
                       </span>
                     </div>
 
                     <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-                      {pushHistory.length === 0 ? (
+                      {banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length === 0 ? (
                         <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
-                          <BellRing className="w-10 h-10 text-slate-755 animate-pulse" />
+                          <BellRing className="w-10 h-10 text-slate-750 animate-pulse" />
                           <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhuma Notificação Transmitida</p>
                         </div>
                       ) : (
-                        pushHistory.map((push) => {
-                          const displayTitle = push.title.replace('[PUSH]', '').replace('[push]', '').trim();
-                          const displayAudience = push.userType === 'push_notification' || push.userType === 'all' ? 'TODOS' : 
-                                                  (push.userType === 'premium' ? 'PRO' : 'GRÁTIS');
-                          
-                          return (
-                            <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
-                              <div className="space-y-1.5 min-w-0 flex-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
-                                    displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                                    displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                    'bg-slate-800 text-slate-400'
-                                  }`}>
-                                    {displayAudience}
-                                  </span>
-                                  <span className="text-[8px] font-mono text-slate-600 font-bold">
-                                    {push.sentAt ? new Date(push.sentAt).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                                  </span>
-                                  
-                                  {/* Indicador Detalhado de Telemóveis Notificados em Tempo Real */}
-                                  <span className="text-[7.5px] font-semibold text-sky-400 bg-sky-500/10 px-1.5 py-0.5 rounded border border-sky-500/10 flex items-center gap-1">
-                                    <Smartphone className="w-2.5 h-2.5" />
-                                    {push.devicesNotified > 0 ? `${push.devicesNotified} Telefone(s)` : 'Entregue'}
-                                  </span>
+                        banners
+                          .filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification')
+                          .map((push) => {
+                            const displayTitle = push.title.replace('[PUSH]', '').replace('[push]', '').trim();
+                            const displayAudience = (push.user_type as string) === 'push_notification' || push.user_type === 'all' ? 'TODOS' : 
+                                                    (push.user_type === 'premium' ? 'PRO' : 'GRÁTIS');
+                            
+                            return (
+                              <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
+                                <div className="space-y-1 min-w-0 flex-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
+                                      displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
+                                      displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                      'bg-slate-800 text-slate-400'
+                                    }`}>
+                                      {displayAudience}
+                                    </span>
+                                    <span className="text-[8px] font-mono text-slate-600 font-bold">
+                                      {push.created_at ? new Date(push.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                                    </span>
+                                  </div>
+                                  <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
+                                  <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight || push.subtitle}</p>
                                 </div>
-                                <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
-                                <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.body || push.highlight}</p>
+                                
+                                <button
+                                  type="button"
+                                  onClick={() => setItemToDelete({ id: push.id, name: displayTitle, type: 'banner' })}
+                                  className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                  title="Remover Notificação"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </div>
-                              
-                              <button
-                                type="button"
-                                onClick={() => setItemToDelete({ id: push.id, name: displayTitle, type: 'banner' })}
-                                className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100 shrink-0"
-                                title="Remover Registo"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          );
-                        })
+                            );
+                          })
                       )}
                     </div>
                   </div>
-                </div>
-
-                {/* NOVO: Painel de Diagnóstico e Dispositivos Registados */}
-                <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 relative overflow-hidden text-left">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-indigo-500/10 text-indigo-400 rounded-2xl flex items-center justify-center border border-indigo-500/20 shrink-0">
-                        <Smartphone className="w-6 h-6" />
-                      </div>
-                      <div className="text-left font-sans">
-                        <h4 className="text-xs font-black text-white uppercase tracking-widest">Utilizadores do Banco de Dados para Envios ({users.length})</h4>
-                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-1 leading-normal">
-                          Todos os utilizadores cadastrados no banco estão listados abaixo. Aqueles com PWA Ativo receberão notificações de fundo. Os restantes receberão via popup In-App imediatos no sistema!
-                        </p>
-                      </div>
-                    </div>
-                    {/* Botão de Atualizar e Forçar Subscrição */}
-                    <div className="flex gap-2 flex-wrap shrink-0">
-                      <button
-                        onClick={fetchData}
-                        type="button"
-                        className="px-4 py-2 bg-slate-900 border border-white/5 rounded-xl text-[9px] font-black uppercase text-slate-300 hover:text-white tracking-wider flex items-center gap-1.5 transition-all text-center"
-                      >
-                        <RefreshCw className="w-3 h-3" /> Atualizar Lista
-                      </button>
-                      <button
-                        onClick={triggerResubscribe}
-                        type="button"
-                        className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:scale-[1.02] rounded-xl text-[9px] font-black uppercase text-white tracking-wider flex items-center gap-1.5 shadow-lg shadow-indigo-600/10 transition-all text-center"
-                      >
-                        <BellRing className="w-3 h-3" /> Assinar Este Aparelho
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="border-t border-slate-900/60 my-4" />
-
-                  {/* Informação sobre limitações de Teste no Iframe */}
-                  {isInIframe && (
-                    <div className="p-5 bg-amber-500/10 border border-amber-500/20 rounded-3xl flex gap-4 items-start text-left font-sans animate-pulse">
-                      <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
-                      <div className="space-y-1">
-                        <h5 className="text-[10px] font-black uppercase tracking-wider text-amber-400">🚨 Atenção: Está a correr o aplicativo dentro de um Iframe!</h5>
-                        <p className="text-[9px] font-semibold text-slate-400 leading-normal uppercase">
-                          Os navegadores modernos (Google Chrome, Safari, Firefox) bloqueiam completamente solicitações de permissão push de dentro de iframes para evitar spam.
-                          <strong> O botão "Autorizar Push" não fará nada ou falhará enquanto estiver no ambiente web do AI Studio.</strong>
-                        </p>
-                        <button
-                          onClick={() => window.open(window.location.origin, '_blank')}
-                          type="button"
-                          className="mt-2 px-4 py-1.5 bg-amber-500 text-slate-950 rounded-lg text-[8px] font-black uppercase tracking-wider hover:bg-amber-400 active:scale-95 transition-all inline-block"
-                        >
-                          Clique Aqui para Abrir a Aplicação Numa Nova Aba de Navegação Real
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Lista de Dispositivos */}
-                  {users.length === 0 ? (
-                    <div className="py-12 flex flex-col items-center justify-center space-y-4 border-2 border-dashed border-slate-900 rounded-[2rem] text-center p-8 font-sans">
-                      <BellRing className="w-12 h-12 text-slate-800 animate-bounce" />
-                      <div className="max-w-md space-y-1">
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Nenhum Utilizador Carregado</p>
-                        <p className="text-[9px] text-slate-500 leading-normal uppercase font-bold">
-                          Não foram encontrados utilizadores registados na base de dados.
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 font-sans text-left">
-                      {users.map((u) => {
-                        const userDevices = registeredDevices.filter(dev => 
-                          (dev.userId && dev.userId !== 'anonymous' && (dev.userId === u.id || dev.userId === u.email))
-                        );
-                        const hasActiveDevice = userDevices.length > 0;
-                        const uRole = u.role || 'user';
-                        
-                        let isProUser = false;
-                        if (u.subscription) {
-                          try {
-                            const parsedSub = typeof u.subscription === 'string' ? JSON.parse(u.subscription) : u.subscription;
-                            isProUser = parsedSub?.isActive === true || parsedSub?.status === 'active';
-                          } catch (e) {
-                            isProUser = false;
-                          }
-                        }
-
-                        return (
-                          <div key={u.id} className="p-5 bg-slate-900 border border-white/5 rounded-3xl hover:border-slate-800 transition-all flex flex-col justify-between gap-4">
-                            <div className="space-y-3">
-                              <div className="flex justify-between items-start gap-2">
-                                {hasActiveDevice ? (
-                                  <span className="px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-wider border text-green-400 bg-green-500/10 border-green-500/20">
-                                    🟢 PWA Ativo ({userDevices.length} Ap)
-                                  </span>
-                                ) : (
-                                  <span className="px-2 py-0.5 rounded-lg text-[7px] font-black uppercase tracking-wider border text-amber-500 bg-amber-500/10 border-amber-500/20">
-                                    🟡 In-App Ativo
-                                  </span>
-                                )}
-                                <span className="text-[7.5px] font-mono text-slate-500 font-bold uppercase">
-                                  {isProUser ? '💎 Pro User' : '💤 Free User'}
-                                </span>
-                              </div>
-                              <div className="space-y-1">
-                                <h5 className="text-[10px] font-black text-white uppercase tracking-wider truncate">
-                                  {u.name}
-                                </h5>
-                                {u.email && (
-                                  <p className="text-[8px] font-bold text-slate-500 uppercase truncate">
-                                    {u.email}
-                                  </p>
-                                )}
-                                <p className="text-[7.5px] font-bold text-slate-400 uppercase tracking-wide">
-                                  Cargo: <span className="text-blue-400 capitalize">{uRole}</span>
-                                </p>
-                              </div>
-                            </div>
-
-                            {/* Mostrar detalhes dos aparelhos se houver */}
-                            {hasActiveDevice ? (
-                              <div className="space-y-1 bg-slate-950/40 p-2.5 rounded-xl border border-white/5">
-                                <span className="text-[6.5px] font-black text-slate-500 uppercase tracking-widest block">Dispositivos Vinculados:</span>
-                                {userDevices.map((dev, idx) => {
-                                  const endpoint = dev.subscription?.endpoint || '';
-                                  let brand = 'Servidor WebPush';
-                                  if (endpoint.includes('fcm.googleapis.com')) {
-                                    brand = 'Google Chrome / Android';
-                                  } else if (endpoint.includes('apple.com')) {
-                                    brand = 'iOS Safari / macOS';
-                                  } else if (endpoint.includes('mozilla.com')) {
-                                    brand = 'Mozilla Firefox';
-                                  }
-                                  return (
-                                    <div key={dev.id || idx} className="text-[7px] text-slate-400 uppercase font-mono truncate flex justify-between gap-1">
-                                      <span>📲 {brand}</span>
-                                      <span className="text-slate-600 font-bold">
-                                        {new Date(dev.updatedAt || Date.now()).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' })}
-                                      </span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            ) : (
-                              <div className="text-[7.5px] text-slate-400 font-bold uppercase leading-normal bg-slate-950/20 p-2 rounded-xl border border-white/5">
-                                Pronto para receber alertas In-App no sistema. Para receber push em segundo plano com ecrã fechado, instale o PWA e autorize nas Definições.
-                              </div>
-                            )}
-
-                            <div className="flex justify-between items-center border-t border-white/5 pt-3">
-                              <span className="text-[7px] font-bold text-slate-500 uppercase font-sans">Cadastrado em:</span>
-                              <span className="text-[7.5px] font-mono text-white/80 font-bold">
-                                {u.created_at ? new Date(u.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'Pendente'}
-                              </span>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
                 </div>
 
                 {/* Ajuda/Avisos de Webhooks legados preservados */}
@@ -1799,159 +1289,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
       {/* MODAL: SQL HELP */}
       {showSqlHelp && (
-        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-6 backdrop-blur-xl bg-slate-950/90 leading-normal">
-          <div className="bg-slate-900 border border-amber-500/40 w-full max-w-2xl rounded-[3rem] p-10 space-y-6 animate-[modalScale_0.3s_ease-out] shadow-2xl shadow-amber-500/10 max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-6 backdrop-blur-xl bg-slate-950/90">
+          <div className="bg-slate-900 border border-amber-500/40 w-full max-w-2xl rounded-[3rem] p-10 space-y-6 animate-[modalScale_0.3s_ease-out] shadow-2xl shadow-amber-500/10">
             <div className="flex justify-between items-center">
-               <div className="flex items-center gap-3">
-                 <Database className="w-6 h-6 text-amber-500 animate-pulse" />
-                 <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">Setup de Base de Dados (Supabase)</h3>
-               </div>
-               <button onClick={() => setShowSqlHelp(false)} className="text-slate-500 hover:text-white p-2 hover:bg-white/5 rounded-full transition-all"><X className="w-6 h-6" /></button>
+               <div className="flex items-center gap-3"><Database className="w-6 h-6 text-amber-500" /><h3 className="text-xl font-black text-white italic uppercase tracking-tighter">Setup de Base de Dados</h3></div>
+               <button onClick={() => setShowSqlHelp(false)} className="text-slate-500 hover:text-white"><X className="w-6 h-6" /></button>
             </div>
-
-            <div className="space-y-4 font-sans text-slate-300 text-xs text-[11px]">
-              <p className="leading-relaxed font-semibold">
-                Para que o sistema de Notificações Push e os Banners do PWA funcionem separadamente de forma ultra-organizada e sem limites de RLS, crie as tabelas <code className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-mono">app_banners</code>, <code className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-mono">push_subscriptions</code> e <code className="text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded font-mono">push_notifications</code> no painel do Supabase.
-              </p>
-              
-              <p className="leading-relaxed">
-                Esta nova estrutura separa totalmente os banners visuais e estáticos das subscrições dos telemóveis e do histórico de mensagens enviadas.
-              </p>
-
-              <div className="space-y-2">
-                <div className="flex justify-between items-center bg-slate-950 px-4 py-2 rounded-t-xl border-t border-x border-white/5">
-                  <span className="text-[10px] font-bold text-slate-500 font-mono">SQL QUERY (SUPABASE SQL EDITOR)</span>
-                  <button 
-                    type="button"
-                    onClick={() => {
-                      const sql = `-- 1. TABELA DE BANNERS VISUAIS (BANNERS PUROS)
-CREATE TABLE IF NOT EXISTS public.app_banners (
-    id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    title text NOT NULL,
-    highlight text,
-    subtitle text,
-    cta_text text,
-    cta_link text,
-    image_url text,
-    theme_color text DEFAULT 'emerald'::text,
-    is_active boolean DEFAULT true NOT NULL
-);
-
--- 2. TABELA SEPARADA PARA SUBSCRIÇÕES DE DISPOSITIVOS PWA PUSH
-CREATE TABLE IF NOT EXISTS public.push_subscriptions (
-    id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    device_id text UNIQUE NOT NULL,
-    user_id text,
-    subscription jsonb NOT NULL,
-    is_pro boolean DEFAULT false NOT NULL,
-    endpoint text UNIQUE NOT NULL
-);
-
--- 3. TABELA SEPARADA PARA HISTÓRICO DE NOTIFICAÇÕES PUSH ENVIADAS
-CREATE TABLE IF NOT EXISTS public.push_notifications (
-    id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    title text NOT NULL,
-    body text NOT NULL,
-    user_type text DEFAULT 'all'::text NOT NULL,
-    sent_count integer DEFAULT 0,
-    is_active boolean DEFAULT true NOT NULL
-);
-
--- ACTIVAR RLS EM TODAS AS TABELAS
-ALTER TABLE public.app_banners ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.push_notifications ENABLE ROW LEVEL SECURITY;
-
--- POLÍTICAS DE ACESSO TOTAL PÚBLICO
-DROP POLICY IF EXISTS "Acesso total público para app_banners" ON public.app_banners;
-CREATE POLICY "Acesso total público para app_banners" ON public.app_banners FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Acesso total público para push_subscriptions" ON public.push_subscriptions;
-CREATE POLICY "Acesso total público para push_subscriptions" ON public.push_subscriptions FOR ALL USING (true) WITH CHECK (true);
-
-DROP POLICY IF EXISTS "Acesso total público para push_notifications" ON public.push_notifications;
-CREATE POLICY "Acesso total público para push_notifications" ON public.push_notifications FOR ALL USING (true) WITH CHECK (true);`;
-                      navigator.clipboard.writeText(sql);
-                      setCopiedSql(true);
-                      setTimeout(() => setCopiedSql(false), 2500);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1 bg-amber-500 text-slate-950 rounded-lg text-[9px] font-bold uppercase tracking-wider hover:bg-amber-400 transition-all cursor-pointer"
-                  >
-                    <Copy className="w-3.5 h-3.5" />
-                    {copiedSql ? 'Copiado!' : 'Copiar Código'}
-                  </button>
-                </div>
-                <pre className="p-4 bg-slate-950 border border-white/5 rounded-b-xl overflow-x-auto text-[10px] font-mono text-emerald-400 leading-relaxed max-h-48 text-left">
-{`-- 1. TABELA DE BANNERS VISUAIS (BANNERS PUROS)
-CREATE TABLE IF NOT EXISTS public.app_banners (
-    id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    title text NOT NULL,
-    highlight text,
-    subtitle text,
-    cta_text text,
-    cta_link text,
-    image_url text,
-    theme_color text DEFAULT 'emerald'::text,
-    is_active boolean DEFAULT true NOT NULL
-);
-
--- 2. TABELA SEPARADA PARA SUBSCRIÇÕES DE DISPOSITIVOS PWA PUSH
-CREATE TABLE IF NOT EXISTS public.push_subscriptions (
-    id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    device_id text UNIQUE NOT NULL,
-    user_id text,
-    subscription jsonb NOT NULL,
-    is_pro boolean DEFAULT false NOT NULL,
-    endpoint text UNIQUE NOT NULL
-);
-
--- 3. TABELA SEPARADA PARA HISTÓRICO DE NOTIFICAÇÕES PUSH ENVIADAS
-CREATE TABLE IF NOT EXISTS public.push_notifications (
-    id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    title text NOT NULL,
-    body text NOT NULL,
-    user_type text DEFAULT 'all'::text NOT NULL,
-    sent_count integer DEFAULT 0,
-    is_active boolean DEFAULT true NOT NULL
-);
-
--- ACTIVAR RLS EM TODAS AS TABELAS
-ALTER TABLE public.app_banners ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.push_subscriptions ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.push_notifications ENABLE ROW LEVEL SECURITY;
-
--- POLÍTICAS DE ACESSO TOTAL PÚBLICO
-DROP POLICY IF EXISTS "Acesso total público para app_banners" ON public.app_banners;
-DROP POLICY IF EXISTS "Acesso total público para push_subscriptions" ON public.push_subscriptions;
-DROP POLICY IF EXISTS "Acesso total público para push_notifications" ON public.push_notifications;
-
-CREATE POLICY "Acesso total público para app_banners" ON public.app_banners FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Acesso total público para push_subscriptions" ON public.push_subscriptions FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Acesso total público para push_notifications" ON public.push_notifications FOR ALL USING (true) WITH CHECK (true);`}
-                </pre>
-              </div>
-
-              <div className="p-4 bg-amber-500/5 rounded-2xl border border-amber-500/20 text-[10.5px] leading-relaxed text-amber-300 space-y-1">
-                <span className="font-extrabold uppercase tracking-wider block mb-1">Como Executar:</span>
-                <div>1. Aceda ao painel do seu <a href="https://supabase.com" target="_blank" rel="noopener noreferrer" className="underline font-bold text-white hover:text-amber-400 inline-flex items-center gap-1">Supabase <ExternalLink className="w-2.5 h-2.5 inline" /></a>.</div>
-                <div>2. No menu lateral esquerdo, clique em <strong className="text-white">"SQL Editor"</strong>.</div>
-                <div>3. Clique em <strong className="text-white">"New query"</strong>.</div>
-                <div>4. Cole o script acima na área de texto e clique no botão verde <strong className="text-white">"Run"</strong> para criar a tabela.</div>
-                <div>5. Volte aqui e clique no botão abaixo para concluir o setup e ligar o ecrã instantaneamente!</div>
-              </div>
-            </div>
-
-            <button onClick={() => fetchData()} className="w-full py-5 bg-amber-600 text-slate-950 font-black rounded-2xl uppercase text-[11px] tracking-widest shadow-xl hover:bg-amber-500 transition-all font-mono">
-              JÁ EXECUTEI O COMANDO NO SUPABASE
-            </button>
+            <button onClick={() => fetchData()} className="w-full py-5 bg-amber-600 text-slate-950 font-black rounded-2xl uppercase text-[11px] tracking-widest shadow-xl hover:bg-amber-500 transition-all">JÁ EXECUTEI O COMANDO NO SUPABASE</button>
           </div>
         </div>
       )}
