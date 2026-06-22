@@ -2,6 +2,7 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import webpush from 'web-push';
+import cors from 'cors';
 
 const PORT = 3000;
 const projectRoot = process.cwd();
@@ -275,25 +276,40 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Middleware robusto para habilitar CORS completo e compatível com Preflight (OPTIONS)
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, apikey');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24h
+  // Configuração CORS robusta e compatível com Preflight (OPTIONS)
+  const allowedOrigins = [
+    'https://atrioswork.pt',
+    'https://www.atrioswork.pt',
+    'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app',
+    'https://ais-dev-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app'
+  ];
 
-    if (req.method === 'OPTIONS') {
-      res.status(204).end();
-      return;
-    }
-    next();
-  });
+  const corsOptions: cors.CorsOptions = {
+    origin: (origin, callback) => {
+      // Permitir requisições sem origin (como REST clients locais, curl, ou dentro do mesmo servidor)
+      if (!origin) {
+        return callback(null, true);
+      }
+      
+      const isAllowed = allowedOrigins.includes(origin) || 
+                        origin.includes('localhost') || 
+                        origin.includes('127.0.0.1') ||
+                        origin.endsWith('.run.app'); // Qualquer subdomínio Cloud Run temporário do AI Studio
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(new Error('Bloqueado por CORS: Origem não permitida'));
+      }
+    },
+    methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'PATCH', 'DELETE', 'HEAD'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'apikey'],
+    credentials: true,
+    optionsSuccessStatus: 204
+  };
+
+  app.use(cors(corsOptions));
+  app.options('*', cors(corsOptions));
 
   // PRIMEIRA FASE: Garantir chaves VAPID estáveis e idênticas no arranque (Lê de Supabase/Arquivo)
   await initVapidKeys();
