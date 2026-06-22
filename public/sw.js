@@ -38,8 +38,8 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Never intercept API requests or non-GET requests
-  if (event.request.url.includes('/api/') || event.request.method !== 'GET') {
+  // ONLY intercept GET requests to prevent issues with POST/PUT/DELETE API calls or third-party connections
+  if (event.request.method !== 'GET') {
     return;
   }
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Sparkles, Megaphone } from 'lucide-react';
 import { UserProfile } from '../types';
-import { supabase, parseDbBanner, getApiUrl } from '../lib/supabase';
+import { supabase, parseDbBanner } from '../lib/supabase';
 
 interface Props {
   user: UserProfile;
@@ -345,7 +345,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       // Obter configuração de chave pública (VAPID) do servidor Express com um fallback estático robusto
       let publicKey = 'BLR0Tcrj0UCGeZu48tn_ek6ueRPxVh4EmzpeA7wLgp0uvp4jASyVTiuScsGiMVJDalT_QFsV4uSWfY0lONhZ7x4';
       try {
-        const keyResp = await fetch(getApiUrl('/api/push/public-key'));
+        const keyResp = await fetch('/api/push/public-key');
         if (keyResp.ok) {
           const keyData = await keyResp.json();
           if (keyData.publicKey) {
@@ -401,7 +401,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
 
       // Sincronizar assinatura com o nosso servidor Express
-      const syncResp = await fetch(getApiUrl('/api/push/subscribe'), {
+      const syncResp = await fetch('/api/push/subscribe', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

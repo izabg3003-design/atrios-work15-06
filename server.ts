@@ -2,10 +2,9 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import webpush from 'web-push';
-import cors from 'cors';
 
 const PORT = 3000;
-const projectRoot = process.cwd();
+const __dirname = path.resolve();
 
 interface PushSubscriptionContainer {
   id: string;
@@ -15,12 +14,11 @@ interface PushSubscriptionContainer {
   updatedAt: string;
 }
 
-// Chaves VAPID globais (geradas síncronas de início e sobrepostas assincronamente da BD para total estabilidade)
-const tempKeys = webpush.generateVAPIDKeys();
-let vapidKeys = { publicKey: tempKeys.publicKey, privateKey: tempKeys.privateKey };
+// Chaves VAPID globais (carregadas assincronamente da BD na inicialização)
+let vapidKeys = { publicKey: '', privateKey: '' };
 
-const STORAGE_FILE = path.join(projectRoot, 'push_subscriptions.json');
-const SENT_IDS_FILE = path.join(projectRoot, 'sent_push_ids.json');
+const STORAGE_FILE = path.join(__dirname, 'push_subscriptions.json');
+const SENT_IDS_FILE = path.join(__dirname, 'sent_push_ids.json');
 
 // Supabase REST details
 const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
@@ -56,7 +54,7 @@ async function initVapidKeys() {
   }
 
   // 2. Se falhar ou não existir, verificar se existe localmente em vapid_keys.json
-  const VAPID_KEYS_FILE = path.join(projectRoot, 'vapid_keys.json');
+  const VAPID_KEYS_FILE = path.join(__dirname, 'vapid_keys.json');
   if (fs.existsSync(VAPID_KEYS_FILE)) {
     try {
       const localKeys = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
@@ -269,11 +267,7 @@ function saveSentBannerId(id: string) {
   const current = loadSentBannerIds();
   if (!current.includes(id)) {
     current.push(id);
-    try {
-      fs.writeFileSync(SENT_IDS_FILE, JSON.stringify(current, null, 2), 'utf-8');
-    } catch (err: any) {
-      console.warn('[Push Server] Erro ao gravar IDs enviados locais (coexistência em memória ativa):', err.message || err);
-    }
+    fs.writeFileSync(SENT_IDS_FILE, JSON.stringify(current, null, 2), 'utf-8');
   }
 }
 
@@ -281,49 +275,10 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // 1. CORS PRIMEIRO (CORS First)
-  const allowedOrigins = [
-    'https://atrioswork.pt',
-    'https://www.atrioswork.pt',
-    'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app',
-    'https://ais-dev-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app'
-  ];
+  // PRIMEIRA FASE: Garantir chaves VAPID estáveis e idênticas no arranque (Lê de Supabase/Arquivo)
+  await initVapidKeys();
 
-  app.use(cors({
-    origin: (origin, callback) => {
-      // Permitir requisições sem origin (como REST clients locais, curl, ou dentro do mesmo servidor)
-      if (!origin) return callback(null, true);
-      const isAllowed = allowedOrigins.includes(origin) || 
-                        origin.includes('localhost') || 
-                        origin.includes('127.0.0.1') ||
-                        origin.endsWith('.run.app');
-      if (isAllowed) {
-        callback(null, true);
-      } else {
-        callback(new Error('Bloqueado por CORS: Origem não permitida'));
-      }
-    },
-    methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'PATCH', 'DELETE', 'HEAD'],
-    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'apikey'],
-    credentials: true,
-    optionsSuccessStatus: 204
-  }));
-
-  // Adiciona isto (IMPORTANTE no teu caso para forçar resposta ao OPTIONS antes das rotas e dar 204 limpo)
-  app.use((req, res, next) => {
-    const origin = req.headers.origin || '*';
-    res.header('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE, HEAD');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, apikey');
-    res.header('Access-Control-Allow-Credentials', 'true');
-
-    if (req.method === 'OPTIONS') {
-      return res.sendStatus(204);
-    }
-    next();
-  });
-
-  // Configurar detalhes globais de VAPID iniciais (síncronos de início para o app não quebrar)
+  // Configurar detalhes globais de VAPID
   webpush.setVapidDetails(
     'mailto:info@atrioswork.com',
     vapidKeys.publicKey,
@@ -386,112 +341,76 @@ async function startServer() {
 
   // API 4: Rota de Notificação Manual de Administrador (Geral ou em Segmentos)
   app.post('/api/push/send-broadcast', async (req, res) => {
-    try {
-      const { title, body, bannerId, userType } = req.body;
-      if (!title || !body) {
-        return res.status(400).json({ error: 'Faltam campos essenciais no payload' });
-      }
-
-      console.log(`[Push Broadcast Route] Disparando broadcast para: ${title}`);
-      const totalSent = await deliverPushToDevices({ title, body, bannerId, userType });
-      res.json({ success: true, totalDevicesNotified: totalSent });
-    } catch (routeErr: any) {
-      console.error('[Push Broadcast API] Erro no endpoint:', routeErr);
-      res.status(500).json({ error: routeErr.message || 'Erro interno no servidor de push' });
+    const { title, body, bannerId, userType } = req.body;
+    if (!title || !body) {
+      return res.status(400).json({ error: 'Faltam campos essenciais no payload' });
     }
+
+    const totalSent = await deliverPushToDevices({ title, body, bannerId, userType });
+    res.json({ success: true, totalDevicesNotified: totalSent });
   });
 
   // FUNÇÃO DE ENVIO FÍSICO COM AUTO-PRUNING SE REJEITADO (Status 410 / 404 por FCM/APNS)
   async function deliverPushToDevices(payload: { title: string; body: string; bannerId?: string; userType?: string }) {
-    try {
-      const { title, body, bannerId, userType } = payload;
-      
-      // Obter toda a lista unificada de dispositivos registrados do Supabase (Survive restarts!)
-      const subs = await fetchSubscriptionsFromSupabase();
-      if (subs.length === 0) {
-        console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados.');
-        if (bannerId) {
-          try {
-            saveSentBannerId(bannerId);
-          } catch (bannerErr: any) {
-            console.error('[Push Engine] Erro ao salvar id do banner enviado:', bannerErr.message || bannerErr);
-          }
-        }
-        return 0;
-      }
-
-      const target = userType || 'all';
-      const filteredSubs = subs.filter(sub => {
-        if (!sub || !sub.subscription) return false;
-        if (target === 'all' || target === 'push_notification' || target === 'public') return true;
-        if (target === 'premium' && sub.isPro) return true;
-        if (target === 'free' && !sub.isPro) return true;
-        return false;
-      });
-
-      console.log(`[Push Engine] Enviando mensagem física para ${filteredSubs.length} receptor(es) activo(s) sob espectro: [${target}]`);
-      let count = 0;
-      const obsoleteEndpoints: string[] = [];
-
-      const pushPayload = JSON.stringify({
-        title,
-        body,
-        url: '/'
-      });
-
-      await Promise.all(
-        filteredSubs.map(async (container) => {
-          try {
-            if (!container || !container.subscription || !container.subscription.endpoint) {
-              return;
-            }
-            await webpush.sendNotification(container.subscription, pushPayload);
-            count++;
-          } catch (err: any) {
-            // Remover automatizado se utilizador desinstalou a PWA (HTTP 410 / 404)
-            const statusCode = err && typeof err === 'object' ? err.statusCode : undefined;
-            const errMsg = err && typeof err === 'object' ? err.message : String(err);
-            if (statusCode === 410 || statusCode === 404) {
-              obsoleteEndpoints.push(container.subscription.endpoint);
-            } else {
-              console.warn(`[Push Engine] Falha física canal para ${container.userId}:`, errMsg);
-            }
-          }
-        })
-      );
-
-      // Prunar dispositivos obsoletos do Supabase e cache se houver
-      if (obsoleteEndpoints.length > 0) {
-        for (const obsEndpoint of obsoleteEndpoints) {
-          try {
-            await deleteSubscriptionFromSupabase(obsEndpoint);
-          } catch (delErr: any) {
-            console.error('[Push Engine] Erro ao deletar sub obsoleta:', delErr.message || delErr);
-          }
-        }
-        
-        try {
-          const localSubs = loadSubscriptions();
-          const freshLocal = localSubs.filter(s => s && s.subscription && !obsoleteEndpoints.includes(s.subscription.endpoint));
-          saveSubscriptions(freshLocal);
-        } catch (localErr: any) {
-          console.error('[Push Engine] Erro ao sincronizar subs locais pós-prune:', localErr.message || localErr);
-        }
-      }
-
-      if (bannerId) {
-        try {
-          saveSentBannerId(bannerId);
-        } catch (bannerErr: any) {
-          console.error('[Push Engine] Erro ao salvar id do banner enviado:', bannerErr.message || bannerErr);
-        }
-      }
-
-      return count;
-    } catch (engineErr: any) {
-      console.error('[Push Engine] Erro crítico no motor de entrega:', engineErr);
+    const { title, body, bannerId, userType } = payload;
+    
+    // Obter toda a lista unificada de dispositivos registrados do Supabase (Survive restarts!)
+    const subs = await fetchSubscriptionsFromSupabase();
+    if (subs.length === 0) {
+      console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados.');
       return 0;
     }
+
+    const target = userType || 'all';
+    const filteredSubs = subs.filter(sub => {
+      if (target === 'all' || target === 'push_notification' || target === 'public') return true;
+      if (target === 'premium' && sub.isPro) return true;
+      if (target === 'free' && !sub.isPro) return true;
+      return false;
+    });
+
+    console.log(`[Push Engine] Enviando mensagem física para ${filteredSubs.length} receptor(es) activo(s) sob espectro: [${target}]`);
+    let count = 0;
+    const obsoleteEndpoints: string[] = [];
+
+    const pushPayload = JSON.stringify({
+      title,
+      body,
+      url: '/'
+    });
+
+    await Promise.all(
+      filteredSubs.map(async (container) => {
+        try {
+          await webpush.sendNotification(container.subscription, pushPayload);
+          count++;
+        } catch (err: any) {
+          // Remover automatizado se utilizador desinstalou a PWA (HTTP 410 / 404)
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            obsoleteEndpoints.push(container.subscription.endpoint);
+          } else {
+            console.warn(`[Push Engine] Falha física canal para ${container.userId}:`, err.message);
+          }
+        }
+      })
+    );
+
+    // Prunar dispositivos obsoletos do Supabase e cache se houver
+    if (obsoleteEndpoints.length > 0) {
+      for (const obsEndpoint of obsoleteEndpoints) {
+        await deleteSubscriptionFromSupabase(obsEndpoint);
+      }
+      
+      const localSubs = loadSubscriptions();
+      const freshLocal = localSubs.filter(s => !obsoleteEndpoints.includes(s.subscription.endpoint));
+      saveSubscriptions(freshLocal);
+    }
+
+    if (bannerId) {
+      saveSentBannerId(bannerId);
+    }
+
+    return count;
   }
 
   // 4. SUPABASE SYNC LOOP - Monitoriza e despacha a cada 20 segundos
@@ -560,9 +479,9 @@ async function startServer() {
     app.use(vite.middlewares);
     console.log('[Vite Development] Middleware inicializado.');
   } else {
-    const distPath = path.join(projectRoot, 'dist');
+    const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('/:any*', (req, res) => {
+    app.get('*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
     console.log('[Vite Production] Servindo ficheiros estáticos da pasta dist.');
@@ -570,21 +489,6 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[PWA Server] Send Push central a correr em http://localhost:${PORT}`);
-    
-    // PRIMEIRA FASE CARREGADA DE FORMA NÃO BLOQUEANTE: Inicializar chaves VAPid estáveis do Supabase/Arquivo local
-    (async () => {
-      try {
-        await initVapidKeys();
-        webpush.setVapidDetails(
-          'mailto:info@atrioswork.com',
-          vapidKeys.publicKey,
-          vapidKeys.privateKey
-        );
-        console.log('[Push Server - VAPID] Chaves e detalhes globais VAPID sincronizados e reconfigurados pós-arranque.');
-      } catch (err: any) {
-        console.error('[Push Server - VAPID] Erro ao sincronizar chaves VAPID no background pós-arranque:', err.message || err);
-      }
-    })();
   });
 }
 
