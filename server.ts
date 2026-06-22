@@ -2,7 +2,6 @@ import express from 'express';
 import path from 'path';
 import fs from 'fs';
 import webpush from 'web-push';
-import { createServer as createViteServer } from 'vite';
 
 const PORT = 3000;
 const __dirname = path.resolve();
@@ -30,12 +29,16 @@ async function initVapidKeys() {
   // 1. Tentar ler do Supabase na tabela app_banners (onde salvamos como chave-valor de sistema)
   try {
     const checkUrl = `${supabaseUrl}/rest/v1/app_banners?title=eq.%5BSYSTEM_VAPID_KEYS_CONFIG%5D&limit=1`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(checkUrl, {
       headers: {
         'apikey': supabaseKey,
         'Authorization': `Bearer ${supabaseKey}`
-      }
+      },
+      signal: controller.signal
     });
+    clearTimeout(timeout);
 
     if (response.ok) {
       const records = await response.json();
@@ -83,6 +86,8 @@ async function initVapidKeys() {
   // 5. Salvar na BD Supabase para futuras instâncias se não veio de lá
   try {
     const insertUrl = `${supabaseUrl}/rest/v1/app_banners`;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
     const response = await fetch(insertUrl, {
       method: 'POST',
       headers: {
@@ -98,8 +103,10 @@ async function initVapidKeys() {
         cta_link: 'system||user_type:push_notification',
         theme_color: 'emerald',
         is_active: false
-      })
+      }),
+      signal: controller.signal
     });
+    clearTimeout(timeout);
     if (response.ok) {
       console.log('[Push Server - Supabase] Chaves VAPID gravadas na base de dados para garantir persistência 100%!');
     }
@@ -464,6 +471,7 @@ async function startServer() {
 
   // 5. CONFIGURAÇÃO DE ROTEAMENTO VITE MIDDLEWARE OU PASTAS ESTÁTICAS EM PRODUÇÃO
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
