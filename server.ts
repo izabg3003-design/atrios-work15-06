@@ -276,40 +276,44 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Configuração CORS robusta e compatível com Preflight (OPTIONS)
-  // Totalmente compatível com Express 5 sem uso de patterns/wildcards perigosos no router
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      const allowedOrigins = [
-        'https://atrioswork.pt',
-        'https://www.atrioswork.pt',
-        'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app',
-        'https://ais-dev-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app'
-      ];
-      
+  // 1. CORS PRIMEIRO (CORS First)
+  const allowedOrigins = [
+    'https://atrioswork.pt',
+    'https://www.atrioswork.pt',
+    'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app',
+    'https://ais-dev-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app'
+  ];
+
+  app.use(cors({
+    origin: (origin, callback) => {
+      // Permitir requisições sem origin (como REST clients locais, curl, ou dentro do mesmo servidor)
+      if (!origin) return callback(null, true);
       const isAllowed = allowedOrigins.includes(origin) || 
                         origin.includes('localhost') || 
                         origin.includes('127.0.0.1') ||
                         origin.endsWith('.run.app');
-
       if (isAllowed) {
-        res.setHeader('Access-Control-Allow-Origin', origin);
+        callback(null, true);
       } else {
-        res.setHeader('Access-Control-Allow-Origin', 'https://atrioswork.pt');
+        callback(new Error('Bloqueado por CORS: Origem não permitida'));
       }
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
+    },
+    methods: ['GET', 'POST', 'OPTIONS', 'PUT', 'PATCH', 'DELETE', 'HEAD'],
+    allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization', 'apikey'],
+    credentials: true,
+    optionsSuccessStatus: 204
+  }));
 
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, apikey');
-    res.setHeader('Access-Control-Allow-Credentials', 'true');
-    res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
+  // Adiciona isto (IMPORTANTE no teu caso para forçar resposta ao OPTIONS antes das rotas e dar 204 limpo)
+  app.use((req, res, next) => {
+    const origin = req.headers.origin || '*';
+    res.header('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE, HEAD');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, apikey');
+    res.header('Access-Control-Allow-Credentials', 'true');
 
     if (req.method === 'OPTIONS') {
-      res.status(204).end();
-      return;
+      return res.sendStatus(204);
     }
     next();
   });
