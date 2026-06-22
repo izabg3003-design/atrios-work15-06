@@ -601,7 +601,7 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (req, res) => {
+    app.get('/:path*', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
     console.log('[Vite Production] Servindo ficheiros estáticos da pasta dist.');

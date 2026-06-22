@@ -208,7 +208,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
         if (activeSubTab === 'notifications') {
-          const { data: userData } = await supabase.from('profiles').select('id, name, email, role, subscription, created_at');
+          const { data: userData } = await supabase.from('profiles').select('*');
           if (userData) {
             setUsers(userData as any);
           }
