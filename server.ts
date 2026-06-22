@@ -4,7 +4,7 @@ import fs from 'fs';
 import webpush from 'web-push';
 
 const PORT = 3000;
-const __dirname = path.resolve();
+const projectRoot = process.cwd();
 
 interface PushSubscriptionContainer {
   id: string;
@@ -17,8 +17,8 @@ interface PushSubscriptionContainer {
 // Chaves VAPID globais (carregadas assincronamente da BD na inicialização)
 let vapidKeys = { publicKey: '', privateKey: '' };
 
-const STORAGE_FILE = path.join(__dirname, 'push_subscriptions.json');
-const SENT_IDS_FILE = path.join(__dirname, 'sent_push_ids.json');
+const STORAGE_FILE = path.join(projectRoot, 'push_subscriptions.json');
+const SENT_IDS_FILE = path.join(projectRoot, 'sent_push_ids.json');
 
 // Supabase REST details
 const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
@@ -54,7 +54,7 @@ async function initVapidKeys() {
   }
 
   // 2. Se falhar ou não existir, verificar se existe localmente em vapid_keys.json
-  const VAPID_KEYS_FILE = path.join(__dirname, 'vapid_keys.json');
+  const VAPID_KEYS_FILE = path.join(projectRoot, 'vapid_keys.json');
   if (fs.existsSync(VAPID_KEYS_FILE)) {
     try {
       const localKeys = JSON.parse(fs.readFileSync(VAPID_KEYS_FILE, 'utf-8'));
@@ -365,6 +365,13 @@ async function startServer() {
       const subs = await fetchSubscriptionsFromSupabase();
       if (subs.length === 0) {
         console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados.');
+        if (bannerId) {
+          try {
+            saveSentBannerId(bannerId);
+          } catch (bannerErr: any) {
+            console.error('[Push Engine] Erro ao salvar id do banner enviado:', bannerErr.message || bannerErr);
+          }
+        }
         return 0;
       }
 
@@ -508,7 +515,7 @@ async function startServer() {
     app.use(vite.middlewares);
     console.log('[Vite Development] Middleware inicializado.');
   } else {
-    const distPath = path.join(__dirname, 'dist');
+    const distPath = path.join(projectRoot, 'dist');
     app.use(express.static(distPath));
     app.get('*all', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
