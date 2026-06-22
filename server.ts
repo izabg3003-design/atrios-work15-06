@@ -275,6 +275,11 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  app.use((req, res, next) => {
+    console.log(`[HTTP Request Log] ${req.method} ${req.url}`);
+    next();
+  });
+
   // PRIMEIRA FASE: Garantir chaves VAPID estáveis e idênticas no arranque (Lê de Supabase/Arquivo)
   await initVapidKeys();
 
@@ -601,7 +606,7 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('/:path*', (req, res) => {
+    app.get('/(.*)', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
     console.log('[Vite Production] Servindo ficheiros estáticos da pasta dist.');
