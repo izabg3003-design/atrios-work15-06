@@ -275,13 +275,21 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
-  // Middleware simples para habilitar CORS de forma robusta e compatível
+  // Middleware robusto para habilitar CORS completo e compatível com Preflight (OPTIONS)
   app.use((req, res, next) => {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
-    res.setHeader('Access-Control-Allow-Headers', 'X-Requested-With,content-type,Authorization');
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, PUT, PATCH, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, apikey');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Max-Age', '86400'); // Cache preflight for 24h
+
     if (req.method === 'OPTIONS') {
-      res.sendStatus(200);
+      res.status(204).end();
       return;
     }
     next();
