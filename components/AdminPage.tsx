@@ -353,8 +353,17 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           })
         });
         if (pushResponse.ok) {
-          const pushResponseData = await pushResponse.json();
-          devicesCount = pushResponseData.totalDevicesNotified || 0;
+          const text = await pushResponse.text();
+          if (text) {
+            try {
+              const pushResponseData = JSON.parse(text);
+              devicesCount = pushResponseData.totalDevicesNotified || 0;
+            } catch (jsonErr) {
+              console.warn('[VAPID API] Resposta recebida mas formato de JSON inválido:', jsonErr);
+            }
+          }
+        } else {
+          console.warn(`[VAPID API] Servidor respondeu com código de erro: ${pushResponse.status}`);
         }
       } catch (pushErr) {
         console.warn('Erro ao disparar direto por API VAPID, fallback de DB síncrono ativo:', pushErr);

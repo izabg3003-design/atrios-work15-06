@@ -341,76 +341,105 @@ async function startServer() {
 
   // API 4: Rota de Notificação Manual de Administrador (Geral ou em Segmentos)
   app.post('/api/push/send-broadcast', async (req, res) => {
-    const { title, body, bannerId, userType } = req.body;
-    if (!title || !body) {
-      return res.status(400).json({ error: 'Faltam campos essenciais no payload' });
-    }
+    try {
+      const { title, body, bannerId, userType } = req.body;
+      if (!title || !body) {
+        return res.status(400).json({ error: 'Faltam campos essenciais no payload' });
+      }
 
-    const totalSent = await deliverPushToDevices({ title, body, bannerId, userType });
-    res.json({ success: true, totalDevicesNotified: totalSent });
+      console.log(`[Push Broadcast Route] Disparando broadcast para: ${title}`);
+      const totalSent = await deliverPushToDevices({ title, body, bannerId, userType });
+      res.json({ success: true, totalDevicesNotified: totalSent });
+    } catch (routeErr: any) {
+      console.error('[Push Broadcast API] Erro no endpoint:', routeErr);
+      res.status(500).json({ error: routeErr.message || 'Erro interno no servidor de push' });
+    }
   });
 
   // FUNÇÃO DE ENVIO FÍSICO COM AUTO-PRUNING SE REJEITADO (Status 410 / 404 por FCM/APNS)
   async function deliverPushToDevices(payload: { title: string; body: string; bannerId?: string; userType?: string }) {
-    const { title, body, bannerId, userType } = payload;
-    
-    // Obter toda a lista unificada de dispositivos registrados do Supabase (Survive restarts!)
-    const subs = await fetchSubscriptionsFromSupabase();
-    if (subs.length === 0) {
-      console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados.');
-      return 0;
-    }
+    try {
+      const { title, body, bannerId, userType } = payload;
+      
+      // Obter toda a lista unificada de dispositivos registrados do Supabase (Survive restarts!)
+      const subs = await fetchSubscriptionsFromSupabase();
+      if (subs.length === 0) {
+        console.log('[Push Engine] Nenhum dispositivo PWA registado na base de dados.');
+        return 0;
+      }
 
-    const target = userType || 'all';
-    const filteredSubs = subs.filter(sub => {
-      if (target === 'all' || target === 'push_notification' || target === 'public') return true;
-      if (target === 'premium' && sub.isPro) return true;
-      if (target === 'free' && !sub.isPro) return true;
-      return false;
-    });
+      const target = userType || 'all';
+      const filteredSubs = subs.filter(sub => {
+        if (!sub || !sub.subscription) return false;
+        if (target === 'all' || target === 'push_notification' || target === 'public') return true;
+        if (target === 'premium' && sub.isPro) return true;
+        if (target === 'free' && !sub.isPro) return true;
+        return false;
+      });
 
-    console.log(`[Push Engine] Enviando mensagem física para ${filteredSubs.length} receptor(es) activo(s) sob espectro: [${target}]`);
-    let count = 0;
-    const obsoleteEndpoints: string[] = [];
+      console.log(`[Push Engine] Enviando mensagem física para ${filteredSubs.length} receptor(es) activo(s) sob espectro: [${target}]`);
+      let count = 0;
+      const obsoleteEndpoints: string[] = [];
 
-    const pushPayload = JSON.stringify({
-      title,
-      body,
-      url: '/'
-    });
+      const pushPayload = JSON.stringify({
+        title,
+        body,
+        url: '/'
+      });
 
-    await Promise.all(
-      filteredSubs.map(async (container) => {
-        try {
-          await webpush.sendNotification(container.subscription, pushPayload);
-          count++;
-        } catch (err: any) {
-          // Remover automatizado se utilizador desinstalou a PWA (HTTP 410 / 404)
-          if (err.statusCode === 410 || err.statusCode === 404) {
-            obsoleteEndpoints.push(container.subscription.endpoint);
-          } else {
-            console.warn(`[Push Engine] Falha física canal para ${container.userId}:`, err.message);
+      await Promise.all(
+        filteredSubs.map(async (container) => {
+          try {
+            if (!container || !container.subscription || !container.subscription.endpoint) {
+              return;
+            }
+            await webpush.sendNotification(container.subscription, pushPayload);
+            count++;
+          } catch (err: any) {
+            // Remover automatizado se utilizador desinstalou a PWA (HTTP 410 / 404)
+            const statusCode = err && typeof err === 'object' ? err.statusCode : undefined;
+            const errMsg = err && typeof err === 'object' ? err.message : String(err);
+            if (statusCode === 410 || statusCode === 404) {
+              obsoleteEndpoints.push(container.subscription.endpoint);
+            } else {
+              console.warn(`[Push Engine] Falha física canal para ${container.userId}:`, errMsg);
+            }
+          }
+        })
+      );
+
+      // Prunar dispositivos obsoletos do Supabase e cache se houver
+      if (obsoleteEndpoints.length > 0) {
+        for (const obsEndpoint of obsoleteEndpoints) {
+          try {
+            await deleteSubscriptionFromSupabase(obsEndpoint);
+          } catch (delErr: any) {
+            console.error('[Push Engine] Erro ao deletar sub obsoleta:', delErr.message || delErr);
           }
         }
-      })
-    );
-
-    // Prunar dispositivos obsoletos do Supabase e cache se houver
-    if (obsoleteEndpoints.length > 0) {
-      for (const obsEndpoint of obsoleteEndpoints) {
-        await deleteSubscriptionFromSupabase(obsEndpoint);
+        
+        try {
+          const localSubs = loadSubscriptions();
+          const freshLocal = localSubs.filter(s => s && s.subscription && !obsoleteEndpoints.includes(s.subscription.endpoint));
+          saveSubscriptions(freshLocal);
+        } catch (localErr: any) {
+          console.error('[Push Engine] Erro ao sincronizar subs locais pós-prune:', localErr.message || localErr);
+        }
       }
-      
-      const localSubs = loadSubscriptions();
-      const freshLocal = localSubs.filter(s => !obsoleteEndpoints.includes(s.subscription.endpoint));
-      saveSubscriptions(freshLocal);
-    }
 
-    if (bannerId) {
-      saveSentBannerId(bannerId);
-    }
+      if (bannerId) {
+        try {
+          saveSentBannerId(bannerId);
+        } catch (bannerErr: any) {
+          console.error('[Push Engine] Erro ao salvar id do banner enviado:', bannerErr.message || bannerErr);
+        }
+      }
 
-    return count;
+      return count;
+    } catch (engineErr: any) {
+      console.error('[Push Engine] Erro crítico no motor de entrega:', engineErr);
+      return 0;
+    }
   }
 
   // 4. SUPABASE SYNC LOOP - Monitoriza e despacha a cada 20 segundos
