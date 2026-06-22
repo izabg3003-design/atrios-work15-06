@@ -15,8 +15,9 @@ interface PushSubscriptionContainer {
   updatedAt: string;
 }
 
-// Chaves VAPID globais (carregadas assincronamente da BD na inicialização)
-let vapidKeys = { publicKey: '', privateKey: '' };
+// Chaves VAPID globais (geradas síncronas de início e sobrepostas assincronamente da BD para total estabilidade)
+const tempKeys = webpush.generateVAPIDKeys();
+let vapidKeys = { publicKey: tempKeys.publicKey, privateKey: tempKeys.privateKey };
 
 const STORAGE_FILE = path.join(projectRoot, 'push_subscriptions.json');
 const SENT_IDS_FILE = path.join(projectRoot, 'sent_push_ids.json');
@@ -268,7 +269,11 @@ function saveSentBannerId(id: string) {
   const current = loadSentBannerIds();
   if (!current.includes(id)) {
     current.push(id);
-    fs.writeFileSync(SENT_IDS_FILE, JSON.stringify(current, null, 2), 'utf-8');
+    try {
+      fs.writeFileSync(SENT_IDS_FILE, JSON.stringify(current, null, 2), 'utf-8');
+    } catch (err: any) {
+      console.warn('[Push Server] Erro ao gravar IDs enviados locais (coexistência em memória ativa):', err.message || err);
+    }
   }
 }
 
@@ -318,10 +323,7 @@ async function startServer() {
     next();
   });
 
-  // PRIMEIRA FASE: Garantir chaves VAPID estáveis e idênticas no arranque (Lê de Supabase/Arquivo)
-  await initVapidKeys();
-
-  // Configurar detalhes globais de VAPID
+  // Configurar detalhes globais de VAPID iniciais (síncronos de início para o app não quebrar)
   webpush.setVapidDetails(
     'mailto:info@atrioswork.com',
     vapidKeys.publicKey,
@@ -568,6 +570,21 @@ async function startServer() {
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`[PWA Server] Send Push central a correr em http://localhost:${PORT}`);
+    
+    // PRIMEIRA FASE CARREGADA DE FORMA NÃO BLOQUEANTE: Inicializar chaves VAPid estáveis do Supabase/Arquivo local
+    (async () => {
+      try {
+        await initVapidKeys();
+        webpush.setVapidDetails(
+          'mailto:info@atrioswork.com',
+          vapidKeys.publicKey,
+          vapidKeys.privateKey
+        );
+        console.log('[Push Server - VAPID] Chaves e detalhes globais VAPID sincronizados e reconfigurados pós-arranque.');
+      } catch (err: any) {
+        console.error('[Push Server - VAPID] Erro ao sincronizar chaves VAPID no background pós-arranque:', err.message || err);
+      }
+    })();
   });
 }
 
