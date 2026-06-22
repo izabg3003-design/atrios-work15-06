@@ -25,15 +25,39 @@ const SENT_IDS_FILE = path.join(__dirname, 'sent_push_ids.json');
 const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
 const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8';
 
-// A. INICIALIZAR E RECUPERAR CHAVES VAPID DA BASE DE DADOS
+// A. INICIALIZAR E RECUPERAR CHAVES VAPID DA BASE DE DADOS OU FICHEIRO LOCAL GERAL
 async function initVapidKeys() {
-  const MASTER_PUBLIC_KEY = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
-  const MASTER_PRIVATE_KEY = '6j5FNcDexsNTUsGe_4f2vVVtvrgXWXXofKkgiLzQhNQ';
+  const keysPath = path.join(__dirname, 'vapid_keys.json');
 
-  vapidKeys.publicKey = MASTER_PUBLIC_KEY;
-  vapidKeys.privateKey = MASTER_PRIVATE_KEY;
+  // Se o ficheiro de chaves já existe, recuperá-las para manter os tokens utilizadores 100% válidos
+  if (fs.existsSync(keysPath)) {
+    try {
+      const persistedKeys = JSON.parse(fs.readFileSync(keysPath, 'utf-8'));
+      if (persistedKeys.publicKey && persistedKeys.privateKey) {
+        vapidKeys.publicKey = persistedKeys.publicKey;
+        vapidKeys.privateKey = persistedKeys.privateKey;
+        console.log('[Push Server] Chaves VAPID estáveis e únicas carregadas com sucesso absoluto de vapid_keys.json!');
+        return;
+      }
+    } catch (err: any) {
+      console.error('[Push Server] Erro ao ler chaves do ficheiro vapid_keys.json, a recriar:', err.message);
+    }
+  }
 
-  console.log('[Push Server] Chave Master estável de produção inicializada localmente com sucesso absoluto!');
+  // Senão, gera um novo par estável e persiste localmente na infraestrutura
+  try {
+    const generated = webpush.generateVAPIDKeys();
+    vapidKeys.publicKey = generated.publicKey;
+    vapidKeys.privateKey = generated.privateKey;
+    fs.writeFileSync(keysPath, JSON.stringify(generated, null, 2), 'utf-8');
+    console.log('[Push Server] Novas chaves criptográficas VAPID geradas e persistidas com sucesso em vapid_keys.json!');
+  } catch (err: any) {
+    console.error('[Push Server] Erro ao gerar chaves VAPID de forma autónoma:', err.message);
+    // Fallback de chaves estáveis para predefinidas em ambiente de produção resiliente
+    vapidKeys.publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
+    vapidKeys.privateKey = '6j5FNcDexsNTUsGe_4f2vVVtvrgXWXXofKkgiLzQhNQ';
+    console.log('[Push Server] Chave Master estável de produção de fallback inicializada localmente com sucesso absoluto!');
+  }
 }
 
 // B. CONTROLO DE DISPOSITIVOS EM BASE DE DADOS (SUPABASE - TABELA DEDICADA)
@@ -577,7 +601,7 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*', (req, res) => {
+    app.get('*all', (req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
     console.log('[Vite Production] Servindo ficheiros estáticos da pasta dist.');
