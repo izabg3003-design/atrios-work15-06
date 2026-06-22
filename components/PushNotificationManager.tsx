@@ -413,7 +413,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       setGuidedState(prev => ({ ...prev, step: 'subscribe' }));
       console.log('[Push Guided] Obtendo ou atualizando subscrição push...');
       
-      let publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE'; // MASTER_PUBLIC_KEY
+      let publicKey = 'BA1eOGWzfozSy5qEZbP3keg6nmeaDIi5AOZcJH9ium3GyNjA0O8pw45T-uUlg8p5aY77SNXgZJXwNHWC5Ba4GdE'; // MASTER_PUBLIC_KEY
       try {
         const keyResp = await fetch('/api/push/public-key');
         if (keyResp.ok && keyResp.headers.get('content-type')?.includes('application/json')) {
@@ -508,7 +508,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       await navigator.serviceWorker.register('/sw.js', { scope: '/' });
       reg = await navigator.serviceWorker.ready;
       
-      let publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
+      let publicKey = 'BA1eOGWzfozSy5qEZbP3keg6nmeaDIi5AOZcJH9ium3GyNjA0O8pw45T-uUlg8p5aY77SNXgZJXwNHWC5Ba4GdE';
       try {
         const keyResp = await fetch('/api/push/public-key');
         if (keyResp.ok && keyResp.headers.get('content-type')?.includes('application/json')) {

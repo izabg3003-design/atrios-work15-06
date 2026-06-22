@@ -54,8 +54,8 @@ async function initVapidKeys() {
   } catch (err: any) {
     console.error('[Push Server] Erro ao gerar chaves VAPID de forma autónoma:', err.message);
     // Fallback de chaves estáveis para predefinidas em ambiente de produção resiliente
-    vapidKeys.publicKey = 'BNi2V3wyA4IGCBM_djIm4ZbMOygiu-Oh-2SPU1jVd82yq7J9ts4sF6cQmIrPAXU8eHhamfsJV7SaQLURaR20zkE';
-    vapidKeys.privateKey = '6j5FNcDexsNTUsGe_4f2vVVtvrgXWXXofKkgiLzQhNQ';
+    vapidKeys.publicKey = 'BA1eOGWzfozSy5qEZbP3keg6nmeaDIi5AOZcJH9ium3GyNjA0O8pw45T-uUlg8p5aY77SNXgZJXwNHWC5Ba4GdE';
+    vapidKeys.privateKey = 'QP_sOrwJ73y9MKxsOOfxh1uwoJ2FRbVyJzURqXEz-Q8';
     console.log('[Push Server] Chave Master estável de produção de fallback inicializada localmente com sucesso absoluto!');
   }
 }

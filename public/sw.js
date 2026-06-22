@@ -85,38 +85,46 @@ self.addEventListener('fetch', (event) => {
 
 // Suporte para Receber Notificações Push Locais ou de Servidor (Push API nativo)
 self.addEventListener('push', (event) => {
-  let data = { title: 'Nova Notificação', body: 'Mensagem recebida.' };
-  if (event.data) {
-    try {
-      data = event.data.json();
-    } catch (e) {
+  event.waitUntil((async () => {
+    let data = { title: 'Nova Notificação', body: 'Mensagem recebida.' };
+    if (event.data) {
       try {
-        data = { title: 'Notificação', body: event.data.text() || '' };
-      } catch (err) {}
+        data = event.data.json();
+      } catch (e) {
+        try {
+          data = { title: 'Notificação', body: event.data.text() || '' };
+        } catch (err) {}
+      }
     }
-  }
 
-  const origin = self.location.origin;
-  const showPromise = self.registration.showNotification(data.title || 'AtriosWork', {
-    body: data.body || '',
-    icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-    badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-    vibrate: [200, 100, 200],
-    data: data.url || '/',
-    actions: [
-      { action: 'open', title: 'Abrir App' }
-    ]
-  }).catch((err) => {
-    console.warn('[Service Worker] Falha ao exibir com opções ricas (específico de iOS/Safari/Mobile sem suporte total), exibindo simplificado:', err);
-    return self.registration.showNotification(data.title || 'AtriosWork', {
-      body: data.body || '',
-      icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-      badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-      data: data.url || '/'
-    });
-  });
-
-  event.waitUntil(showPromise);
+    const origin = self.location.origin;
+    try {
+      // Tentar mostrar com todas as opções (Ícone, Vibração, Ações)
+      await self.registration.showNotification(data.title || 'AtriosWork', {
+        body: data.body || '',
+        icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+        badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+        vibrate: [200, 100, 200],
+        data: data.url || '/',
+        actions: [
+          { action: 'open', title: 'Abrir App' }
+        ]
+      });
+    } catch (richError) {
+      console.warn('[Service Worker] Falha ao exibir com opções ricas (iOS / Safari), tentando formato simplificado:', richError);
+      try {
+        // Fallback simplificado sem botões de ação e vibração (compatibilidade máxima com iOS e Safari do macOS)
+        await self.registration.showNotification(data.title || 'AtriosWork', {
+          body: data.body || '',
+          icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+          badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+          data: data.url || '/'
+        });
+      } catch (basicError) {
+        console.error('[Service Worker] Falha catastrófica ao exibir qualquer notificação:', basicError);
+      }
+    }
+  })());
 });
 
 // Lidar com o toque ou clique na notificação push
@@ -213,14 +221,29 @@ async function checkNewPushesInBackground() {
 
     if (freshPushes.length > 0) {
       for (const freshPush of freshPushes) {
-        await self.registration.showNotification(freshPush.title || 'Aviso AtriosWork', {
-          body: freshPush.body || '',
-          icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-          badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-          vibrate: [200, 100, 200],
-          tag: `sendpush-alert-${freshPush.id}`,
-          data: '/'
-        });
+        try {
+          await self.registration.showNotification(freshPush.title || 'Aviso AtriosWork', {
+            body: freshPush.body || '',
+            icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
+            badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
+            vibrate: [200, 100, 200],
+            tag: `sendpush-alert-${freshPush.id}`,
+            data: '/'
+          });
+        } catch (richError) {
+          console.warn('[Service Worker Background] Falha ao exibir com opções de vibração, tentando formato simplificado para iOS/Safari:', richError);
+          try {
+            await self.registration.showNotification(freshPush.title || 'Aviso AtriosWork', {
+              body: freshPush.body || '',
+              icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
+              badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
+              tag: `sendpush-alert-${freshPush.id}`,
+              data: '/'
+            });
+          } catch (basicError) {
+            console.error('[Service Worker Background] Falha catastrófica ao exibir notificação em background:', basicError);
+          }
+        }
 
         shownIds.push(freshPush.id);
       }
