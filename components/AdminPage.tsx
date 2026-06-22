@@ -7,7 +7,7 @@ import {
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
 } from 'lucide-react';
-import { supabase, parseDbBanner, prepareBannerForDb } from '../lib/supabase';
+import { supabase, parseDbBanner, prepareBannerForDb, getApiUrl } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -341,7 +341,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       // Chamar também o endpoint Express para disparo físico instantâneo Web Push (VAPID)
       let devicesCount = 0;
       try {
-        const pushResponse = await fetch('/api/push/send-broadcast', {
+        const pushResponse = await fetch(getApiUrl('/api/push/send-broadcast'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'

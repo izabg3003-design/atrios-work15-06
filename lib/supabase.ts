@@ -72,3 +72,30 @@ export const prepareBannerForDb = (banner: Partial<AppBanner>): any => {
   };
 };
 
+/**
+ * Retorna a URL base correta para chamadas ao Express.
+ * Se o origin for localhost ou run.app (ambientes de des/pre), usa relativo.
+ * Se for o domínio de produção atrioswork.pt ou outro customizado, aponta para o Cloud Run do backend.
+ */
+export const getApiUrl = (path: string): string => {
+  const currentOrigin = window.location.origin;
+  const isDevOrPreview = currentOrigin.includes('localhost') || currentOrigin.includes('run.app') || currentOrigin.includes('127.0.0.1');
+  
+  // Preferir a variável de ambiente VITE_API_URL caso o usuário configure
+  const envApiUrl = (import.meta as any).env?.VITE_API_URL;
+  if (envApiUrl) {
+    const base = envApiUrl.endsWith('/') ? envApiUrl.slice(0, -1) : envApiUrl;
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${base}${cleanPath}`;
+  }
+
+  if (isDevOrPreview) {
+    const cleanPath = path.startsWith('/') ? path : `/${path}`;
+    return `${currentOrigin}${cleanPath}`;
+  }
+
+  const baseCloudRunUrl = 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app';
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${baseCloudRunUrl}${cleanPath}`;
+};
+
