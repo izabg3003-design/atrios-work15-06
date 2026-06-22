@@ -472,41 +472,32 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     setIsSendingPush(true);
     setPushSendResult(null);
     try {
-      // Registrar no histórico de push_notifications da base de dados do Supabase
-      const pushRecord = {
-        title: newPushTitle.trim(),
-        body: newPushBody.trim(),
-        user_type: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free'),
-        is_active: true
-      };
-
-      const { error } = await supabase.from('push_notifications').insert([pushRecord]);
-      if (error && error.code !== '42P01') throw error; // Ignore se o utilizador ainda não correu a query de migração
-
-      // Chamar também o endpoint Express para disparo físico instantâneo Web Push (VAPID)
+      // Chamar o endpoint Express para disparo físico instantâneo Web Push (VAPID) e gravação no BD usando service_role (Bypass RLS)
       let devicesCount = 0;
-      try {
-        const pushResponse = await fetch('/api/push/send-broadcast', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            title: newPushTitle.trim(),
-            body: newPushBody.trim(),
-            userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
-          })
-        });
-        if (pushResponse.ok && pushResponse.headers.get('content-type')?.includes('application/json')) {
-          try {
-            const pushResponseData = await pushResponse.json();
-            devicesCount = pushResponseData.totalDevicesNotified || 0;
-          } catch (jsonErr) {
-            console.warn('Erro ao ler JSON de broadcast:', jsonErr);
-          }
+      const pushResponse = await fetch('/api/push/send-broadcast', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          title: newPushTitle.trim(),
+          body: newPushBody.trim(),
+          userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
+        })
+      });
+
+      if (!pushResponse.ok) {
+        throw new Error(`Erro na API do servidor: ${pushResponse.status} ${pushResponse.statusText}`);
+      }
+
+      const contentType = pushResponse.headers.get('content-type');
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          const pushResponseData = await pushResponse.json();
+          devicesCount = pushResponseData.totalDevicesNotified || 0;
+        } catch (jsonErr) {
+          console.warn('Erro ao ler JSON de broadcast:', jsonErr);
         }
-      } catch (pushErr) {
-        console.warn('Erro ao disparar direto por API VAPID, fallback de DB síncrono ativo:', pushErr);
       }
 
       setNewPushTitle('');
