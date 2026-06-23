@@ -5,7 +5,7 @@ import { supabase, parseDbBanner } from '../lib/supabase';
 
 // Chave Pública VAPID Padrão (Uncompressed EC Public Key de 65 bytes codificada em Base64URL)
 // O utilizador pode gerar a sua própria chave e configurá-la como VITE_VAPID_PUBLIC_KEY
-const VAPID_PUBLIC_KEY = (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY || 'BEl62iS7s4u90_1Z-6-zN34VwG_Hl6V5I4v3t6Y9Z8_wN5Z7T4_8O0p3Q7_6V5I4_8V3t6Y9Z8_wN5Z7T4';
+const VAPID_PUBLIC_KEY = (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY || 'BPPMo4i6Sx1xI36cjf8PxrvyjeRSDXek7Mvan3ixg613871ZmnPTuj7apIQBkDKcWXi5S8nGWoEBOobg8Z2nkY4';
 
 // Função auxiliar para converter chave pública VAPID para Uint8Array
 const urlBase64ToUint8Array = (base64String: string) => {
