@@ -455,7 +455,16 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     if (activeSubTab === 'users') return users.filter(u => u.name.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term));
     if (activeSubTab === 'vendors') return vendors.filter(v => v.name.toLowerCase().includes(term) || v.code.toLowerCase().includes(term));
     if (activeSubTab === 'support') return supportStaff.filter(s => s.name.toLowerCase().includes(term) || s.email?.toLowerCase().includes(term));
-    if (activeSubTab === 'banners') return banners.filter(b => b.title.toLowerCase().includes(term) || b.highlight.toLowerCase().includes(term));
+    if (activeSubTab === 'banners') {
+      return banners
+        .filter(b => {
+          const isPush = b.title.toUpperCase().includes('[PUSH]') || 
+                         (b.user_type as string) === 'push_notification' ||
+                         (b.highlight && b.highlight.toUpperCase().includes('[PUSH]'));
+          return !isPush;
+        })
+        .filter(b => b.title.toLowerCase().includes(term) || b.highlight.toLowerCase().includes(term));
+    }
     return [];
   }, [searchTerm, users, vendors, supportStaff, banners, activeSubTab]);
 
