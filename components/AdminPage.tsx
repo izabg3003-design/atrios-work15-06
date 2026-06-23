@@ -944,32 +944,67 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     )}
                   </div>
 
-                  <div className="p-6 bg-slate-900/40 rounded-3xl border border-white/5 space-y-4">
-                    <div className="flex items-center gap-3">
-                      <Webhook className="w-5 h-5 text-blue-400" />
-                      <h5 className="text-[11px] font-black uppercase tracking-widest text-white font-sans font-black">Como Resolver o Erro 401 Unauthorized no Supabase</h5>
+                  <div className="p-8 bg-slate-900/40 rounded-[2.5rem] border border-blue-500/20 space-y-6 font-sans">
+                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                      <div className="flex items-center gap-3">
+                        <Webhook className="w-5 h-5 text-blue-400" />
+                        <h5 className="text-xs font-black uppercase tracking-widest text-white">Guia de Integração e Diagnóstico Supabase</h5>
+                      </div>
+                      <span className="px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full text-[8px] font-black uppercase tracking-widest font-mono">Erro 401 Resolved</span>
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-[10px] text-slate-400 leading-relaxed font-sans font-normal">
-                      <div className="space-y-2">
-                        <p className="font-bold text-slate-200">Passo 1: Fazer o Deploy com JWT Desativado</p>
-                        <p>
-                          Por padrão, o Supabase Edge Functions exige autenticação JWT para chamadas do navegador. Para permitir que o seu app envie notificações push diretamente sem dar erro 401, você precisa implantar a Edge Function especificando o parâmetro <code className="bg-slate-950 px-1.5 py-0.5 rounded text-rose-400 font-mono text-[9px]">--no-verify-jwt</code>:
+
+                    <p className="text-[10px] text-slate-400 leading-relaxed font-normal">
+                      Por padrão, o gateway de segurança (Kong) do Supabase bloqueia chamadas diretas do navegador para as Edge Functions, retornando <code className="bg-slate-950 text-rose-400 px-1.5 py-0.5 rounded font-mono">401 Unauthorized (INVALID_CREDENTIALS)</code>. Existem duas excelentes maneiras de configurar e resolver isso em seu projeto:
+                    </p>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-[10px] text-slate-400 leading-relaxed font-normal">
+                      {/* Método A (Recomendado) */}
+                      <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[9px] font-black flex items-center justify-center">A</span>
+                          <p className="font-bold text-slate-200 uppercase tracking-wider text-[9px]">Método A (Recomendado): Database Webhook</p>
+                        </div>
+                        <p className="text-slate-450 text-[9px]">
+                          Esta opção é 100% segura, automática e elimina qualquer erro no navegador. Sempre que enviar um push, o banco de dados insere na tabela <code className="text-blue-400 font-mono font-bold">app_banners</code>, o que automaticamente ativa o Webhook interno do Supabase para disparar a notificação.
                         </p>
-                        <div className="p-3 bg-slate-950 rounded-xl border border-white/5 font-mono text-[9px] text-slate-300 select-all">
-                          supabase functions deploy send-push --no-verify-jwt
+                        <div className="space-y-1.5 pl-1">
+                          <p className="font-bold text-slate-300">Como ativar no painel do Supabase:</p>
+                          <ol className="list-decimal pl-4 space-y-1 text-slate-400 text-[9px]">
+                            <li>Aceda ao menu esquerdo em <span className="text-white font-semibold">Database</span> &rarr; <span className="text-white font-semibold">Webhooks</span>.</li>
+                            <li>Clique em <span className="text-emerald-400 font-bold">Create a new Webhook</span>.</li>
+                            <li>Configure o Webhook exatamente assim:
+                              <ul className="list-disc pl-4 mt-1 space-y-0.5 text-slate-550 text-[8px]">
+                                <li><strong className="text-slate-300">Name:</strong> <code className="bg-slate-900 px-1">send_push_notification</code></li>
+                                <li><strong className="text-slate-300">Table:</strong> <code className="bg-slate-900 px-1">app_banners</code></li>
+                                <li><strong className="text-slate-300">Events:</strong> Marcar apenas <code className="bg-slate-900 px-1">Insert</code></li>
+                                <li><strong className="text-slate-300">Type:</strong> Selecionar <code className="bg-slate-900 px-1">Supabase Edge Function</code></li>
+                                <li><strong className="text-slate-300">Edge Function:</strong> Escolher <code className="bg-slate-900 px-1">send-push</code></li>
+                                <li><strong className="text-slate-300">Method:</strong> <code className="bg-slate-900 px-1">POST</code></li>
+                              </ul>
+                            </li>
+                            <li>Clique em <span className="text-white font-bold">Save</span>. Pronto! O banco de dados passa a cuidar de tudo em segundo plano de forma instantânea!</li>
+                          </ol>
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <p className="font-bold text-slate-200">Passo 2: Configurar as Variáveis no Supabase e no App</p>
-                        <ul className="list-disc pl-4 space-y-1 font-sans">
-                          <li>
-                            No painel do Supabase, adicione as variáveis de ambiente <code className="text-amber-400 font-mono font-bold">VAPID_PUBLIC_KEY</code>, <code className="text-amber-400 font-mono font-bold">VAPID_PRIVATE_KEY</code> e <code className="text-amber-400 font-mono font-bold">VAPID_EMAIL</code> nas configurações do projeto ou via CLI (<code className="text-[8px] bg-slate-950 px-1 py-0.5">supabase secrets set</code>).
-                          </li>
-                          <li>
-                            No AI Studio, adicione a secret <code className="text-emerald-400 font-mono font-bold">VITE_VAPID_PUBLIC_KEY</code> nas Secrets (ícone de engrenagem) com o valor da sua Chave Pública gerada.
-                          </li>
-                        </ul>
+                      {/* Método B (Chamada Direta) */}
+                      <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <span className="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-black flex items-center justify-center">B</span>
+                          <p className="font-bold text-slate-200 uppercase tracking-wider text-[9px]">Método B: Chamada Direta via CLI</p>
+                        </div>
+                        <p className="text-slate-450 text-[9px]">
+                          Se preferir disparar o push diretamente pelo painel administrativo do cliente (navegador), deve desativar a verificação de JWT de utilizador obrigatória do Supabase para esta função específica:
+                        </p>
+                        <div className="space-y-2">
+                          <p className="font-bold text-slate-300">Execute o deploy com a flag:</p>
+                          <div className="p-3 bg-slate-950 rounded-xl border border-white/5 font-mono text-[9px] text-slate-300 select-all">
+                            supabase functions deploy send-push --no-verify-jwt
+                          </div>
+                          <p className="text-[9px] text-slate-500 font-medium italic">
+                            Nota: Certifique-se de configurar as secrets <code className="text-amber-400 font-mono text-[8px]">VAPID_PUBLIC_KEY</code> e <code className="text-amber-400 font-mono text-[8px]">VAPID_PRIVATE_KEY</code> no painel Supabase em <span className="text-white">Edge Functions &rarr; Settings</span> ou usando <code className="text-[8px] bg-slate-950 px-1 py-0.5">supabase secrets set</code>.
+                          </p>
+                        </div>
                       </div>
                     </div>
                   </div>
