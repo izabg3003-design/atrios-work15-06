@@ -7,7 +7,7 @@ import {
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
 } from 'lucide-react';
-import { supabase, parseDbBanner, prepareBannerForDb, supabaseAnonKey } from '../lib/supabase';
+import { supabase, parseDbBanner, prepareBannerForDb, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -343,15 +343,24 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         const sessionRes = await supabase.auth.getSession();
         const token = sessionRes?.data?.session?.access_token || supabaseAnonKey;
         
-        await supabase.functions.invoke('send-push', {
-          body: recordToNotify,
+        const response = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+          method: 'POST',
           headers: {
+            'Content-Type': 'application/json',
+            'apikey': supabaseAnonKey,
             'Authorization': `Bearer ${token}`
-          }
+          },
+          body: JSON.stringify(recordToNotify)
         });
-        console.log('Edge Function "send-push" disparada com sucesso!');
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.warn(`Erro HTTP ${response.status} ao disparar Edge Function:`, errText);
+        } else {
+          console.log('Edge Function "send-push" disparada com sucesso!');
+        }
       } catch (funcErr: any) {
-        console.warn('Nota: Edge Function "send-push" não pôde ser disparada (pode ser necessário ativá-la no painel do Supabase):', funcErr?.message || funcErr);
+        console.warn('Nota: Edge Function "send-push" não pôde ser disparada:', funcErr?.message || funcErr);
       }
 
       setNewPushTitle('');

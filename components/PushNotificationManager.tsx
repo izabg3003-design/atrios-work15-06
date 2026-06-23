@@ -5,22 +5,28 @@ import { supabase, parseDbBanner } from '../lib/supabase';
 
 // Chave Pública VAPID Padrão (Uncompressed EC Public Key de 65 bytes codificada em Base64URL)
 // O utilizador pode gerar a sua própria chave e configurá-la como VITE_VAPID_PUBLIC_KEY
-const VAPID_PUBLIC_KEY = (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY || 'BI5_vP-V3T9M_gM6F_8pS7T_8O0p3Q7_6V5I4_8V3t6Y9Z8_wN5Z7T4_8O0p3Q7_6V5I4_8V3t6Y9Z8_wN5Z7T4_8';
+const VAPID_PUBLIC_KEY = (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY || 'BI5_vP_V3T9M_gM6F_8pS7T_8O0p3Q7_6V5I4_8V3t6Y9Z8_wN5Z7T4_8O0p3Q7_6V5I4_8V3t6Y9Z8_wN5Z7T4A';
 
 // Função auxiliar para converter chave pública VAPID para Uint8Array
 const urlBase64ToUint8Array = (base64String: string) => {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding)
-    .replace(/\-/g, '+')
-    .replace(/_/g, '/');
+  try {
+    const cleaned = base64String.trim().replace(/['"]/g, '').replace(/\s/g, '');
+    const padding = '='.repeat((4 - (cleaned.length % 4)) % 4);
+    const base64 = (cleaned + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/');
 
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
 
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  } catch (err) {
+    console.warn('Erro ao decodificar a chave pública VAPID (VITE_VAPID_PUBLIC_KEY):', err);
+    return null;
   }
-  return outputArray;
 };
 
 // Função auxiliar para converter ArrayBuffer para Base64
@@ -210,6 +216,10 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       
       // Obter ou criar subscrição nativa do browser
       const convertedVapidKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
+      if (!convertedVapidKey) {
+        console.warn('Subscrição de push cancelada: chave pública VAPID inválida ou ausente.');
+        return;
+      }
       
       let subscription = await registration.pushManager.getSubscription();
       
