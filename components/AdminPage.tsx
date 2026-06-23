@@ -5,7 +5,7 @@ import {
   Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Tag, UserPlus2, 
   Percent, CalendarDays, Activity, Settings, Megaphone, Plus, Power, Zap,
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
-  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
+  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Sparkles
 } from 'lucide-react';
 import { supabase, parseDbBanner, prepareBannerForDb, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
@@ -107,6 +107,50 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [newPushAudience, setNewPushAudience] = useState<'all' | 'free' | 'premium'>('all');
   const [isSendingPush, setIsSendingPush] = useState(false);
   const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
+
+  const [generatedVapidKeys, setGeneratedVapidKeys] = useState<{ publicKey: string; privateKey: string } | null>(null);
+  const [copiedKeyType, setCopiedKeyType] = useState<'public' | 'private' | null>(null);
+
+  const handleGenerateVapidKeys = async () => {
+    try {
+      const keyPair = await window.crypto.subtle.generateKey(
+        {
+          name: "ECDSA",
+          namedCurve: "P-256",
+        },
+        true,
+        ["sign", "verify"]
+      );
+
+      const publicKeyBuffer = await window.crypto.subtle.exportKey("raw", keyPair.publicKey);
+      const privateKeyBuffer = await window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+
+      const toBase64Url = (buf: ArrayBuffer) => {
+        const bytes = new Uint8Array(buf);
+        let str = "";
+        for (let i = 0; i < bytes.length; i++) {
+          str += String.fromCharCode(bytes[i]);
+        }
+        return window.btoa(str)
+          .replace(/\+/g, "-")
+          .replace(/\//g, "_")
+          .replace(/=+$/, "");
+      };
+
+      setGeneratedVapidKeys({
+        publicKey: toBase64Url(publicKeyBuffer),
+        privateKey: toBase64Url(privateKeyBuffer)
+      });
+    } catch (err: any) {
+      alert('Não foi possível gerar as chaves VAPID: ' + err.message);
+    }
+  };
+
+  const handleCopyKey = (key: string, type: 'public' | 'private') => {
+    navigator.clipboard.writeText(key);
+    setCopiedKeyType(type);
+    setTimeout(() => setCopiedKeyType(null), 2000);
+  };
 
   const fetchData = async () => {
     setLoading(true);
@@ -754,6 +798,96 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                      <p className="text-[10px] text-slate-500 leading-relaxed italic">
                        As notificações Push nativas dependem do consentimento do utilizador. Incentive-os a clicar em "Autorizar Push" no popup de início de sessão.
                      </p>
+                  </div>
+                </div>
+
+                {/* Painel de Chaves VAPID & Deploy no Supabase */}
+                <div className="mt-6 pt-6 border-t border-slate-850 space-y-6">
+                  <div className="p-6 bg-slate-900/40 rounded-3xl border border-white/5 space-y-4">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-3">
+                          <KeySquare className="w-5 h-5 text-amber-400" />
+                          <h5 className="text-[11px] font-black uppercase tracking-widest text-white font-sans">Gerador de Chaves VAPID para Push Nativo</h5>
+                        </div>
+                        <p className="text-[10px] text-slate-400 leading-relaxed max-w-2xl font-sans">
+                          As chaves VAPID são necessárias para assinar e enviar as notificações Push de forma segura. Gere um par abaixo e configure-as tanto no Supabase como nas Secrets do AI Studio.
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleGenerateVapidKeys}
+                        className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-[10px] uppercase tracking-wider flex items-center gap-2 transition-all shadow-md self-start md:self-center font-sans"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" /> Gerar Chaves VAPID
+                      </button>
+                    </div>
+
+                    {generatedVapidKeys && (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                        <div className="p-4 bg-slate-950 rounded-2xl border border-white/5 space-y-2">
+                          <div className="flex justify-between items-center font-sans">
+                            <span className="text-[9px] font-black text-amber-400 uppercase tracking-wider">Chave Pública (VAPID_PUBLIC_KEY)</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyKey(generatedVapidKeys.publicKey, 'public')}
+                              className="text-[9px] font-bold text-slate-400 hover:text-white flex items-center gap-1 uppercase tracking-wider bg-white/5 px-2 py-1 rounded transition-all"
+                            >
+                              {copiedKeyType === 'public' ? 'Copiado!' : 'Copiar'}
+                            </button>
+                          </div>
+                          <div className="p-2.5 bg-slate-900 rounded-lg border border-white/5 font-mono text-[9px] text-slate-300 break-all select-all">
+                            {generatedVapidKeys.publicKey}
+                          </div>
+                        </div>
+
+                        <div className="p-4 bg-slate-950 rounded-2xl border border-white/5 space-y-2">
+                          <div className="flex justify-between items-center font-sans">
+                            <span className="text-[9px] font-black text-amber-400 uppercase tracking-wider">Chave Privada (VAPID_PRIVATE_KEY)</span>
+                            <button
+                              type="button"
+                              onClick={() => handleCopyKey(generatedVapidKeys.privateKey, 'private')}
+                              className="text-[9px] font-bold text-slate-400 hover:text-white flex items-center gap-1 uppercase tracking-wider bg-white/5 px-2 py-1 rounded transition-all"
+                            >
+                              {copiedKeyType === 'private' ? 'Copiado!' : 'Copiar'}
+                            </button>
+                          </div>
+                          <div className="p-2.5 bg-slate-900 rounded-lg border border-white/5 font-mono text-[9px] text-slate-300 break-all select-all">
+                            {generatedVapidKeys.privateKey}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="p-6 bg-slate-900/40 rounded-3xl border border-white/5 space-y-4">
+                    <div className="flex items-center gap-3">
+                      <Webhook className="w-5 h-5 text-blue-400" />
+                      <h5 className="text-[11px] font-black uppercase tracking-widest text-white font-sans font-black">Como Resolver o Erro 401 Unauthorized no Supabase</h5>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-[10px] text-slate-400 leading-relaxed font-sans font-normal">
+                      <div className="space-y-2">
+                        <p className="font-bold text-slate-200">Passo 1: Fazer o Deploy com JWT Desativado</p>
+                        <p>
+                          Por padrão, o Supabase Edge Functions exige autenticação JWT para chamadas do navegador. Para permitir que o seu app envie notificações push diretamente sem dar erro 401, você precisa implantar a Edge Function especificando o parâmetro <code className="bg-slate-950 px-1.5 py-0.5 rounded text-rose-400 font-mono text-[9px]">--no-verify-jwt</code>:
+                        </p>
+                        <div className="p-3 bg-slate-950 rounded-xl border border-white/5 font-mono text-[9px] text-slate-300 select-all">
+                          supabase functions deploy send-push --no-verify-jwt
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <p className="font-bold text-slate-200">Passo 2: Configurar as Variáveis no Supabase e no App</p>
+                        <ul className="list-disc pl-4 space-y-1 font-sans">
+                          <li>
+                            No painel do Supabase, adicione as variáveis de ambiente <code className="text-amber-400 font-mono font-bold">VAPID_PUBLIC_KEY</code>, <code className="text-amber-400 font-mono font-bold">VAPID_PRIVATE_KEY</code> e <code className="text-amber-400 font-mono font-bold">VAPID_EMAIL</code> nas configurações do projeto ou via CLI (<code className="text-[8px] bg-slate-950 px-1 py-0.5">supabase secrets set</code>).
+                          </li>
+                          <li>
+                            No AI Studio, adicione a secret <code className="text-emerald-400 font-mono font-bold">VITE_VAPID_PUBLIC_KEY</code> nas Secrets (ícone de engrenagem) com o valor da sua Chave Pública gerada.
+                          </li>
+                        </ul>
+                      </div>
+                    </div>
                   </div>
                 </div>
           </div>
