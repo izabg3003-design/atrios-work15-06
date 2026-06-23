@@ -384,24 +384,56 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       // Disparar a Edge Function do Supabase diretamente pelo cliente (contornando problemas de Webhook no banco de dados!)
       try {
         const recordToNotify = insertedData && insertedData[0] ? insertedData[0] : pushRecord;
-        const sessionRes = await supabase.auth.getSession();
-        const token = sessionRes?.data?.session?.access_token || supabaseAnonKey;
         
-        const response = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+        // Primeiro tentamos usar a chave anon diretamente (evita problemas de token expirado de sessão do utilizador)
+        console.log('A tentar disparar Edge Function com chave pública anónima...');
+        let response = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'apikey': supabaseAnonKey,
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${supabaseAnonKey}`
           },
           body: JSON.stringify(recordToNotify)
         });
 
+        // Se falhar por 401 Unauthorized, tenta com o token da sessão ativa do utilizador logado
+        if (response.status === 401) {
+          console.warn('Falhou com chave anónima (401). A tentar com token de sessão do administrador...');
+          try {
+            const sessionRes = await supabase.auth.getSession();
+            const sessionToken = sessionRes?.data?.session?.access_token;
+            if (sessionToken) {
+              response = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'apikey': supabaseAnonKey,
+                  'Authorization': `Bearer ${sessionToken}`
+                },
+                body: JSON.stringify(recordToNotify)
+              });
+            }
+          } catch (sessionErr) {
+            console.error('Erro ao obter sessão:', sessionErr);
+          }
+        }
+
+        // Se ainda assim falhar, tentamos o método nativo do cliente Supabase
         if (!response.ok) {
           const errText = await response.text();
-          console.warn(`Erro HTTP ${response.status} ao disparar Edge Function:`, errText);
+          console.warn(`Erro HTTP ${response.status} na chamada directa. Tentando via supabase.functions.invoke...`, errText);
+          const { error: invokeErr } = await supabase.functions.invoke('send-push', {
+            body: recordToNotify
+          });
+          if (invokeErr) {
+            console.error('Erro ao disparar via invoke:', invokeErr);
+            throw new Error(`Falha ao disparar Edge Function: ${errText || invokeErr.message || invokeErr}`);
+          } else {
+            console.log('Edge Function disparada com sucesso via invoke!');
+          }
         } else {
-          console.log('Edge Function "send-push" disparada com sucesso!');
+          console.log('Edge Function "send-push" disparada com sucesso via fetch!');
         }
       } catch (funcErr: any) {
         console.warn('Nota: Edge Function "send-push" não pôde ser disparada:', funcErr?.message || funcErr);
