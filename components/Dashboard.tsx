@@ -55,7 +55,6 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
   const currentLocale = localesMap[lang] || pt;
 
   useEffect(() => {
-    let timer: NodeJS.Timeout | undefined;
     const fetchPostLoginBanner = async () => {
       try {
         const { data, error } = await supabase
@@ -65,26 +64,17 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
           .order('created_at', { ascending: false });
 
         if (!error && data && data.length > 0) {
-          // Filtrar banners de login normais por tipo de usuário, descartando push notifications
+          // Filtrar banners por tipo de usuário
           const targetType = isPro ? 'premium' : 'free';
-          const filteredBanners = data.map(parseDbBanner).filter(b => {
-            const isPush = b.user_type === 'push_notification' || 
-                           b.title.toUpperCase().includes('[PUSH]') || 
-                           b.highlight?.toUpperCase()?.includes('[PUSH]');
-            return !isPush && (b.user_type === 'all' || b.user_type === targetType);
-          });
+          const filteredBanners = data.map(parseDbBanner).filter(b => b.user_type === 'all' || b.user_type === targetType);
           
           if (filteredBanners.length > 0) {
-            const latestBanner = filteredBanners[0];
-            const isDismissed = localStorage.getItem(`dismissed_banner_${latestBanner.id}`) === 'true';
+            // Pega o banner mais recente para este tipo de usuário
+            setBannerData(filteredBanners[0]);
             
-            if (!isDismissed) {
-              // Pega o banner mais recente para este tipo de usuário
-              setBannerData(latestBanner);
-              
-              // Mostrar após 800ms de entrar no dashboard
-              timer = setTimeout(() => setShowPostLoginBanner(true), 800);
-            }
+            // Mostrar após 800ms de entrar no dashboard
+            const timer = setTimeout(() => setShowPostLoginBanner(true), 800);
+            return () => clearTimeout(timer);
           }
         }
       } catch (e) {
@@ -93,9 +83,6 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
     };
 
     fetchPostLoginBanner();
-    return () => {
-      if (timer) clearTimeout(timer);
-    };
   }, []);
 
   const daysRemaining = useMemo(() => {
@@ -245,17 +232,12 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
   const PostLoginBannerOverlay = () => {
     if (!showPostLoginBanner || !bannerData) return null;
 
-    const handleDismissAndClose = () => {
-      localStorage.setItem(`dismissed_banner_${bannerData.id}`, 'true');
-      setShowPostLoginBanner(false);
-    };
-
     return (
       <div className="fixed inset-0 z-[2000] flex items-center justify-center p-6 backdrop-blur-xl bg-slate-950/70 animate-[fadeIn_0.3s_ease-out]">
         <div className={`relative w-full max-w-4xl bg-slate-900 rounded-[3rem] overflow-hidden shadow-[0_0_100px_rgba(0,0,0,0.9)] border border-${bannerData.theme_color}-500/30 animate-[modalScale_0.4s_ease-out]`}>
           
           <button 
-            onClick={handleDismissAndClose}
+            onClick={() => setShowPostLoginBanner(false)}
             className="absolute top-6 right-6 z-50 p-3 bg-black/40 hover:bg-black/60 text-white rounded-full backdrop-blur-md transition-all border border-white/10"
           >
             <X className="w-6 h-6" />
@@ -274,7 +256,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
                     <button 
                       onClick={() => {
                         window.open(bannerData.cta_link, '_blank');
-                        handleDismissAndClose();
+                        setShowPostLoginBanner(false);
                       }}
                       className={`w-fit px-10 py-5 bg-${bannerData.theme_color}-600 hover:bg-${bannerData.theme_color}-500 text-white font-black rounded-2xl uppercase text-xs tracking-[0.2em] shadow-2xl transition-all hover:scale-105 active:scale-95`}
                     >
@@ -298,7 +280,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
                     <button 
                       onClick={() => {
                         window.open(bannerData.cta_link, '_blank');
-                        handleDismissAndClose();
+                        setShowPostLoginBanner(false);
                       }}
                       className={`px-12 py-6 bg-${bannerData.theme_color}-600 hover:bg-${bannerData.theme_color}-500 text-white font-black rounded-3xl uppercase text-xs tracking-[0.2em] shadow-2xl transition-all hover:scale-105 active:scale-95`}
                     >

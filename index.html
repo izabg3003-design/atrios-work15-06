@@ -233,23 +233,8 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          // Unregister any old service workers that are NOT /sw.js to prevent conflicts
-          navigator.serviceWorker.getRegistrations().then(registrations => {
-            for (let registration of registrations) {
-              const scriptUrl = registration.active ? registration.active.scriptURL : '';
-              if (scriptUrl && !scriptUrl.endsWith('/sw.js')) {
-                console.log('Removendo sw antigo obsoleto:', scriptUrl);
-                registration.unregister();
-              }
-            }
-          }).catch(err => {
-            console.warn('Erro ao limpar sws obsoletos:', err);
-          });
-
-          navigator.serviceWorker.register('/sw.js', { scope: '/' }).then(reg => {
+          navigator.serviceWorker.register('/sw-v3.js', { scope: '/' }).then(reg => {
             console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
-            // Proativamente atualiza para garantir que mudanças de código no SW apliquem logo
-            reg.update();
           }).catch(err => {
             console.warn('Registro de SW ignorado ou falhou:', err.message);
           });

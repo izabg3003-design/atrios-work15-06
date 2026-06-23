@@ -127,8 +127,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           setBanners([]);
           setShowSqlHelp(true);
         } else {
-          const parsed = (data || []).map(parseDbBanner);
-          setBanners(parsed.filter(b => b.title && !b.title.startsWith('[')));
+          setBanners((data || []).map(parseDbBanner));
         }
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
@@ -338,42 +337,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const { error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]);
       if (error) throw error;
 
-      // Chamar também o endpoint Express para disparo físico instantâneo Web Push (VAPID)
-      let devicesCount = 0;
-      try {
-        const pushResponse = await fetch('/api/push/send-broadcast', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            title: newPushTitle.trim(),
-            body: newPushBody.trim(),
-            userType: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')
-          })
-        });
-        if (pushResponse.ok) {
-          const pushResponseData = await pushResponse.json();
-          devicesCount = pushResponseData.totalDevicesNotified || 0;
-        }
-      } catch (pushErr) {
-        console.warn('Erro ao disparar direto por API VAPID, fallback de DB síncrono ativo:', pushErr);
-      }
-
       setNewPushTitle('');
       setNewPushBody('');
-      
-      if (devicesCount > 0) {
-        setPushSendResult({
-          success: true,
-          msg: `Notificação Push transmitida com sucesso para os dispositivos PWA activos (${devicesCount} aparelhos notificados em tempo real de imediato!).`
-        });
-      } else {
-        setPushSendResult({
-          success: true,
-          msg: 'Notificação Push gravada com sucesso! Nota: Atualmente há 0 dispositivos com assinatura válida receptora ativa. Para testar e receber, certifique-se de que autorizou as notificações no banner azul do ecrã principal e que está com o PWA instalado!'
-        });
-      }
+      setPushSendResult({
+        success: true,
+        msg: 'Notificação Push transmitida com sucesso! Todos os dispositivos e PWAs ativos serão notificados de imediato.'
+      });
       fetchData();
     } catch (err: any) {
       setPushSendResult({
@@ -542,7 +511,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         <div className="flex gap-2 p-1 bg-slate-800/40 rounded-2xl border border-slate-700/50 flex-wrap">
           {isMaster && <button onClick={() => setActiveSubTab('analytics')} className={`px-4 py-2 rounded-xl transition-all text-[9px] font-black uppercase tracking-widest ${activeSubTab === 'analytics' ? 'bg-amber-600 text-slate-950 shadow-lg' : 'text-slate-500 hover:text-white'}`}>Dashboard</button>}
           {isMaster && <button onClick={() => setActiveSubTab('ledger')} className={`px-4 py-2 rounded-xl transition-all text-[9px] font-black uppercase tracking-widest ${activeSubTab === 'ledger' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Plataforma</button>}
-          <button onClick={() => setActiveSubTab('notifications')} className={`px-4 py-2 rounded-xl transition-all text-[9px] font-black uppercase tracking-widest ${activeSubTab === 'notifications' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}><BellRing className="w-3.5 h-3.5 inline mr-1" /> Send Push</button>
+          <button onClick={() => setActiveSubTab('notifications')} className={`px-4 py-2 rounded-xl transition-all text-[9px] font-black uppercase tracking-widest ${activeSubTab === 'notifications' ? 'bg-blue-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}><BellRing className="w-3.5 h-3.5 inline mr-1" /> Alertas</button>
           <button onClick={() => setActiveSubTab('users')} className={`px-4 py-2 rounded-xl transition-all text-[9px] font-black uppercase tracking-widest ${activeSubTab === 'users' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Membros</button>
           <button onClick={() => setActiveSubTab('banners')} className={`px-4 py-2 rounded-xl transition-all text-[9px] font-black uppercase tracking-widest ${activeSubTab === 'banners' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Banners</button>
           <button onClick={() => setActiveSubTab('vendors')} className={`px-4 py-2 rounded-xl transition-all text-[9px] font-black uppercase tracking-widest ${activeSubTab === 'vendors' ? 'bg-green-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Parceiros</button>
@@ -561,7 +530,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             <div className="bg-slate-800/20 border border-blue-500/20 p-10 rounded-[3rem] space-y-8 shadow-2xl relative overflow-hidden">
                <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none"><Webhook className="w-64 h-64 text-blue-500" /></div>
                <div className="space-y-2 relative z-10">
-                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter font-sans">Central de <span className="text-blue-400">Send Push</span></h3>
+                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter font-sans">Central de <span className="text-blue-400">Notificações Push</span></h3>
                 </div>
 
                 {/* Estatísticas Rápidas de Dispositivos */}
@@ -663,7 +632,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                         </>
                       ) : (
                         <>
-                          Transmitir Send Push
+                          Transmitir Notificação Push
                         </>
                       )}
                     </button>

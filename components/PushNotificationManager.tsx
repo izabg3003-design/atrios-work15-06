@@ -16,17 +16,6 @@ interface BeforeInstallPromptEvent extends Event {
   prompt(): Promise<void>;
 }
 
-const urlBase64ToUint8Array = (base64String: string) => {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-};
-
 const PushNotificationManager: React.FC<Props> = ({ user }) => {
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isReadyToInstall, setIsReadyToInstall] = useState(false);
@@ -38,9 +27,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   
   // 1. Detectar suporte a PWA e evento de instalação
   useEffect(() => {
-    let installBannerTimer: NodeJS.Timeout | undefined;
-    let permissionBannerTimer: NodeJS.Timeout | undefined;
-
     // Verificar se já está a correr como PWA Standalone
     const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
                           (window.navigator as any).standalone === true;
@@ -58,134 +44,38 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       const isDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
       if (!isDismissed && !isStandalone) {
         // Delay ligeiro para não atrapalhar o login/splash
-        installBannerTimer = setTimeout(() => setShowInstallBanner(true), 3000);
+        setTimeout(() => setShowInstallBanner(true), 3000);
       }
     };
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     
-    const handleAppInstalled = () => {
+    window.addEventListener('appinstalled', () => {
       setIsInstalled(true);
       setIsReadyToInstall(false);
       setShowInstallBanner(false);
-      triggerNativePush('Send Push Instalado!', 'Obrigado por instalar o aplicativo. Agora já pode receber notificações push em tempo real diretamente do seu ecrã inicial.');
-    };
-
-    window.addEventListener('appinstalled', handleAppInstalled);
+      triggerNativePush('AtriosWork Instalado!', 'Obrigado por instalar o aplicativo. Agora já pode registar horas diretamente do seu ecrã inicial.');
+    });
 
     // Diagnosticar permissão de notificações atual
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
       if (Notification.permission === 'default' && user.id) {
         // Mostrar sugestão de push após 5 segundos logado
-        permissionBannerTimer = setTimeout(() => setShowPermissionBanner(true), 5000);
+        setTimeout(() => setShowPermissionBanner(true), 5000);
       }
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('appinstalled', handleAppInstalled);
-      if (installBannerTimer) clearTimeout(installBannerTimer);
-      if (permissionBannerTimer) clearTimeout(permissionBannerTimer);
     };
   }, [user.id]);
 
-  // Auxiliares de sincronização de configurações com o cache partilhado do Service Worker
-  const saveToConfigCache = async (key: string, data: any) => {
-    if (!('caches' in window)) return;
-    try {
-      const cache = await caches.open('atrioswork-config-v1');
-      const response = new Response(JSON.stringify(data), {
-        headers: { 'Content-Type': 'application/json' }
-      });
-      await cache.put(new Request(`https://local-config/${key}`), response);
-    } catch (err) {
-      console.warn('Erro ao guardar config no CacheStorage:', err);
-    }
-  };
-
-  const markPushAsShown = async (pushId: string, currentShown: string[]) => {
-    if (!currentShown.includes(pushId)) {
-      currentShown.push(pushId);
-    }
-    localStorage.setItem('shown_push_notifications', JSON.stringify(currentShown));
-    await saveToConfigCache('shown_push_ids', currentShown);
-  };
-
-  // Guardar credenciais do Supabase e estado de subscrição ativas no CacheStorage para o Service Worker
-  useEffect(() => {
-    if (user.id) {
-      const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
-      saveToConfigCache('config', {
-        supabaseUrl: 'https://zuawenhgajcciefbwear.supabase.co',
-        supabaseKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8',
-        userId: user.id,
-        isPro: !!isPro
-      });
-
-      // Sincronizar IDs já exibidos do localStorage, fundindo-os com o CacheStorage se houver eventos em segundo plano
-      const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
-      try {
-        const localShown: string[] = JSON.parse(shownPushesRaw);
-        if ('caches' in window) {
-          caches.open('atrioswork-config-v1').then(async (cache) => {
-            const matchRequest = new Request('https://local-config/shown_push_ids');
-            const resp = await cache.match(matchRequest);
-            if (resp) {
-              const swShown: string[] = await resp.json();
-              const merged = Array.from(new Set([...localShown, ...swShown]));
-              localStorage.setItem('shown_push_notifications', JSON.stringify(merged));
-              
-              const newResponse = new Response(JSON.stringify(merged), {
-                headers: { 'Content-Type': 'application/json' }
-              });
-              await cache.put(matchRequest, newResponse);
-            } else {
-              saveToConfigCache('shown_push_ids', localShown);
-            }
-          }).catch(() => {
-            saveToConfigCache('shown_push_ids', localShown);
-          });
-        } else {
-          saveToConfigCache('shown_push_ids', localShown);
-        }
-      } catch (e) {
-        saveToConfigCache('shown_push_ids', []);
-      }
-    }
-  }, [user.id, user.subscription]);
-
-  // Registar Periodic Background Sync no Service Worker para receber notificações mesmo com o app totalmente fechado
-  useEffect(() => {
-    if ('serviceWorker' in navigator && user.id) {
-      navigator.serviceWorker.ready.then(async (registration) => {
-        // Registar o Periodic Sync para checar em segundo plano / ecrã bloqueado
-        if ('periodicSync' in registration) {
-          try {
-            await (registration as any).periodicSync.register('check-new-pushes', {
-              minInterval: 15 * 60 * 1000, // A cada 15 minutos (mínimo exigido pelos sistemas operativos/browsers)
-            });
-            console.log('[AtriosWork PWA] Periodic Background Sync registado.');
-          } catch (err) {
-            console.warn('[AtriosWork PWA] Periodic Sync indisponível (requer app instalado na homescreen):', err);
-          }
-        }
-
-        // Trigger extra de navegação por Background Sync comum
-        if ('sync' in registration) {
-          try {
-            await (registration as any).sync.register('check-new-pushes');
-          } catch (e) {}
-        }
-      });
-    }
-  }, [user.id]);
-
-  // 2. Escuta ativa e Polling para novas notificações (Instantâneo em Tempo Real usando canais Postgres e backup de Polling a cada 15s)
+  // 2. Poll/Escutar por Novas Notificações (Broadcasts do Admin no app_banners com tipo push)
   useEffect(() => {
     if (!user.id) return;
 
-    // Função de verificação (Backup & Polling)
+    // Função de verificação
     const checkBroadcastNotifications = async () => {
       try {
         const { data, error } = await supabase
@@ -203,42 +93,29 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           );
 
           if (pushes.length > 0) {
-            const hasStoredPushes = localStorage.getItem('shown_push_notifications') !== null;
             const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
             const shownPushes: string[] = JSON.parse(shownPushesRaw);
             
-            if (!hasStoredPushes) {
-              // Primeira verificação histórica nesta máquina/sessão: registar histórico antigo para evitar spam de popups
-              const allActiveIds = pushes.map(p => p.id);
-              localStorage.setItem('shown_push_notifications', JSON.stringify(allActiveIds));
-              await saveToConfigCache('shown_push_ids', allActiveIds);
-              return;
-            }
-
-            // Filtrar todos os pushes frescos que ainda não foram exibidos
-            const freshPushes = pushes.filter(p => !shownPushes.includes(p.id));
+            // Encontrar o push mais recente que ainda não foi mostrado
+            const freshPush = pushes.find(p => !shownPushes.includes(p.id));
             
-            if (freshPushes.length > 0) {
-              // Inverter para mostrar em ordem cronológica (do mais antigo pro mais recente)
-              const sortedFresh = [...freshPushes].reverse();
+            if (freshPush) {
+              const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
+              const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
               
-              for (const freshPush of sortedFresh) {
-                const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
-                const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
-                
-                // 1. Mostrar Notificação Nativa Push (com tag única baseada no ID do registro para não colapsar)
-                triggerNativePush(cleanTitle, cleanBody, freshPush.id);
-                
-                // 2. Mostrar Alerta Visual no App (atualiza o state principal com a mais recente)
-                setNewPushAlert({
-                  id: freshPush.id,
-                  title: cleanTitle,
-                  subtitle: cleanBody
-                });
-                
-                // 3. Registar como mostrado em ambos caches
-                await markPushAsShown(freshPush.id, shownPushes);
-              }
+              // 1. Mostrar Notificação Nativa Push
+              triggerNativePush(cleanTitle, cleanBody);
+              
+              // 2. Mostrar Alerta Visual no App
+              setNewPushAlert({
+                id: freshPush.id,
+                title: cleanTitle,
+                subtitle: cleanBody
+              });
+
+              // 3. Registar como mostrado
+              shownPushes.push(freshPush.id);
+              localStorage.setItem('shown_push_notifications', JSON.stringify(shownPushes));
             }
           }
         }
@@ -247,62 +124,11 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       }
     };
 
-    // Verificar imediatamente e depois a cada 15 segundos (Backup)
+    // Verificar imediatamente e depois a cada 30 segundos
     checkBroadcastNotifications();
-    const interval = setInterval(checkBroadcastNotifications, 15000);
-
-    // INSCREVER EM EVENTOS EM TEMPO REAL IMEDIATO DA TABELA APP_BANNERS (Sub-segundo)
-    const channel = supabase
-      .channel('public:app_banners_push_instant')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'app_banners' },
-        async (payload) => {
-          try {
-            const newBanner = parseDbBanner(payload.new);
-            if (newBanner && newBanner.is_active) {
-              const isPush = newBanner.user_type === 'push_notification' || 
-                             newBanner.title.toUpperCase().includes('[PUSH]') || 
-                             newBanner.highlight?.toUpperCase()?.includes('[PUSH]');
-              
-              if (isPush) {
-                // Verificar compatibilidade de audiência (premium vs free vs público)
-                const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
-                const targetType = isPro ? 'premium' : 'free';
-                const isAudienceMatch = newBanner.user_type === 'all' || newBanner.user_type === targetType || newBanner.user_type === 'push_notification';
-                
-                if (isAudienceMatch) {
-                  const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
-                  const shownPushes: string[] = JSON.parse(shownPushesRaw);
-                  
-                  if (!shownPushes.includes(newBanner.id)) {
-                    const cleanTitle = newBanner.title.replace('[PUSH]', '').replace('[push]', '').trim();
-                    const cleanBody = `${newBanner.highlight || ''} ${newBanner.subtitle || ''}`.trim();
-                    
-                    triggerNativePush(cleanTitle, cleanBody, newBanner.id);
-                    setNewPushAlert({
-                      id: newBanner.id,
-                      title: cleanTitle,
-                      subtitle: cleanBody
-                    });
-                    
-                    await markPushAsShown(newBanner.id, shownPushes);
-                  }
-                }
-              }
-            }
-          } catch (e) {
-            console.warn('Erro ao receber push em tempo real:', e);
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      clearInterval(interval);
-      supabase.removeChannel(channel);
-    };
-  }, [user.id, user.subscription]);
+    const interval = setInterval(checkBroadcastNotifications, 30000);
+    return () => clearInterval(interval);
+  }, [user.id]);
 
   // 3. Verificar Expiração da Assinatura (Aviso prévio de expiração)
   useEffect(() => {
@@ -324,7 +150,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           if (!alreadyWarned) {
             triggerNativePush(
               '⚠️ Assinatura Prestes a Expirar!',
-              `A sua assinatura Send Push Pro expira em ${diffDays} ${diffDays === 1 ? 'dia' : 'dias'}. Renove para evitar interrupções.`
+              `A sua assinatura AtriosWork Pro expira em ${diffDays} ${diffDays === 1 ? 'dia' : 'dias'}. Renove para evitar interrupções.`
             );
             localStorage.setItem(warningKey, 'true');
           }
@@ -335,115 +161,20 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   }, [user.id, user.subscription]);
 
-  const syncPushSubscription = async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
-    if (Notification.permission !== 'granted') return;
-
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      
-      // Obter configuração de chave pública (VAPID) do servidor Express com um fallback estático robusto
-      let publicKey = 'BLR0Tcrj0UCGeZu48tn_ek6ueRPxVh4EmzpeA7wLgp0uvp4jASyVTiuScsGiMVJDalT_QFsV4uSWfY0lONhZ7x4';
-      try {
-        const keyResp = await fetch('/api/push/public-key');
-        if (keyResp.ok) {
-          const keyData = await keyResp.json();
-          if (keyData.publicKey) {
-            publicKey = keyData.publicKey;
-          }
-        }
-      } catch (err) {
-        console.warn('[Push Manager] Falha ao ir obter VAPID do backend, servindo fallback estático de segurança:', err);
-      }
-      
-      if (!publicKey) {
-        console.warn('[Push Manager] Chave pública VAPID vazia.');
-        return;
-      }
-
-      // Subscrever ou resgatar assinatura activa
-      let subscription = await reg.pushManager.getSubscription();
-      
-      if (subscription) {
-        // Verificar se as chaves batem para evitar tokens órfãos pós-reestatização
-        const currentKeyBuffer = subscription.options.applicationServerKey;
-        if (currentKeyBuffer) {
-          const expectedKeyArray = urlBase64ToUint8Array(publicKey);
-          const currentKeyArray = new Uint8Array(currentKeyBuffer);
-          let keyMatches = expectedKeyArray.length === currentKeyArray.length;
-          if (keyMatches) {
-            for (let i = 0; i < expectedKeyArray.length; i++) {
-              if (expectedKeyArray[i] !== currentKeyArray[i]) {
-                keyMatches = false;
-                break;
-              }
-            }
-          }
-          if (!keyMatches) {
-            console.log('[Push Manager] Chave VAPID alterada ou expirada. Desinscrever e subscrever novamente...');
-            await subscription.unsubscribe();
-            subscription = null;
-          }
-        } else {
-          await subscription.unsubscribe();
-          subscription = null;
-        }
-      }
-
-      if (!subscription) {
-        const applicationServerKey = urlBase64ToUint8Array(publicKey);
-        subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey
-        });
-      }
-
-      const isPro = user.subscription ? (typeof user.subscription === 'string' ? JSON.parse(user.subscription).isActive : user.subscription.isActive) : false;
-
-      // Sincronizar assinatura com o nosso servidor Express
-      const syncResp = await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          subscription,
-          userId: user.id || 'anonymous',
-          isPro: !!isPro
-        })
-      });
-
-      if (syncResp.ok) {
-        console.log('[Push Manager] Registro de dispositivo sincronizado silenciosamente com servidor físico.');
-      } else {
-        console.warn('[Push Manager] Falha ao sincronizar dispositivo no servidor físico.');
-      }
-    } catch (err: any) {
-      console.warn('[Push Manager] Erro na subscrição push física:', err.message);
-    }
-  };
-
-  // Sincronização invisível automática (Client Auto-Subscribe)
-  useEffect(() => {
-    if (user.id && notificationPermission === 'granted') {
-      syncPushSubscription();
-    }
-  }, [user.id, notificationPermission, user.subscription]);
-
   // Função auxiliar para disparar notificação nativa do browser em PWA
-  const triggerNativePush = (title: string, body: string, notificationId?: string) => {
+  const triggerNativePush = (title: string, body: string) => {
     if (!('Notification' in window)) return;
     
     if (Notification.permission === 'granted') {
       // 1. Tentar por Service Worker (Ideal para disparar no ecran em segundo plano)
-      if (navigator.serviceWorker) {
+      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
         navigator.serviceWorker.ready.then(reg => {
           reg.showNotification(title, {
             body: body,
             icon: '/logo_atualizado.jpg?v=20260314_v1',
             badge: '/logo_atualizado.jpg?v=20260314_v1',
             vibrate: [200, 100, 200],
-            tag: notificationId ? `atrioswork-alert-${notificationId}` : undefined
+            tag: 'atrioswork-alert'
           } as any);
         }).catch(() => {
           // Fallback para Notificação normal de janela
@@ -479,7 +210,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           '🔔 Notificações Ativas!',
           'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
         );
-        syncPushSubscription();
       }
     } catch (err) {
       console.error('Erro ao pedir permissão de notificações:', err);
@@ -499,6 +229,47 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
   return (
     <>
+      {/* 1. Banner para Instalar PWA (Baixar Aplicativo) */}
+      {showInstallBanner && isReadyToInstall && (
+        <div className="fixed bottom-24 left-4 right-4 md:left-auto md:right-10 z-[2900] max-w-sm w-full bg-slate-900/95 backdrop-blur-xl border border-emerald-500/30 p-6 rounded-[2.5rem] shadow-[0_20px_50px_rgba(16,185,129,0.2)] animate-[slideUp_0.5s_ease-out] flex flex-col gap-4">
+          <button 
+            onClick={dismissInstallPrompt}
+            className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          
+          <div className="flex gap-4">
+            <div className="w-12 h-12 bg-emerald-500/20 rounded-2xl flex items-center justify-center shrink-0 border border-emerald-500/30 text-emerald-400">
+              <Download className="w-6 h-6 animate-bounce" />
+            </div>
+            <div className="space-y-1">
+              <h4 className="text-xs font-black text-white uppercase tracking-widest flex items-center gap-1.5">
+                Baixar Aplicativo <Sparkles className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+              </h4>
+              <p className="text-[10px] text-slate-400 leading-normal font-bold uppercase">
+                Instale o AtriosWork no seu ecrã inicial para acesso rápido aos registos e uso offline completo.
+              </p>
+            </div>
+          </div>
+          
+          <div className="flex gap-2">
+            <button
+              onClick={dismissInstallPrompt}
+              className="flex-1 py-3 bg-slate-950 text-slate-400 hover:text-white font-black text-[9px] uppercase tracking-wider rounded-2xl transition-all border border-slate-800"
+            >
+              Agora Não
+            </button>
+            <button
+              onClick={installApp}
+              className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[9px] uppercase tracking-wider rounded-2xl shadow-lg shadow-emerald-500/10 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-2"
+            >
+              <Smartphone className="w-3.5 h-3.5" /> Descarregar App
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* 2. Banner de Autorização do Push Notification */}
       {showPermissionBanner && notificationPermission === 'default' && (
         <div className="fixed bottom-6 left-4 right-4 md:left-auto md:right-10 z-[2800] max-w-sm w-full bg-slate-900/95 backdrop-blur-xl border border-blue-500/30 p-6 rounded-[2.5rem] shadow-[0_20px_50px_rgba(59,130,246,0.2)] animate-[slideUp_0.5s_ease-out] flex flex-col gap-4">
@@ -548,7 +319,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               <Megaphone className="w-5 h-5 animate-bounce" />
             </div>
             <div className="space-y-1 min-w-0 flex-1">
-              <h5 className="text-[10px] uppercase tracking-[0.2em] font-black text-amber-400">Notificação Send Push</h5>
+              <h5 className="text-[10px] uppercase tracking-[0.2em] font-black text-amber-400">Notificação AtriosWork</h5>
               <h4 className="text-xs font-black text-white truncate uppercase tracking-widest">{newPushAlert.title}</h4>
               <p className="text-[10px] font-medium text-slate-400 leading-normal">{newPushAlert.subtitle}</p>
             </div>

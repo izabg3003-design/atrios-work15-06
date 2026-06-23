@@ -25,14 +25,11 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME && cacheName !== 'atrioswork-config-v1') {
+          if (cacheName !== CACHE_NAME) {
             return caches.delete(cacheName);
           }
         })
       );
-    }).then(() => {
-      // Tenta executar uma checagem inicial em background ao instalar/activar
-      return checkNewPushesInBackground();
     }).then(() => self.clients.claim())
   );
 });
@@ -48,9 +45,6 @@ self.addEventListener('fetch', (event) => {
                     (event.request.method === 'GET' && event.request.headers.get('accept')?.includes('text/html'));
 
   if (isNavigate) {
-    // Alimenta o trigger de checagem em background sempre que o utilizador navega
-    event.waitUntil(checkNewPushesInBackground());
-
     // Network First: Always try to get the fresh HTML from the web so new deployments load immediately.
     // Fall back to Cache only when offline.
     event.respondWith(
@@ -64,7 +58,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-          .catch(() => {
+        .catch(() => {
           return caches.match(event.request) || caches.match('/index.html') || caches.match('/');
         })
     );
@@ -83,7 +77,7 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
-// Suporte para Receber Notificações Push Locais ou de Servidor (Push API nativo)
+// Suporte para Receber Notificações Push Locais ou de Servidor
 self.addEventListener('push', (event) => {
   let data = { title: 'AtriosWork', body: 'Nova notificação do sistema!' };
   if (event.data) {
@@ -94,11 +88,10 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const origin = self.location.origin;
   const options = {
     body: data.body,
-    icon: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
-    badge: `${origin}/logo_atualizado.jpg?v=20260314_v1`,
+    icon: '/logo_atualizado.jpg?v=20260314_v1',
+    badge: '/logo_atualizado.jpg?v=20260314_v1',
     vibrate: [200, 100, 200],
     data: data.url || '/',
     actions: [
@@ -131,120 +124,3 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
-
-// -----------------------------------------------------------------------------
-// Sincronização Periódica e Background Sync para checagem em ecrã bloqueado/fechado
-// -----------------------------------------------------------------------------
-
-self.addEventListener('periodicsync', (event) => {
-  if (event.tag === 'check-new-pushes') {
-    event.waitUntil(checkNewPushesInBackground());
-  }
-});
-
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'check-new-pushes') {
-    event.waitUntil(checkNewPushesInBackground());
-  }
-});
-
-// Funções utilitárias de leitura e gravação no CacheStorage partilhado
-async function readFromCache(key) {
-  try {
-    const cache = await caches.open('atrioswork-config-v1');
-    const response = await cache.match(new Request(`https://local-config/${key}`));
-    if (response) {
-      return await response.json();
-    }
-  } catch (e) {
-    // Ignorado silenciado
-  }
-  return null;
-}
-
-async function saveToCache(key, data) {
-  try {
-    const cache = await caches.open('atrioswork-config-v1');
-    const response = new Response(JSON.stringify(data), {
-      headers: { 'Content-Type': 'application/json' }
-    });
-    await cache.put(new Request(`https://local-config/${key}`), response);
-  } catch (e) {
-    // Ignorado silenciado
-  }
-}
-
-// Checagem em background de novas mensagens via REST API do Supabase
-async function checkNewPushesInBackground() {
-  try {
-    const config = await readFromCache('config');
-    if (!config || !config.supabaseUrl || !config.supabaseKey) return;
-
-    const fetchUrl = `${config.supabaseUrl}/rest/v1/app_banners?is_active=eq.true&order=created_at.desc`;
-    const response = await fetch(fetchUrl, {
-      headers: {
-        'apikey': config.supabaseKey,
-        'Authorization': `Bearer ${config.supabaseKey}`
-      }
-    });
-
-    if (!response.ok) return;
-    const data = await response.json();
-    if (!data || data.length === 0) return;
-
-    // Utiliza a mesma lógica de descompatibilização do cta_link e user_type
-    const parsedBanners = data.map(dbBanner => {
-      let user_type = 'all';
-      let cta_link = dbBanner.cta_link || '';
-
-      if (cta_link.includes('||user_type:')) {
-        const parts = cta_link.split('||user_type:');
-        cta_link = parts[0];
-        user_type = parts[1];
-      }
-
-      return {
-        ...dbBanner,
-        cta_link,
-        user_type
-      };
-    });
-
-    const targetType = config.isPro ? 'premium' : 'free';
-    const pushes = parsedBanners.filter(b => {
-      const isPush = b.user_type === 'push_notification' || 
-                     b.title.toUpperCase().includes('[PUSH]') || 
-                     (b.highlight && b.highlight.toUpperCase().includes('[PUSH]'));
-      
-      const isAudienceMatch = b.user_type === 'all' || b.user_type === targetType || b.user_type === 'push_notification';
-      return b.is_active && isPush && isAudienceMatch;
-    });
-
-    if (pushes.length === 0) return;
-
-    const shownIds = await readFromCache('shown_push_ids') || [];
-    const freshPushes = pushes.filter(p => !shownIds.includes(p.id));
-
-    if (freshPushes.length > 0) {
-      for (const freshPush of freshPushes) {
-        const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
-        const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
-
-        await self.registration.showNotification(cleanTitle, {
-          body: cleanBody,
-          icon: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-          badge: `${self.location.origin}/logo_atualizado.jpg?v=20260314_v1`,
-          vibrate: [200, 100, 200],
-          tag: `atrioswork-alert-${freshPush.id}`,
-          data: '/'
-        });
-
-        shownIds.push(freshPush.id);
-      }
-
-      await saveToCache('shown_push_ids', shownIds);
-    }
-  } catch (err) {
-    console.warn('Erro ao atualizar push no Service Worker:', err);
-  }
-}

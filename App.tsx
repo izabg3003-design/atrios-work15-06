@@ -143,7 +143,7 @@ const App: React.FC = () => {
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
-      // Guardamos o prompt para instalação manual via click/settings, sem abrir o modal intrusivo automaticamente.
+      setIsInstallModalOpen(true);
     };
 
     const handleOpenPwaModal = () => {
@@ -153,23 +153,19 @@ const App: React.FC = () => {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('open-pwa-install-modal', handleOpenPwaModal);
 
-    // Agenda o modal automático do PWA após 8s apenas se o utilizador estiver autenticado
-    let timer: NodeJS.Timeout | undefined;
-    if (user.id) {
-      timer = setTimeout(() => {
-        const alreadyDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
-        if (!alreadyDismissed) {
-          setIsInstallModalOpen(true);
-        }
-      }, 8000);
-    }
+    const timer = setTimeout(() => {
+      const alreadyDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
+      if (!alreadyDismissed) {
+        setIsInstallModalOpen(true);
+      }
+    }, 4000);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('open-pwa-install-modal', handleOpenPwaModal);
-      if (timer) clearTimeout(timer);
+      clearTimeout(timer);
     };
-  }, [user.id]);
+  }, []);
   
   const [now, setNow] = useState(new Date());
   const isInitialLoad = useRef(true);
@@ -415,8 +411,8 @@ const App: React.FC = () => {
       )}
       {appState === 'about-atrioswork' && <AboutAtriosWorkPage onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} />}
       
-      {!PUBLIC_STATES.includes(appState) && user.id && <PublicSupportChat />}
-      {!PUBLIC_STATES.includes(appState) && user.id && <PushNotificationManager user={user} />}
+      {user.id && <PublicSupportChat />}
+      {user.id && <PushNotificationManager user={user} />}
 
       {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">
