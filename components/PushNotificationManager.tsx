@@ -1,44 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Sparkles, Megaphone } from 'lucide-react';
 import { UserProfile } from '../types';
-import { supabase, parseDbBanner } from '../lib/supabase';
-
-// Chave Pública VAPID Padrão (Uncompressed EC Public Key de 65 bytes codificada em Base64URL)
-// O utilizador pode gerar a sua própria chave e configurá-la como VITE_VAPID_PUBLIC_KEY
-const VAPID_PUBLIC_KEY = (import.meta as any).env?.VITE_VAPID_PUBLIC_KEY || 'BPPMo4i6Sx1xI36cjf8PxrvyjeRSDXek7Mvan3ixg613871ZmnPTuj7apIQBkDKcWXi5S8nGWoEBOobg8Z2nkY4';
-
-// Função auxiliar para converter chave pública VAPID para Uint8Array
-const urlBase64ToUint8Array = (base64String: string) => {
-  try {
-    const cleaned = base64String.trim().replace(/['"]/g, '').replace(/\s/g, '');
-    const padding = '='.repeat((4 - (cleaned.length % 4)) % 4);
-    const base64 = (cleaned + padding)
-      .replace(/\-/g, '+')
-      .replace(/_/g, '/');
-
-    const rawData = window.atob(base64);
-    const outputArray = new Uint8Array(rawData.length);
-
-    for (let i = 0; i < rawData.length; ++i) {
-      outputArray[i] = rawData.charCodeAt(i);
-    }
-    return outputArray;
-  } catch (err) {
-    console.warn('Erro ao decodificar a chave pública VAPID (VITE_VAPID_PUBLIC_KEY):', err);
-    return null;
-  }
-};
-
-// Função auxiliar para converter ArrayBuffer para Base64
-const arrayBufferToBase64 = (buffer: ArrayBuffer | null) => {
-  if (!buffer) return '';
-  const bytes = new Uint8Array(buffer);
-  let binary = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return window.btoa(binary);
-};
+import { supabase } from '../lib/supabase';
 
 interface Props {
   user: UserProfile;
@@ -97,12 +60,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     // Diagnosticar permissão de notificações atual
     if ('Notification' in window) {
       setNotificationPermission(Notification.permission);
-      if (Notification.permission === 'granted' && user.id) {
-        // Renovar subscrição de push nativo em segundo plano para manter a ligação ativa
-        setTimeout(() => {
-          subscribeToNativeWebPush();
-        }, 2000);
-      } else if (Notification.permission === 'default' && user.id) {
+      if (Notification.permission === 'default' && user.id) {
         // Mostrar sugestão de push após 5 segundos logado
         setTimeout(() => setShowPermissionBanner(true), 5000);
       }
@@ -128,7 +86,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
         if (!error && data && data.length > 0) {
           // Filtrar por banners marcados como push ou com tag "[PUSH]" no título
-          const pushes = data.map(parseDbBanner).filter(b => 
+          const pushes = data.filter(b => 
             b.user_type === 'push_notification' || 
             b.title.toUpperCase().includes('[PUSH]') || 
             b.highlight?.toUpperCase()?.includes('[PUSH]')
@@ -203,61 +161,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   }, [user.id, user.subscription]);
 
-  // Subscrever o utilizador para receber push nativo real (mesmo com a aplicação fechada)
-  const subscribeToNativeWebPush = async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
-      console.warn('Este dispositivo ou navegador não suporta push nativo.');
-      return;
-    }
-
-    try {
-      // Garantir que o Service Worker está pronto
-      const registration = await navigator.serviceWorker.ready;
-      
-      // Obter ou criar subscrição nativa do browser
-      const convertedVapidKey = urlBase64ToUint8Array(VAPID_PUBLIC_KEY);
-      if (!convertedVapidKey) {
-        console.warn('Subscrição de push cancelada: chave pública VAPID inválida ou ausente.');
-        return;
-      }
-      
-      let subscription = await registration.pushManager.getSubscription();
-      
-      if (!subscription) {
-        subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: convertedVapidKey
-        });
-      }
-
-      if (subscription && user.id) {
-        // Enviar os detalhes da subscrição de push para a tabela correspondente no Supabase
-        const p256dh = arrayBufferToBase64(subscription.getKey('p256dh'));
-        const auth = arrayBufferToBase64(subscription.getKey('auth'));
-
-        const { error } = await supabase
-          .from('user_push_subscriptions')
-          .upsert({
-            user_id: user.id,
-            endpoint: subscription.endpoint,
-            p256dh: p256dh,
-            auth: auth,
-            updated_at: new Date().toISOString()
-          }, {
-            onConflict: 'endpoint'
-          });
-
-        if (error) {
-          console.warn('Erro ao guardar a subscrição nativa no Supabase:', error.message);
-        } else {
-          console.log('Subscrição nativa de push registada com sucesso no Supabase!');
-        }
-      }
-    } catch (err: any) {
-      console.warn('Falha ao registar subscrição nativa de push:', err);
-    }
-  };
-
   // Função auxiliar para disparar notificação nativa do browser em PWA
   const triggerNativePush = (title: string, body: string) => {
     if (!('Notification' in window)) return;
@@ -307,8 +210,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           '🔔 Notificações Ativas!',
           'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
         );
-        // Registar subscrição nativa para que funcione com o app fechado!
-        subscribeToNativeWebPush();
       }
     } catch (err) {
       console.error('Erro ao pedir permissão de notificações:', err);

@@ -3,7 +3,7 @@ import {
   ArrowRight, CheckCircle2, Sparkles, ShieldCheck, Zap, Clock, Wallet, Mail, ShieldAlert, Star, TrendingUp, FileText, Quote, Globe, Info, Megaphone, X, BarChart3, Users, Laptop, MousePointerClick, Facebook
 } from 'lucide-react';
 import { Language, AppBanner } from '../types';
-import { supabase, parseDbBanner } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 interface Props {
   onLogin: () => void;
@@ -28,13 +28,10 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
     
     const fetchBanners = async () => {
       try {
-        const { data, error } = await supabase.from('app_banners').select('*').eq('is_active', true).order('created_at', { ascending: false });
+        const { data, error } = await supabase.from('app_banners').select('*').eq('is_active', true).eq('user_type', 'public').order('created_at', { ascending: false });
         if (!error && data && data.length > 0) {
-          const publicBanners = data.map(parseDbBanner).filter(b => b.user_type === 'public');
-          if (publicBanners.length > 0) {
-            setActiveBanners(publicBanners);
-            setTimeout(() => setShowBannerOverlay(true), 1500);
-          }
+          setActiveBanners(data);
+          setTimeout(() => setShowBannerOverlay(true), 1500);
         }
       } catch (e) {
         console.warn("AtriosWork Banners: Tabela não configurada ou inacessível.");

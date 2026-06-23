@@ -5,9 +5,9 @@ import {
   Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Tag, UserPlus2, 
   Percent, CalendarDays, Activity, Settings, Megaphone, Plus, Power, Zap,
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
-  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Sparkles
+  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
 } from 'lucide-react';
-import { supabase, parseDbBanner, prepareBannerForDb, supabaseAnonKey, supabaseUrl } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -106,51 +106,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [newPushBody, setNewPushBody] = useState('');
   const [newPushAudience, setNewPushAudience] = useState<'all' | 'free' | 'premium'>('all');
   const [isSendingPush, setIsSendingPush] = useState(false);
-  const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string; diagnostics?: string[] } | null>(null);
-
-  const [generatedVapidKeys, setGeneratedVapidKeys] = useState<{ publicKey: string; privateKey: string } | null>(null);
-  const [copiedKeyType, setCopiedKeyType] = useState<'public' | 'private' | null>(null);
-
-  const handleGenerateVapidKeys = async () => {
-    try {
-      const keyPair = await window.crypto.subtle.generateKey(
-        {
-          name: "ECDSA",
-          namedCurve: "P-256",
-        },
-        true,
-        ["sign", "verify"]
-      );
-
-      const publicKeyBuffer = await window.crypto.subtle.exportKey("raw", keyPair.publicKey);
-      const privateKeyBuffer = await window.crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-
-      const toBase64Url = (buf: ArrayBuffer) => {
-        const bytes = new Uint8Array(buf);
-        let str = "";
-        for (let i = 0; i < bytes.length; i++) {
-          str += String.fromCharCode(bytes[i]);
-        }
-        return window.btoa(str)
-          .replace(/\+/g, "-")
-          .replace(/\//g, "_")
-          .replace(/=+$/, "");
-      };
-
-      setGeneratedVapidKeys({
-        publicKey: toBase64Url(publicKeyBuffer),
-        privateKey: toBase64Url(privateKeyBuffer)
-      });
-    } catch (err: any) {
-      alert('Não foi possível gerar as chaves VAPID: ' + err.message);
-    }
-  };
-
-  const handleCopyKey = (key: string, type: 'public' | 'private') => {
-    navigator.clipboard.writeText(key);
-    setCopiedKeyType(type);
-    setTimeout(() => setCopiedKeyType(null), 2000);
-  };
+  const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
@@ -171,7 +127,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           setBanners([]);
           setShowSqlHelp(true);
         } else {
-          setBanners((data || []).map(parseDbBanner));
+          setBanners(data || []);
         }
         
         // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
@@ -330,7 +286,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     
     setIsCreating(true);
     try {
-      const bannerData: Partial<AppBanner> = {
+      const bannerData = {
         title: newBanner.title || 'Sem Título',
         highlight: newBanner.highlight || '',
         subtitle: newBanner.subtitle || '',
@@ -342,7 +298,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         image_url: newBanner.image_url || null
       };
       
-      const { error } = await supabase.from('app_banners').insert([prepareBannerForDb(bannerData)]);
+      const { error } = await supabase.from('app_banners').insert([bannerData]);
       if (error) throw error;
       
       setShowAddBanner(false);
@@ -364,12 +320,9 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     
     setIsSendingPush(true);
     setPushSendResult(null);
-    const diag: string[] = [];
-    
     try {
-      diag.push(`[1/5] Preparando registro de push para público: ${newPushAudience}`);
       // Marcamos o banner como [PUSH] no título ou colocamos o tipo 'push_notification'
-      const pushRecord: Partial<AppBanner> = {
+      const pushRecord = {
         title: `[PUSH] ${newPushTitle.trim()}`,
         highlight: newPushBody.trim(),
         subtitle: 'Notificação AtriosWork Push',
@@ -381,173 +334,20 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         image_url: null
       };
 
-      diag.push(`[2/5] Gravando o registro na tabela app_banners...`);
-      const { data: insertedData, error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]).select();
-      if (error) {
-        diag.push(`❌ Falha ao inserir registro na tabela app_banners: ${error.message}`);
-        throw error;
-      }
-      diag.push(`✅ Registro de banner de push salvo no banco de dados com sucesso!`);
+      const { error } = await supabase.from('app_banners').insert([pushRecord]);
+      if (error) throw error;
 
-      // Disparar a Edge Function do Supabase diretamente pelo cliente (contornando problemas de Webhook no banco de dados!)
-      try {
-        const recordToNotify = insertedData && insertedData[0] ? insertedData[0] : pushRecord;
-        
-        let response: Response | null = null;
-        let success = false;
-
-        // TENTATIVA 1: Chamar passando a 'apikey' como parâmetro de consulta (Query Parameter) e SEM cabeçalho Authorization.
-        // Este é o método padrão recomendado no Supabase para burlar bloqueios e validações rígidas do Kong Gateway.
-        try {
-          diag.push(`[3/5] TENTATIVA 1: Enviando POST com apikey via Query Parameter (Bypass de Authorization)...`);
-          const urlWithKey = `${supabaseUrl}/functions/v1/send-push?apikey=${encodeURIComponent(supabaseAnonKey)}`;
-          const res = await fetch(urlWithKey, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify(recordToNotify)
-          });
-          
-          response = res;
-          const bodyText = await res.text().catch(() => '');
-          diag.push(`➡️ TENTATIVA 1 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
-          
-          if (res.ok) {
-            success = true;
-            diag.push('✅ TENTATIVA 1 (Query String apikey): Sucedida com sucesso!');
-          }
-        } catch (err1: any) {
-          diag.push(`❌ TENTATIVA 1: Erro de rede/conexão: ${err1?.message || err1}`);
-        }
-
-        // TENTATIVA 2: Chamar com 'apikey' nos cabeçalhos e SEM o cabeçalho "Authorization".
-        if (!success) {
-          try {
-            diag.push(`[3/5] TENTATIVA 2: Enviando POST com apikey em Headers e sem Authorization...`);
-            const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'apikey': supabaseAnonKey
-              },
-              body: JSON.stringify(recordToNotify)
-            });
-            
-            response = res;
-            const bodyText = await res.text().catch(() => '');
-            diag.push(`➡️ TENTATIVA 2 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
-            
-            if (res.ok) {
-              success = true;
-              diag.push('✅ TENTATIVA 2 (Header apikey): Sucedida com sucesso!');
-            }
-          } catch (err2: any) {
-            diag.push(`❌ TENTATIVA 2: Erro de rede/conexão: ${err2?.message || err2}`);
-          }
-        }
-
-        // TENTATIVA 3: Tentar com o token de sessão do administrador logado
-        if (!success) {
-          try {
-            diag.push(`[3/5] TENTATIVA 3: Tentando com o Token JWT do Administrador autenticado...`);
-            const sessionRes = await supabase.auth.getSession();
-            const sessionToken = sessionRes?.data?.session?.access_token;
-            if (sessionToken) {
-              const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  'apikey': supabaseAnonKey,
-                  'Authorization': `Bearer ${sessionToken}`
-                },
-                body: JSON.stringify(recordToNotify)
-              });
-              
-              response = res;
-              const bodyText = await res.text().catch(() => '');
-              diag.push(`➡️ TENTATIVA 3 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
-              
-              if (res.ok) {
-                success = true;
-                diag.push('✅ TENTATIVA 3 (Admin Session JWT): Sucedida com sucesso!');
-              }
-            } else {
-              diag.push(`⚠️ TENTATIVA 3: Pulada. Nenhuma sessão de utilizador ativa encontrada.`);
-            }
-          } catch (err3: any) {
-            diag.push(`❌ TENTATIVA 3: Erro de rede/conexão: ${err3?.message || err3}`);
-          }
-        }
-
-        // TENTATIVA 4: Tentar com o token Anon Key na autorização
-        if (!success) {
-          try {
-            diag.push(`[3/5] TENTATIVA 4: Tentando com o próprio token Anon em Authorization...`);
-            const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'apikey': supabaseAnonKey,
-                'Authorization': `Bearer ${supabaseAnonKey}`
-              },
-              body: JSON.stringify(recordToNotify)
-            });
-            
-            response = res;
-            const bodyText = await res.text().catch(() => '');
-            diag.push(`➡️ TENTATIVA 4 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
-            
-            if (res.ok) {
-              success = true;
-              diag.push('✅ TENTATIVA 4 (Anon Key JWT): Sucedida com sucesso!');
-            }
-          } catch (err4: any) {
-            diag.push(`❌ TENTATIVA 4: Erro de rede/conexão: ${err4?.message || err4}`);
-          }
-        }
-
-        // TENTATIVA 5: Fallback definitivo usando o método nativo do SDK Supabase
-        if (!success) {
-          try {
-            diag.push(`[4/5] TENTATIVA 5: Tentando invocar nativamente usando supabase.functions.invoke...`);
-            const { data: invokeData, error: invokeErr } = await supabase.functions.invoke('send-push', {
-              body: recordToNotify
-            });
-            
-            if (invokeErr) {
-              diag.push(`❌ TENTATIVA 5: Erro do SDK invoke: ${invokeErr.message || JSON.stringify(invokeErr)}`);
-              const errBody = response ? await response.text().catch(() => '') : '';
-              throw new Error(`Falha ao disparar Edge Function via SDK: ${errBody || invokeErr.message || JSON.stringify(invokeErr)}`);
-            } else {
-              diag.push(`✅ TENTATIVA 5: Sucedida via invoke SDK! Retorno: ${JSON.stringify(invokeData)}`);
-              success = true;
-            }
-          } catch (errSdk: any) {
-            diag.push(`❌ TENTATIVA 5: Erro de rede/SDK: ${errSdk?.message || errSdk}`);
-            throw errSdk;
-          }
-        }
-      } catch (funcErr: any) {
-        diag.push(`⚠️ Alerta: Todas as tentativas diretas via frontend de Edge Function falharam.`);
-        console.warn('Nota: Edge Function "send-push" não pôde ser disparada:', funcErr?.message || funcErr);
-      }
-
-      diag.push(`[5/5] Envio de notificação concluído.`);
       setNewPushTitle('');
       setNewPushBody('');
       setPushSendResult({
         success: true,
-        msg: 'Fluxo concluído! O registro foi guardado na tabela app_banners para envio automático.',
-        diagnostics: diag
+        msg: 'Notificação Push transmitida com sucesso! Todos os dispositivos e PWAs ativos serão notificados de imediato.'
       });
       fetchData();
     } catch (err: any) {
-      diag.push(`❌ Falha catastrófica: ${err.message || err}`);
       setPushSendResult({
         success: false,
-        msg: `Falha ao transmitir push: ${err.message}`,
-        diagnostics: diag
+        msg: `Falha ao transmitir push: ${err.message}`
       });
     } finally {
       setIsSendingPush(false);
@@ -655,16 +455,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     if (activeSubTab === 'users') return users.filter(u => u.name.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term));
     if (activeSubTab === 'vendors') return vendors.filter(v => v.name.toLowerCase().includes(term) || v.code.toLowerCase().includes(term));
     if (activeSubTab === 'support') return supportStaff.filter(s => s.name.toLowerCase().includes(term) || s.email?.toLowerCase().includes(term));
-    if (activeSubTab === 'banners') {
-      return banners
-        .filter(b => {
-          const isPush = b.title.toUpperCase().includes('[PUSH]') || 
-                         (b.user_type as string) === 'push_notification' ||
-                         (b.highlight && b.highlight.toUpperCase().includes('[PUSH]'));
-          return !isPush;
-        })
-        .filter(b => b.title.toLowerCase().includes(term) || b.highlight.toLowerCase().includes(term));
-    }
+    if (activeSubTab === 'banners') return banners.filter(b => b.title.toLowerCase().includes(term) || b.highlight.toLowerCase().includes(term));
     return [];
   }, [searchTerm, users, vendors, supportStaff, banners, activeSubTab]);
 
@@ -781,43 +572,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     </div>
 
                     {pushSendResult && (
-                      <div className="space-y-3">
-                        <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
-                          {pushSendResult.msg}
-                        </div>
-                        
-                        {pushSendResult.diagnostics && pushSendResult.diagnostics.length > 0 && (
-                          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-4 space-y-2 font-mono text-[9px] text-slate-300 tracking-normal leading-normal max-h-[180px] overflow-y-auto">
-                            <p className="text-[8px] font-black uppercase text-slate-500 tracking-wider font-sans border-b border-slate-800 pb-1.5 mb-1.5 flex justify-between items-center">
-                              <span>Relatório de Diagnóstico de Transmissão</span>
-                              <span className="text-blue-400 lowercase font-bold">{pushSendResult.success ? "success" : "failed"}</span>
-                            </p>
-                            {pushSendResult.diagnostics.map((log, index) => (
-                              <div key={index} className="whitespace-pre-wrap py-0.5 border-b border-slate-950/40 last:border-0">
-                                {log}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Dica do Webhook para Bypass Definitivo */}
-                        <div className="bg-slate-900/60 border border-white/5 p-4 rounded-2xl text-[10px] text-slate-400 space-y-1.5 font-sans">
-                          <span className="font-bold text-slate-200 block uppercase tracking-wider text-[9px] mb-1 flex items-center gap-1.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                            💡 Dica de Automação Recomendada (Bypass de CORS/Auth)
-                          </span>
-                          <p className="leading-relaxed">
-                            Para evitar problemas de permissões de rede/CORS no browser, a forma recomendada e de nível de produção para enviar as notificações push é configurando um <strong>Database Webhook</strong> direto no painel do Supabase:
-                          </p>
-                          <ol className="list-decimal pl-4 space-y-1 text-slate-300 leading-relaxed">
-                            <li>Aceda ao seu <strong>Supabase Dashboard</strong> &rarr; <strong>Database</strong> &rarr; <strong>Webhooks</strong>.</li>
-                            <li>Clique em <strong>Create Webhook</strong> (ou ative-os se for a primeira vez).</li>
-                            <li>Nome: <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">tr_send_push</code></li>
-                            <li>Selecione a Tabela: <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">app_banners</code> e Evento: <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">Insert</code></li>
-                            <li>Escolha a Ação: <strong>Trigger Edge Function</strong> e selecione a função <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">send-push</code>.</li>
-                            <li>Clique em <strong>Save</strong>. Pronto! O próprio banco de dados disparará a Edge Function automaticamente em segundo plano.</li>
-                          </ol>
-                        </div>
+                      <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                        {pushSendResult.msg}
                       </div>
                     )}
 
@@ -963,131 +719,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                      <p className="text-[10px] text-slate-500 leading-relaxed italic">
                        As notificações Push nativas dependem do consentimento do utilizador. Incentive-os a clicar em "Autorizar Push" no popup de início de sessão.
                      </p>
-                  </div>
-                </div>
-
-                {/* Painel de Chaves VAPID & Deploy no Supabase */}
-                <div className="mt-6 pt-6 border-t border-slate-850 space-y-6">
-                  <div className="p-6 bg-slate-900/40 rounded-3xl border border-white/5 space-y-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div className="space-y-1">
-                        <div className="flex items-center gap-3">
-                          <KeySquare className="w-5 h-5 text-amber-400" />
-                          <h5 className="text-[11px] font-black uppercase tracking-widest text-white font-sans">Gerador de Chaves VAPID para Push Nativo</h5>
-                        </div>
-                        <p className="text-[10px] text-slate-400 leading-relaxed max-w-2xl font-sans">
-                          As chaves VAPID são necessárias para assinar e enviar as notificações Push de forma segura. Gere um par abaixo e configure-as tanto no Supabase como nas Secrets do AI Studio.
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleGenerateVapidKeys}
-                        className="px-5 py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-[10px] uppercase tracking-wider flex items-center gap-2 transition-all shadow-md self-start md:self-center font-sans"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" /> Gerar Chaves VAPID
-                      </button>
-                    </div>
-
-                    {generatedVapidKeys && (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-                        <div className="p-4 bg-slate-950 rounded-2xl border border-white/5 space-y-2">
-                          <div className="flex justify-between items-center font-sans">
-                            <span className="text-[9px] font-black text-amber-400 uppercase tracking-wider">Chave Pública (VAPID_PUBLIC_KEY)</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyKey(generatedVapidKeys.publicKey, 'public')}
-                              className="text-[9px] font-bold text-slate-400 hover:text-white flex items-center gap-1 uppercase tracking-wider bg-white/5 px-2 py-1 rounded transition-all"
-                            >
-                              {copiedKeyType === 'public' ? 'Copiado!' : 'Copiar'}
-                            </button>
-                          </div>
-                          <div className="p-2.5 bg-slate-900 rounded-lg border border-white/5 font-mono text-[9px] text-slate-300 break-all select-all">
-                            {generatedVapidKeys.publicKey}
-                          </div>
-                        </div>
-
-                        <div className="p-4 bg-slate-950 rounded-2xl border border-white/5 space-y-2">
-                          <div className="flex justify-between items-center font-sans">
-                            <span className="text-[9px] font-black text-amber-400 uppercase tracking-wider">Chave Privada (VAPID_PRIVATE_KEY)</span>
-                            <button
-                              type="button"
-                              onClick={() => handleCopyKey(generatedVapidKeys.privateKey, 'private')}
-                              className="text-[9px] font-bold text-slate-400 hover:text-white flex items-center gap-1 uppercase tracking-wider bg-white/5 px-2 py-1 rounded transition-all"
-                            >
-                              {copiedKeyType === 'private' ? 'Copiado!' : 'Copiar'}
-                            </button>
-                          </div>
-                          <div className="p-2.5 bg-slate-900 rounded-lg border border-white/5 font-mono text-[9px] text-slate-300 break-all select-all">
-                            {generatedVapidKeys.privateKey}
-                          </div>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="p-8 bg-slate-900/40 rounded-[2.5rem] border border-blue-500/20 space-y-6 font-sans">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-4">
-                      <div className="flex items-center gap-3">
-                        <Webhook className="w-5 h-5 text-blue-400" />
-                        <h5 className="text-xs font-black uppercase tracking-widest text-white">Guia de Integração e Diagnóstico Supabase</h5>
-                      </div>
-                      <span className="px-3 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-full text-[8px] font-black uppercase tracking-widest font-mono">Erro 401 Resolved</span>
-                    </div>
-
-                    <p className="text-[10px] text-slate-400 leading-relaxed font-normal">
-                      Por padrão, o gateway de segurança (Kong) do Supabase bloqueia chamadas diretas do navegador para as Edge Functions, retornando <code className="bg-slate-950 text-rose-400 px-1.5 py-0.5 rounded font-mono">401 Unauthorized (INVALID_CREDENTIALS)</code>. Existem duas excelentes maneiras de configurar e resolver isso em seu projeto:
-                    </p>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-[10px] text-slate-400 leading-relaxed font-normal">
-                      {/* Método A (Recomendado) */}
-                      <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 text-[9px] font-black flex items-center justify-center">A</span>
-                          <p className="font-bold text-slate-200 uppercase tracking-wider text-[9px]">Método A (Recomendado): Database Webhook</p>
-                        </div>
-                        <p className="text-slate-450 text-[9px]">
-                          Esta opção é 100% segura, automática e elimina qualquer erro no navegador. Sempre que enviar um push, o banco de dados insere na tabela <code className="text-blue-400 font-mono font-bold">app_banners</code>, o que automaticamente ativa o Webhook interno do Supabase para disparar a notificação.
-                        </p>
-                        <div className="space-y-1.5 pl-1">
-                          <p className="font-bold text-slate-300">Como ativar no painel do Supabase:</p>
-                          <ol className="list-decimal pl-4 space-y-1 text-slate-400 text-[9px]">
-                            <li>Aceda ao menu esquerdo em <span className="text-white font-semibold">Database</span> &rarr; <span className="text-white font-semibold">Webhooks</span>.</li>
-                            <li>Clique em <span className="text-emerald-400 font-bold">Create a new Webhook</span>.</li>
-                            <li>Configure o Webhook exatamente assim:
-                              <ul className="list-disc pl-4 mt-1 space-y-0.5 text-slate-550 text-[8px]">
-                                <li><strong className="text-slate-300">Name:</strong> <code className="bg-slate-900 px-1">send_push_notification</code></li>
-                                <li><strong className="text-slate-300">Table:</strong> <code className="bg-slate-900 px-1">app_banners</code></li>
-                                <li><strong className="text-slate-300">Events:</strong> Marcar apenas <code className="bg-slate-900 px-1">Insert</code></li>
-                                <li><strong className="text-slate-300">Type:</strong> Selecionar <code className="bg-slate-900 px-1">Supabase Edge Function</code></li>
-                                <li><strong className="text-slate-300">Edge Function:</strong> Escolher <code className="bg-slate-900 px-1">send-push</code></li>
-                                <li><strong className="text-slate-300">Method:</strong> <code className="bg-slate-900 px-1">POST</code></li>
-                              </ul>
-                            </li>
-                            <li>Clique em <span className="text-white font-bold">Save</span>. Pronto! O banco de dados passa a cuidar de tudo em segundo plano de forma instantânea!</li>
-                          </ol>
-                        </div>
-                      </div>
-
-                      {/* Método B (Chamada Direta) */}
-                      <div className="bg-slate-950/40 p-5 rounded-2xl border border-white/5 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="w-4 h-4 rounded-full bg-amber-500/20 text-amber-400 text-[9px] font-black flex items-center justify-center">B</span>
-                          <p className="font-bold text-slate-200 uppercase tracking-wider text-[9px]">Método B: Chamada Direta via CLI</p>
-                        </div>
-                        <p className="text-slate-450 text-[9px]">
-                          Se preferir disparar o push diretamente pelo painel administrativo do cliente (navegador), deve desativar a verificação de JWT de utilizador obrigatória do Supabase para esta função específica:
-                        </p>
-                        <div className="space-y-2">
-                          <p className="font-bold text-slate-300">Execute o deploy com a flag:</p>
-                          <div className="p-3 bg-slate-950 rounded-xl border border-white/5 font-mono text-[9px] text-slate-300 select-all">
-                            supabase functions deploy send-push --no-verify-jwt
-                          </div>
-                          <p className="text-[9px] text-slate-500 font-medium italic">
-                            Nota: Certifique-se de configurar as secrets <code className="text-amber-400 font-mono text-[8px]">VAPID_PUBLIC_KEY</code> e <code className="text-amber-400 font-mono text-[8px]">VAPID_PRIVATE_KEY</code> no painel Supabase em <span className="text-white">Edge Functions &rarr; Settings</span> ou usando <code className="text-[8px] bg-slate-950 px-1 py-0.5">supabase secrets set</code>.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
                   </div>
                 </div>
           </div>

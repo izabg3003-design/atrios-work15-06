@@ -1,10 +1,9 @@
 
 import { createClient } from '@supabase/supabase-js';
-import { AppBanner } from '../types';
 
 // Credenciais reais da AtriosWork fornecidas pelo usuário
-export const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
-export const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8';
+const supabaseUrl = 'https://zuawenhgajcciefbwear.supabase.co';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8';
 
 export const isConfigured = 
   (supabaseUrl as string) !== 'https://SUA_URL_AQUI.supabase.co' && 
@@ -44,31 +43,3 @@ export const supabase = isConfigured
         });
       }
     }) as any);
-
-export const parseDbBanner = (dbBanner: any): AppBanner => {
-  if (!dbBanner) return dbBanner;
-  let user_type: AppBanner['user_type'] = 'all';
-  let cta_link = dbBanner.cta_link || '';
-
-  if (cta_link.includes('||user_type:')) {
-    const parts = cta_link.split('||user_type:');
-    cta_link = parts[0];
-    user_type = parts[1] as any;
-  }
-
-  return {
-    ...dbBanner,
-    cta_link,
-    user_type
-  };
-};
-
-export const prepareBannerForDb = (banner: Partial<AppBanner>): any => {
-  if (!banner) return banner;
-  const { user_type, cta_link, ...rest } = banner;
-  return {
-    ...rest,
-    cta_link: `${cta_link || ''}||user_type:${user_type || 'all'}`
-  };
-};
-
