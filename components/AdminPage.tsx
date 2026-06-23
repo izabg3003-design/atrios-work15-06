@@ -106,7 +106,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [newPushBody, setNewPushBody] = useState('');
   const [newPushAudience, setNewPushAudience] = useState<'all' | 'free' | 'premium'>('all');
   const [isSendingPush, setIsSendingPush] = useState(false);
-  const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
+  const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string; diagnostics?: string[] } | null>(null);
 
   const [generatedVapidKeys, setGeneratedVapidKeys] = useState<{ publicKey: string; privateKey: string } | null>(null);
   const [copiedKeyType, setCopiedKeyType] = useState<'public' | 'private' | null>(null);
@@ -364,7 +364,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     
     setIsSendingPush(true);
     setPushSendResult(null);
+    const diag: string[] = [];
+    
     try {
+      diag.push(`[1/5] Preparando registro de push para público: ${newPushAudience}`);
       // Marcamos o banner como [PUSH] no título ou colocamos o tipo 'push_notification'
       const pushRecord: Partial<AppBanner> = {
         title: `[PUSH] ${newPushTitle.trim()}`,
@@ -378,8 +381,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         image_url: null
       };
 
+      diag.push(`[2/5] Gravando o registro na tabela app_banners...`);
       const { data: insertedData, error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]).select();
-      if (error) throw error;
+      if (error) {
+        diag.push(`❌ Falha ao inserir registro na tabela app_banners: ${error.message}`);
+        throw error;
+      }
+      diag.push(`✅ Registro de banner de push salvo no banco de dados com sucesso!`);
 
       // Disparar a Edge Function do Supabase diretamente pelo cliente (contornando problemas de Webhook no banco de dados!)
       try {
@@ -390,9 +398,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
         // TENTATIVA 1: Chamar sem o cabeçalho "Authorization".
         // ESSENCIAL para quando a Edge Function é implantada com "--no-verify-jwt".
-        // Se enviarmos o Authorization header, o gateway Kong do Supabase tentará validá-lo e falhará com 401 se for anónimo.
         try {
-          console.log('Tentativa 1: Disparar sem Authorization header (ótimo para Edge Functions com --no-verify-jwt)...');
+          diag.push(`[3/5] TENTATIVA 1: Enviando POST direto (sem cabeçalho Authorization, ideal para JWT desativado)...`);
           const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
             method: 'POST',
             headers: {
@@ -402,22 +409,22 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             body: JSON.stringify(recordToNotify)
           });
           
+          response = res;
+          const bodyText = await res.text().catch(() => '');
+          diag.push(`➡️ TENTATIVA 1 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
+          
           if (res.ok) {
-            response = res;
             success = true;
-            console.log('Edge Function disparada com sucesso na Tentativa 1!');
-          } else {
-            response = res;
-            console.warn(`Tentativa 1 retornou código de erro: ${res.status}`);
+            diag.push('✅ TENTATIVA 1: Sucedida com sucesso!');
           }
-        } catch (err1) {
-          console.warn('Erro na Tentativa 1:', err1);
+        } catch (err1: any) {
+          diag.push(`❌ TENTATIVA 1: Erro de rede/conexão: ${err1?.message || err1}`);
         }
 
         // TENTATIVA 2: Se falhar por 401 Unauthorized, tenta com o token de sessão do administrador logado
         if (!success && response?.status === 401) {
           try {
-            console.log('Tentativa 2: A tentar com token de sessão ativa do Administrador...');
+            diag.push(`[3/5] TENTATIVA 2: Tentando com o Token JWT do Administrador autenticado...`);
             const sessionRes = await supabase.auth.getSession();
             const sessionToken = sessionRes?.data?.session?.access_token;
             if (sessionToken) {
@@ -431,24 +438,26 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                 body: JSON.stringify(recordToNotify)
               });
               
+              response = res;
+              const bodyText = await res.text().catch(() => '');
+              diag.push(`➡️ TENTATIVA 2 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
+              
               if (res.ok) {
-                response = res;
                 success = true;
-                console.log('Edge Function disparada com sucesso na Tentativa 2!');
-              } else {
-                response = res;
-                console.warn(`Tentativa 2 retornou código de erro: ${res.status}`);
+                diag.push('✅ TENTATIVA 2: Sucedida com sucesso!');
               }
+            } else {
+              diag.push(`⚠️ TENTATIVA 2: Pulada. Nenhuma sessão de utilizador ativa encontrada.`);
             }
-          } catch (err2) {
-            console.warn('Erro na Tentativa 2:', err2);
+          } catch (err2: any) {
+            diag.push(`❌ TENTATIVA 2: Erro de rede/conexão: ${err2?.message || err2}`);
           }
         }
 
         // TENTATIVA 3: Se ainda falhar, tenta com o token Anon Key na autorização
         if (!success && response?.status === 401) {
           try {
-            console.log('Tentativa 3: A tentar com token Anon como Bearer...');
+            diag.push(`[3/5] TENTATIVA 3: Tentando com o próprio token Anon em Authorization...`);
             const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
               method: 'POST',
               headers: {
@@ -459,49 +468,60 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               body: JSON.stringify(recordToNotify)
             });
             
+            response = res;
+            const bodyText = await res.text().catch(() => '');
+            diag.push(`➡️ TENTATIVA 3 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
+            
             if (res.ok) {
-              response = res;
               success = true;
-              console.log('Edge Function disparada com sucesso na Tentativa 3!');
-            } else {
-              response = res;
-              console.warn(`Tentativa 3 retornou código de erro: ${res.status}`);
+              diag.push('✅ TENTATIVA 3: Sucedida com sucesso!');
             }
-          } catch (err3) {
-            console.warn('Erro na Tentativa 3:', err3);
+          } catch (err3: any) {
+            diag.push(`❌ TENTATIVA 3: Erro de rede/conexão: ${err3?.message || err3}`);
           }
         }
 
         // TENTATIVA 4: Fallback definitivo usando o método nativo do SDK Supabase
         if (!success) {
-          console.log('Tentativa 4 (Fallback): A disparar via supabase.functions.invoke...');
-          const { data: invokeData, error: invokeErr } = await supabase.functions.invoke('send-push', {
-            body: recordToNotify
-          });
-          
-          if (invokeErr) {
-            console.error('Erro ao disparar via invoke:', invokeErr);
-            const errBody = response ? await response.text().catch(() => '') : '';
-            throw new Error(`Falha ao disparar Edge Function: ${errBody || invokeErr.message || invokeErr}`);
-          } else {
-            console.log('Edge Function disparada com sucesso via invoke!', invokeData);
+          try {
+            diag.push(`[4/5] TENTATIVA 4: Tentando invocar nativamente usando supabase.functions.invoke...`);
+            const { data: invokeData, error: invokeErr } = await supabase.functions.invoke('send-push', {
+              body: recordToNotify
+            });
+            
+            if (invokeErr) {
+              diag.push(`❌ TENTATIVA 4: Erro do SDK invoke: ${invokeErr.message || JSON.stringify(invokeErr)}`);
+              const errBody = response ? await response.text().catch(() => '') : '';
+              throw new Error(`Falha ao disparar Edge Function via SDK: ${errBody || invokeErr.message || JSON.stringify(invokeErr)}`);
+            } else {
+              diag.push(`✅ TENTATIVA 4: Sucedida via invoke SDK! Retorno: ${JSON.stringify(invokeData)}`);
+              success = true;
+            }
+          } catch (errSdk: any) {
+            diag.push(`❌ TENTATIVA 4: Erro de rede/SDK: ${errSdk?.message || errSdk}`);
+            throw errSdk;
           }
         }
       } catch (funcErr: any) {
+        diag.push(`⚠️ Alerta: Todas as tentativas diretas via frontend de Edge Function falharam.`);
         console.warn('Nota: Edge Function "send-push" não pôde ser disparada:', funcErr?.message || funcErr);
       }
 
+      diag.push(`[5/5] Envio de notificação concluído.`);
       setNewPushTitle('');
       setNewPushBody('');
       setPushSendResult({
         success: true,
-        msg: 'Notificação Push transmitida com sucesso! Todos os dispositivos e PWAs ativos serão notificados de imediato.'
+        msg: 'Fluxo concluído! O registro foi guardado na tabela app_banners para envio automático.',
+        diagnostics: diag
       });
       fetchData();
     } catch (err: any) {
+      diag.push(`❌ Falha catastrófica: ${err.message || err}`);
       setPushSendResult({
         success: false,
-        msg: `Falha ao transmitir push: ${err.message}`
+        msg: `Falha ao transmitir push: ${err.message}`,
+        diagnostics: diag
       });
     } finally {
       setIsSendingPush(false);
@@ -735,8 +755,24 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     </div>
 
                     {pushSendResult && (
-                      <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
-                        {pushSendResult.msg}
+                      <div className="space-y-3">
+                        <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
+                          {pushSendResult.msg}
+                        </div>
+                        
+                        {pushSendResult.diagnostics && pushSendResult.diagnostics.length > 0 && (
+                          <div className="bg-slate-900 border border-slate-850 rounded-2xl p-4 space-y-2 font-mono text-[9px] text-slate-300 tracking-normal leading-normal max-h-[180px] overflow-y-auto">
+                            <p className="text-[8px] font-black uppercase text-slate-500 tracking-wider font-sans border-b border-slate-800 pb-1.5 mb-1.5 flex justify-between items-center">
+                              <span>Relatório de Diagnóstico de Transmissão</span>
+                              <span className="text-blue-400 lowercase font-bold">{pushSendResult.success ? "success" : "failed"}</span>
+                            </p>
+                            {pushSendResult.diagnostics.map((log, index) => (
+                              <div key={index} className="whitespace-pre-wrap py-0.5 border-b border-slate-950/40 last:border-0">
+                                {log}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
 
