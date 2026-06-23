@@ -7,7 +7,7 @@ import {
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
 } from 'lucide-react';
-import { supabase, parseDbBanner, prepareBannerForDb } from '../lib/supabase';
+import { supabase, parseDbBanner, prepareBannerForDb, supabaseAnonKey } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -340,8 +340,14 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       // Disparar a Edge Function do Supabase diretamente pelo cliente (contornando problemas de Webhook no banco de dados!)
       try {
         const recordToNotify = insertedData && insertedData[0] ? insertedData[0] : pushRecord;
+        const sessionRes = await supabase.auth.getSession();
+        const token = sessionRes?.data?.session?.access_token || supabaseAnonKey;
+        
         await supabase.functions.invoke('send-push', {
-          body: recordToNotify
+          body: recordToNotify,
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
         });
         console.log('Edge Function "send-push" disparada com sucesso!');
       } catch (funcErr: any) {
