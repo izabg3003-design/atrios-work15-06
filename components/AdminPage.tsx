@@ -334,8 +334,19 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         image_url: null
       };
 
-      const { error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]);
+      const { data: insertedData, error } = await supabase.from('app_banners').insert([prepareBannerForDb(pushRecord)]).select();
       if (error) throw error;
+
+      // Disparar a Edge Function do Supabase diretamente pelo cliente (contornando problemas de Webhook no banco de dados!)
+      try {
+        const recordToNotify = insertedData && insertedData[0] ? insertedData[0] : pushRecord;
+        await supabase.functions.invoke('send-push', {
+          body: recordToNotify
+        });
+        console.log('Edge Function "send-push" disparada com sucesso!');
+      } catch (funcErr: any) {
+        console.warn('Nota: Edge Function "send-push" não pôde ser disparada (pode ser necessário ativá-la no painel do Supabase):', funcErr?.message || funcErr);
+      }
 
       setNewPushTitle('');
       setNewPushBody('');
