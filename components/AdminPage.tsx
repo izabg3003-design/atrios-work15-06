@@ -396,15 +396,15 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         let response: Response | null = null;
         let success = false;
 
-        // TENTATIVA 1: Chamar sem o cabeçalho "Authorization".
-        // ESSENCIAL para quando a Edge Function é implantada com "--no-verify-jwt".
+        // TENTATIVA 1: Chamar passando a 'apikey' como parâmetro de consulta (Query Parameter) e SEM cabeçalho Authorization.
+        // Este é o método padrão recomendado no Supabase para burlar bloqueios e validações rígidas do Kong Gateway.
         try {
-          diag.push(`[3/5] TENTATIVA 1: Enviando POST direto (sem cabeçalho Authorization, ideal para JWT desativado)...`);
-          const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+          diag.push(`[3/5] TENTATIVA 1: Enviando POST com apikey via Query Parameter (Bypass de Authorization)...`);
+          const urlWithKey = `${supabaseUrl}/functions/v1/send-push?apikey=${encodeURIComponent(supabaseAnonKey)}`;
+          const res = await fetch(urlWithKey, {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
-              'apikey': supabaseAnonKey
+              'Content-Type': 'application/json'
             },
             body: JSON.stringify(recordToNotify)
           });
@@ -415,16 +415,42 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           
           if (res.ok) {
             success = true;
-            diag.push('✅ TENTATIVA 1: Sucedida com sucesso!');
+            diag.push('✅ TENTATIVA 1 (Query String apikey): Sucedida com sucesso!');
           }
         } catch (err1: any) {
           diag.push(`❌ TENTATIVA 1: Erro de rede/conexão: ${err1?.message || err1}`);
         }
 
-        // TENTATIVA 2: Se falhar por 401 Unauthorized, tenta com o token de sessão do administrador logado
-        if (!success && response?.status === 401) {
+        // TENTATIVA 2: Chamar com 'apikey' nos cabeçalhos e SEM o cabeçalho "Authorization".
+        if (!success) {
           try {
-            diag.push(`[3/5] TENTATIVA 2: Tentando com o Token JWT do Administrador autenticado...`);
+            diag.push(`[3/5] TENTATIVA 2: Enviando POST com apikey em Headers e sem Authorization...`);
+            const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'apikey': supabaseAnonKey
+              },
+              body: JSON.stringify(recordToNotify)
+            });
+            
+            response = res;
+            const bodyText = await res.text().catch(() => '');
+            diag.push(`➡️ TENTATIVA 2 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
+            
+            if (res.ok) {
+              success = true;
+              diag.push('✅ TENTATIVA 2 (Header apikey): Sucedida com sucesso!');
+            }
+          } catch (err2: any) {
+            diag.push(`❌ TENTATIVA 2: Erro de rede/conexão: ${err2?.message || err2}`);
+          }
+        }
+
+        // TENTATIVA 3: Tentar com o token de sessão do administrador logado
+        if (!success) {
+          try {
+            diag.push(`[3/5] TENTATIVA 3: Tentando com o Token JWT do Administrador autenticado...`);
             const sessionRes = await supabase.auth.getSession();
             const sessionToken = sessionRes?.data?.session?.access_token;
             if (sessionToken) {
@@ -440,24 +466,24 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               
               response = res;
               const bodyText = await res.text().catch(() => '');
-              diag.push(`➡️ TENTATIVA 2 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
+              diag.push(`➡️ TENTATIVA 3 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
               
               if (res.ok) {
                 success = true;
-                diag.push('✅ TENTATIVA 2: Sucedida com sucesso!');
+                diag.push('✅ TENTATIVA 3 (Admin Session JWT): Sucedida com sucesso!');
               }
             } else {
-              diag.push(`⚠️ TENTATIVA 2: Pulada. Nenhuma sessão de utilizador ativa encontrada.`);
+              diag.push(`⚠️ TENTATIVA 3: Pulada. Nenhuma sessão de utilizador ativa encontrada.`);
             }
-          } catch (err2: any) {
-            diag.push(`❌ TENTATIVA 2: Erro de rede/conexão: ${err2?.message || err2}`);
+          } catch (err3: any) {
+            diag.push(`❌ TENTATIVA 3: Erro de rede/conexão: ${err3?.message || err3}`);
           }
         }
 
-        // TENTATIVA 3: Se ainda falhar, tenta com o token Anon Key na autorização
-        if (!success && response?.status === 401) {
+        // TENTATIVA 4: Tentar com o token Anon Key na autorização
+        if (!success) {
           try {
-            diag.push(`[3/5] TENTATIVA 3: Tentando com o próprio token Anon em Authorization...`);
+            diag.push(`[3/5] TENTATIVA 4: Tentando com o próprio token Anon em Authorization...`);
             const res = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
               method: 'POST',
               headers: {
@@ -470,35 +496,35 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             
             response = res;
             const bodyText = await res.text().catch(() => '');
-            diag.push(`➡️ TENTATIVA 3 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
+            diag.push(`➡️ TENTATIVA 4 Status: ${res.status} (${res.statusText}). Retorno: ${bodyText || '(vazio)'}`);
             
             if (res.ok) {
               success = true;
-              diag.push('✅ TENTATIVA 3: Sucedida com sucesso!');
+              diag.push('✅ TENTATIVA 4 (Anon Key JWT): Sucedida com sucesso!');
             }
-          } catch (err3: any) {
-            diag.push(`❌ TENTATIVA 3: Erro de rede/conexão: ${err3?.message || err3}`);
+          } catch (err4: any) {
+            diag.push(`❌ TENTATIVA 4: Erro de rede/conexão: ${err4?.message || err4}`);
           }
         }
 
-        // TENTATIVA 4: Fallback definitivo usando o método nativo do SDK Supabase
+        // TENTATIVA 5: Fallback definitivo usando o método nativo do SDK Supabase
         if (!success) {
           try {
-            diag.push(`[4/5] TENTATIVA 4: Tentando invocar nativamente usando supabase.functions.invoke...`);
+            diag.push(`[4/5] TENTATIVA 5: Tentando invocar nativamente usando supabase.functions.invoke...`);
             const { data: invokeData, error: invokeErr } = await supabase.functions.invoke('send-push', {
               body: recordToNotify
             });
             
             if (invokeErr) {
-              diag.push(`❌ TENTATIVA 4: Erro do SDK invoke: ${invokeErr.message || JSON.stringify(invokeErr)}`);
+              diag.push(`❌ TENTATIVA 5: Erro do SDK invoke: ${invokeErr.message || JSON.stringify(invokeErr)}`);
               const errBody = response ? await response.text().catch(() => '') : '';
               throw new Error(`Falha ao disparar Edge Function via SDK: ${errBody || invokeErr.message || JSON.stringify(invokeErr)}`);
             } else {
-              diag.push(`✅ TENTATIVA 4: Sucedida via invoke SDK! Retorno: ${JSON.stringify(invokeData)}`);
+              diag.push(`✅ TENTATIVA 5: Sucedida via invoke SDK! Retorno: ${JSON.stringify(invokeData)}`);
               success = true;
             }
           } catch (errSdk: any) {
-            diag.push(`❌ TENTATIVA 4: Erro de rede/SDK: ${errSdk?.message || errSdk}`);
+            diag.push(`❌ TENTATIVA 5: Erro de rede/SDK: ${errSdk?.message || errSdk}`);
             throw errSdk;
           }
         }
@@ -773,6 +799,25 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                             ))}
                           </div>
                         )}
+
+                        {/* Dica do Webhook para Bypass Definitivo */}
+                        <div className="bg-slate-900/60 border border-white/5 p-4 rounded-2xl text-[10px] text-slate-400 space-y-1.5 font-sans">
+                          <span className="font-bold text-slate-200 block uppercase tracking-wider text-[9px] mb-1 flex items-center gap-1.5">
+                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                            💡 Dica de Automação Recomendada (Bypass de CORS/Auth)
+                          </span>
+                          <p className="leading-relaxed">
+                            Para evitar problemas de permissões de rede/CORS no browser, a forma recomendada e de nível de produção para enviar as notificações push é configurando um <strong>Database Webhook</strong> direto no painel do Supabase:
+                          </p>
+                          <ol className="list-decimal pl-4 space-y-1 text-slate-300 leading-relaxed">
+                            <li>Aceda ao seu <strong>Supabase Dashboard</strong> &rarr; <strong>Database</strong> &rarr; <strong>Webhooks</strong>.</li>
+                            <li>Clique em <strong>Create Webhook</strong> (ou ative-os se for a primeira vez).</li>
+                            <li>Nome: <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">tr_send_push</code></li>
+                            <li>Selecione a Tabela: <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">app_banners</code> e Evento: <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">Insert</code></li>
+                            <li>Escolha a Ação: <strong>Trigger Edge Function</strong> e selecione a função <code className="bg-slate-950 px-1 py-0.5 rounded text-amber-400 text-[9px] font-mono">send-push</code>.</li>
+                            <li>Clique em <strong>Save</strong>. Pronto! O próprio banco de dados disparará a Edge Function automaticamente em segundo plano.</li>
+                          </ol>
+                        </div>
                       </div>
                     )}
 
