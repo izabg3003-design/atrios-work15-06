@@ -110,13 +110,14 @@ async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string):
   return data.access_token;
 }
 
-async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string) {
+async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string): Promise<{ successCount: number; errors: string[] }> {
   if (tokens.length === 0) {
     throw new Error("Nenhum token FCM registado nesta audiência.");
   }
   
   const accessToken = await getGoogleAccessToken(clientEmail, privateKey);
   let successCount = 0;
+  const errors: string[] = [];
 
   const sendPromises = tokens.map(async (token) => {
     try {
@@ -164,14 +165,22 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
       } else {
         const result = await response.json();
         console.error(`Falha ao enviar FCM para o token ${token.substring(0, 15)}...:`, result);
+        const errMsg = result?.error?.message || JSON.stringify(result);
+        if (!errors.includes(errMsg)) {
+          errors.push(errMsg);
+        }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(`Erro ao enviar FCM para o token ${token.substring(0, 15)}...:`, err);
+      const errMsg = err.message || String(err);
+      if (!errors.includes(errMsg)) {
+        errors.push(errMsg);
+      }
     }
   });
 
   await Promise.all(sendPromises);
-  return successCount;
+  return { successCount, errors };
 }
 
 const generateAtriosWorkId = () => {
@@ -537,7 +546,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             .filter((t): t is string => !!t && t.trim().length > 0);
 
           if (validTokens.length > 0) {
-            const successCount = await sendClientSideFCM(
+            const { successCount, errors } = await sendClientSideFCM(
               projectId,
               clientEmail,
               privateKey,
@@ -545,8 +554,23 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               newPushTitle.trim(),
               newPushBody.trim()
             );
-            clientFcmSuccess = true;
-            clientFcmMsg = `Enviado com sucesso diretamente pelo seu navegador para ${successCount} de ${validTokens.length} dispositivos ativos via FCM.`;
+            if (successCount > 0) {
+              clientFcmSuccess = true;
+              clientFcmMsg = `Enviado com sucesso diretamente pelo seu navegador para ${successCount} de ${validTokens.length} dispositivos ativos via FCM.`;
+              if (errors.length > 0) {
+                clientFcmMsg += ` Alguns avisos de erro em alguns dispositivos: ${errors.join('; ')}`;
+              }
+            } else {
+              clientFcmSuccess = false;
+              const detailedErr = errors.join('; ');
+              if (detailedErr.includes("403") || detailedErr.toLowerCase().includes("permission") || detailedErr.toLowerCase().includes("forbidden") || detailedErr.toLowerCase().includes("not been used")) {
+                clientFcmMsg = `Erro 403 (Permissão Negada): Certifique-se de que a API "Firebase Cloud Messaging API (V1)" está ATIVADA no Google Cloud Console do projeto "${projectId}" (e que as credenciais inseridas têm acesso). Detalhes: ${detailedErr}`;
+              } else if (detailedErr.toLowerCase().includes("sender_id_mismatch") || detailedErr.toLowerCase().includes("mismatch") || detailedErr.toLowerCase().includes("not-registered")) {
+                clientFcmMsg = `Erro de Mismatch / Token Inválido: Os tokens gerados no telemóvel dos utilizadores pertencem a outro projeto Firebase. Se está a usar o seu projeto Firebase "${projectId}" para enviar notificações, também deve configurar as credenciais do seu projeto Firebase no frontend (variáveis .env como VITE_FIREBASE_*) para que os tokens coincidam com o seu projeto!`;
+              } else {
+                clientFcmMsg = `Erro no envio FCM: ${detailedErr}`;
+              }
+            }
           } else {
             clientFcmMsg = "Nenhum dispositivo encontrado com token push registado para esta audiência.";
           }
@@ -572,10 +596,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       setNewPushTitle('');
       setNewPushBody('');
       setPushSendResult({
-        success: true,
+        success: clientFcmSuccess,
         msg: clientFcmSuccess 
-          ? `Transmissão concluída com sucesso! ${clientFcmMsg}`
-          : 'Transmissão enviada com sucesso! Os dispositivos ativos online receberão o alerta em tempo real.'
+          ? `Transmissão concluída! ${clientFcmMsg}`
+          : `Transmissão falhou ou precisa de ajuste: ${clientFcmMsg}`
       });
       fetchData();
     } catch (err: any) {
