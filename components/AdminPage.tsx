@@ -440,7 +440,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       setNewBanner({ title: '', highlight: '', subtitle: '', cta_text: 'Ver Oferta', theme_color: 'emerald', is_active: true, image_url: '', user_type: 'all' });
       fetchData();
     } catch (e: any) { 
-      alert(`Erro AtriosWork: ${e.message}`);
+      const isUserTypeErr = e.message?.includes('user_type') || e.message?.includes('column') || JSON.stringify(e).includes('user_type');
+      if (isUserTypeErr) {
+        alert(`Erro AtriosWork: A tabela 'app_banners' não possui a coluna 'user_type' no seu Supabase.\n\nPara corrigir, aceda ao SQL Editor no painel do Supabase e execute:\n\nALTER TABLE app_banners ADD COLUMN IF NOT EXISTS user_type TEXT DEFAULT 'all';`);
+      } else {
+        alert(`Erro AtriosWork: ${e.message}`);
+      }
     } finally { 
       setIsCreating(false); 
     }
@@ -556,9 +561,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       });
       fetchData();
     } catch (err: any) {
+      const isUserTypeErr = err.message?.includes('user_type') || err.message?.includes('column') || JSON.stringify(err).includes('user_type');
       setPushSendResult({
         success: false,
-        msg: `Falha ao transmitir push: ${err.message}`
+        msg: isUserTypeErr 
+          ? `Erro: A tabela 'app_banners' não possui a coluna 'user_type' no seu Supabase.\n\nPara corrigir, aceda ao painel do Supabase > SQL Editor e execute:\n\nALTER TABLE app_banners ADD COLUMN IF NOT EXISTS user_type TEXT DEFAULT 'all';\n\n(E depois recarregue esta página!)`
+          : `Falha ao transmitir push: ${err.message}`
       });
     } finally {
       setIsSendingPush(false);
