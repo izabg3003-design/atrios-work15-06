@@ -25,6 +25,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   const [showPermissionBanner, setShowPermissionBanner] = useState(false);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [newPushAlert, setNewPushAlert] = useState<{ id: string; title: string; subtitle: string } | null>(null);
+  const [customVapidKey, setCustomVapidKey] = useState<string>('');
   
   // 1. Detectar suporte a PWA e evento de instalação
   useEffect(() => {
@@ -204,7 +205,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     try {
       // Obter registro do Service Worker atual (/sw-v3.js)
       const reg = await navigator.serviceWorker.ready;
-      const vapidKey = (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+      const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
 
       const token = await getToken(messaging, {
         serviceWorkerRegistration: reg,
@@ -229,6 +230,47 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       console.error('Falha ao obter token FCM:', err);
     }
   };
+
+  // 0. Carregar e aplicar configuração customizada do Firebase FCM se houver na tabela app_banners
+  useEffect(() => {
+    if (!user.id) return;
+    
+    const applyCustomFcmConfig = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('app_banners')
+          .select('*')
+          .eq('user_type', 'fcm_config')
+          .maybeSingle();
+
+        if (!error && data && data.highlight) {
+          try {
+            const customConfig = JSON.parse(data.highlight);
+            if (customConfig && customConfig.apiKey && customConfig.projectId) {
+              console.log('Detectada configuração customizada do Firebase:', customConfig.projectId);
+              if (customConfig.vapidKey) {
+                setCustomVapidKey(customConfig.vapidKey);
+              }
+              const { reinitializeFirebase } = await import('../lib/firebase');
+              const newMessaging = reinitializeFirebase(customConfig);
+              if (newMessaging) {
+                // Forçar registo do token com o novo projeto
+                setTimeout(() => {
+                  registerFCMToken();
+                }, 1500);
+              }
+            }
+          } catch (jsonErr) {
+            console.error('Erro ao parsear JSON de configuração customizada:', jsonErr);
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar configuração customizada do Firebase:', err);
+      }
+    };
+
+    applyCustomFcmConfig();
+  }, [user.id]);
 
   // Efeito para registrar o token automaticamente se a permissão já estiver concedida
   useEffect(() => {

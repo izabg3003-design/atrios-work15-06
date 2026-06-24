@@ -1,4 +1,4 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp, deleteApp, getApps } from 'firebase/app';
 import { getMessaging, getToken, onMessage, Messaging } from 'firebase/messaging';
 import appletConfig from '../firebase-applet-config.json';
 
@@ -6,12 +6,12 @@ import appletConfig from '../firebase-applet-config.json';
 const metaEnv = (import.meta as any).env || {};
 
 const firebaseConfig = {
-  apiKey: appletConfig.apiKey || metaEnv.VITE_FIREBASE_API_KEY,
-  authDomain: appletConfig.authDomain || metaEnv.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: appletConfig.projectId || metaEnv.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: appletConfig.storageBucket || metaEnv.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: appletConfig.messagingSenderId || metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: appletConfig.appId || metaEnv.VITE_FIREBASE_APP_ID,
+  apiKey: metaEnv.VITE_FIREBASE_API_KEY || appletConfig.apiKey,
+  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || appletConfig.authDomain,
+  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || appletConfig.projectId,
+  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
+  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || appletConfig.messagingSenderId,
+  appId: metaEnv.VITE_FIREBASE_APP_ID || appletConfig.appId,
 };
 
 // Verifica se as variáveis mínimas de configuração do Firebase estão presentes
@@ -32,8 +32,8 @@ export const isPushSupported = () => {
   );
 };
 
-let app;
-let messaging: Messaging | null = null;
+export let app: any = null;
+export let messaging: Messaging | null = null;
 
 if (isFirebaseConfigured && isPushSupported()) {
   try {
@@ -44,4 +44,34 @@ if (isFirebaseConfigured && isPushSupported()) {
   }
 }
 
-export { messaging, getToken, onMessage };
+// Re-inicialização dinâmica com dados recebidos do Supabase
+export function reinitializeFirebase(customConfig: {
+  apiKey?: string;
+  authDomain?: string;
+  projectId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+}) {
+  if (!customConfig || !customConfig.apiKey || !customConfig.projectId) {
+    return null;
+  }
+  try {
+    const apps = getApps();
+    if (apps.length > 0) {
+      for (const existingApp of apps) {
+        deleteApp(existingApp).catch(e => console.warn('Erro ao deletar app existente:', e));
+      }
+    }
+    app = initializeApp(customConfig);
+    messaging = getMessaging(app);
+    console.log('Firebase re-inicializado com sucesso com configuração customizada:', customConfig.projectId);
+    return messaging;
+  } catch (error) {
+    console.error('Erro ao re-inicializar Firebase com configuração customizada:', error);
+    return null;
+  }
+}
+
+export { getToken, onMessage };
+

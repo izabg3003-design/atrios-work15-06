@@ -5,7 +5,7 @@ import {
   Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Tag, UserPlus2, 
   Percent, CalendarDays, Activity, Settings, Megaphone, Plus, Power, Zap,
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
-  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
+  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
@@ -269,6 +269,26 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     return localStorage.getItem('fcm_service_account') || '';
   });
   const [showFcmConfig, setShowFcmConfig] = useState(false);
+  const [fcmClientConfig, setFcmClientConfig] = useState<string>('');
+  const [isSavingClientConfig, setIsSavingClientConfig] = useState(false);
+
+  useEffect(() => {
+    const loadClientConfig = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('app_banners')
+          .select('*')
+          .eq('user_type', 'fcm_config')
+          .maybeSingle();
+        if (!error && data) {
+          setFcmClientConfig(data.highlight || '');
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar fcm_config:', err);
+      }
+    };
+    loadClientConfig();
+  }, [activeSubTab]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -615,6 +635,67 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     }
   };
 
+  const handleSaveFcmClientConfig = async () => {
+    setIsSavingClientConfig(true);
+    try {
+      if (!fcmClientConfig.trim()) {
+        // Remover a configuração de fcm_config se tiver vazia
+        const { error } = await supabase
+          .from('app_banners')
+          .delete()
+          .eq('user_type', 'fcm_config');
+        if (error) throw error;
+        alert('Configuração de cliente removida com sucesso. O app voltará a usar o Firebase padrão.');
+      } else {
+        // Validar JSON
+        try {
+          JSON.parse(fcmClientConfig);
+        } catch (e) {
+          alert('Erro de Sintaxe: O texto inserido não é um JSON válido. Por favor verifique as aspas e vírgulas.');
+          setIsSavingClientConfig(false);
+          return;
+        }
+
+        // Buscar se já existe
+        const { data: existing } = await supabase
+          .from('app_banners')
+          .select('id')
+          .eq('user_type', 'fcm_config')
+          .maybeSingle();
+
+        if (existing) {
+          const { error } = await supabase
+            .from('app_banners')
+            .update({
+              highlight: fcmClientConfig.trim(),
+              title: 'FCM Client Config',
+              subtitle: 'Configurações de cliente Firebase Customizado para Push Notifications',
+              is_active: true
+            })
+            .eq('id', existing.id);
+          if (error) throw error;
+        } else {
+          const { error } = await supabase
+            .from('app_banners')
+            .insert([{
+              user_type: 'fcm_config',
+              title: 'FCM Client Config',
+              highlight: fcmClientConfig.trim(),
+              subtitle: 'Configurações de cliente Firebase Customizado para Push Notifications',
+              is_active: true,
+              theme_color: 'blue'
+            }]);
+          if (error) throw error;
+        }
+        alert('Configuração de cliente gravada e publicada com sucesso! Agora todos os telemóveis dos utilizadores vão registar-se no seu projeto customizado.');
+      }
+    } catch (err: any) {
+      alert(`Erro ao gravar configuração: ${err.message}`);
+    } finally {
+      setIsSavingClientConfig(false);
+    }
+  };
+
   const handleToggleBanner = async (banner: AppBanner) => {
     setUpdatingId(banner.id);
     try {
@@ -888,6 +969,55 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       </div>
                     </div>
                   )}
+                </div>
+
+                {/* Configuração de Cliente Web Firebase (Público) em cartão independente */}
+                <div className="bg-slate-950/70 p-6 rounded-[2rem] border border-white/5 space-y-4 relative z-10 font-sans">
+                  <div className="flex items-center gap-3">
+                    <Globe className="w-5 h-5 text-blue-400" />
+                    <div>
+                      <h4 className="text-xs font-black text-white uppercase tracking-widest">Configuração do Cliente Web Firebase (Frontend / Telemóvel)</h4>
+                      <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">
+                        {fcmClientConfig ? "✅ Configuração de Cliente gravada e publicada" : "⚠️ Usando o projeto Firebase padrão do workspace"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-white/5">
+                    <p className="text-[10px] text-slate-400 leading-relaxed font-bold uppercase">
+                      Para que os telemóveis e computadores dos seus colaboradores registem os tokens de push no seu projeto Firebase customizado em vez do projeto padrão do workspace, cole abaixo o objeto JSON de configuração web do seu Firebase (gerado no painel do Firebase Console &gt; Definições do Projeto &gt; Os seus apps).
+                    </p>
+                    <div className="space-y-2">
+                      <textarea
+                        rows={5}
+                        placeholder={`{
+  "apiKey": "AIzaSy...",
+  "authDomain": "push-atrios-work.firebaseapp.com",
+  "projectId": "push-atrios-work",
+  "storageBucket": "push-atrios-work.appspot.com",
+  "messagingSenderId": "1234567890",
+  "appId": "1:12345:web:abcd",
+  "vapidKey": "B..." // Opcional: Chave VAPID pública de Web Push Certificates
+}`}
+                        value={fcmClientConfig}
+                        onChange={(e) => setFcmClientConfig(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-[11px] font-mono outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-[9px] text-slate-500 font-bold uppercase">
+                        Isto sincroniza com a base de dados Supabase e atualiza automaticamente todos os utilizadores ativos.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={handleSaveFcmClientConfig}
+                        disabled={isSavingClientConfig}
+                        className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50"
+                      >
+                        {isSavingClientConfig ? 'A Guardar...' : 'Guardar Configuração'}
+                      </button>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10">
