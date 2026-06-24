@@ -265,6 +265,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [isSendingPush, setIsSendingPush] = useState(false);
   const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
   
+  // Novos estados para agendamento de push
+  const [isScheduled, setIsScheduled] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+  const [pushHistoryTab, setPushHistoryTab] = useState<'sent' | 'scheduled'>('sent');
+  
   const [fcmServiceAccount, setFcmServiceAccount] = useState<string>(() => {
     return localStorage.getItem('fcm_service_account') || '';
   });
@@ -289,6 +295,133 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     };
     loadClientConfig();
   }, [activeSubTab]);
+
+  // Verificação automática e disparo em background de notificações agendadas pendentes
+  useEffect(() => {
+    const checkAndDispatchScheduledPushes = async () => {
+      const scheduledPushes = banners.filter(b => b.user_type === 'push_scheduled');
+      if (scheduledPushes.length === 0) return;
+
+      const currentTime = new Date();
+      const pendingPushes = scheduledPushes.filter(b => {
+        try {
+          const schedTime = new Date(b.cta_link);
+          return schedTime <= currentTime;
+        } catch (e) {
+          return false;
+        }
+      });
+
+      if (pendingPushes.length === 0) return;
+
+      console.log(`[Scheduled Push] Detetados ${pendingPushes.length} agendamentos pendentes para disparar!`);
+
+      for (const push of pendingPushes) {
+        try {
+          const title = push.title.replace('[SCHEDULED]', '').trim();
+          const body = push.highlight;
+          const audience = push.subtitle as 'all' | 'free' | 'premium';
+
+          console.log(`[Scheduled Push] A disparar automaticamente: "${title}" para ${audience}`);
+
+          let clientFcmMsg = '';
+          let clientFcmSuccess = false;
+
+          // Se tiver conta de serviço local, envia o FCM nativo
+          if (fcmServiceAccount.trim()) {
+            try {
+              const sa = JSON.parse(fcmServiceAccount.trim());
+              const projectId = sa.project_id;
+              const clientEmail = sa.client_email;
+              const privateKey = sa.private_key;
+
+              if (projectId && clientEmail && privateKey) {
+                const { data: allProfiles, error: profErr } = await supabase
+                  .from('profiles')
+                  .select('id, fcm_token, name, role')
+                  .not('fcm_token', 'is', null);
+
+                if (!profErr && allProfiles) {
+                  let filteredProfiles = allProfiles || [];
+                  if (audience === 'premium') {
+                    filteredProfiles = filteredProfiles.filter(p => {
+                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+                      return sub && sub.isActive === true;
+                    });
+                  } else if (audience === 'free') {
+                    filteredProfiles = filteredProfiles.filter(p => {
+                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+                      return !sub || sub.isActive !== true;
+                    });
+                  }
+
+                  const validTokens = filteredProfiles
+                    .map(p => p.fcm_token)
+                    .filter((t): t is string => !!t && t.trim().length > 0);
+
+                  if (validTokens.length > 0) {
+                    const { successCount } = await sendClientSideFCM(
+                      projectId,
+                      clientEmail,
+                      privateKey,
+                      validTokens,
+                      title,
+                      body
+                    );
+                    if (successCount > 0) {
+                      clientFcmSuccess = true;
+                      clientFcmMsg = `Enviado para ${successCount} dispositivos ativos.`;
+                    }
+                  }
+                }
+              }
+            } catch (fcmErr) {
+              console.error("[Scheduled Push] Falha ao enviar FCM nativo:", fcmErr);
+            }
+          }
+
+          // Redundância via Edge Function do Supabase
+          try {
+            await supabase.functions.invoke('send-fcm-push', {
+              body: {
+                title: title,
+                body: body,
+                audience: audience
+              }
+            });
+          } catch (fcmFuncErr) {
+            console.warn('[Scheduled Push] Edge Function offline:', fcmFuncErr);
+          }
+
+          // Atualizar o registro do banner na tabela 'app_banners' de volta para ativo/enviado
+          const { error: updateErr } = await supabase
+            .from('app_banners')
+            .update({
+              title: `[PUSH] ${title}`,
+              user_type: audience === 'all' ? 'push_notification' : (audience === 'premium' ? 'premium' : 'free'),
+              is_active: true,
+              cta_link: '/',
+              created_at: new Date().toISOString()
+            })
+            .eq('id', push.id);
+
+          if (updateErr) throw updateErr;
+
+        } catch (err) {
+          console.error(`[Scheduled Push] Erro ao disparar push ${push.id}:`, err);
+        }
+      }
+
+      // Recarregar os dados do painel para refletir o disparo
+      fetchData();
+    };
+
+    // Roda a verificação a cada 10 segundos se o painel de notificações estiver aberto
+    if (activeSubTab === 'notifications') {
+      const interval = setInterval(checkAndDispatchScheduledPushes, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [activeSubTab, banners, fcmServiceAccount]);
 
   const fetchData = async () => {
     setLoading(true);
@@ -508,6 +641,52 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     setIsSendingPush(true);
     setPushSendResult(null);
     try {
+      if (isScheduled) {
+        if (!scheduledDate || !scheduledTime) {
+          alert('Por favor, selecione a data e a hora para o agendamento!');
+          setIsSendingPush(false);
+          return;
+        }
+
+        const scheduledDateTime = `${scheduledDate}T${scheduledTime}:00`;
+        const testDate = new Date(scheduledDateTime);
+        if (isNaN(testDate.getTime())) {
+          throw new Error("A data ou hora inserida é inválida.");
+        }
+
+        if (testDate <= new Date()) {
+          alert("A data e hora do agendamento têm de ser no futuro!");
+          setIsSendingPush(false);
+          return;
+        }
+
+        const pushRecord = {
+          title: `[SCHEDULED] ${newPushTitle.trim()}`,
+          highlight: newPushBody.trim(),
+          subtitle: newPushAudience, // Guardamos a audiência original para ser disparada
+          cta_text: 'Abrir App',
+          cta_link: testDate.toISOString(), // Guardamos o timestamp ISO no cta_link
+          theme_color: 'amber',
+          is_active: false, // Inativo por padrão para não aparecer para os usuários antes do tempo
+          user_type: 'push_scheduled',
+          image_url: null
+        };
+
+        const { error } = await supabase.from('app_banners').insert([pushRecord]);
+        if (error) throw error;
+
+        setNewPushTitle('');
+        setNewPushBody('');
+        setIsScheduled(false);
+        setPushSendResult({
+          success: true,
+          msg: `Notificação agendada com sucesso para ${testDate.toLocaleDateString('pt-PT')} às ${testDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}!`
+        });
+        fetchData();
+        setIsSendingPush(false);
+        return;
+      }
+
       // Marcamos o banner como [PUSH] no título ou colocamos o tipo 'push_notification'
       const pushRecord = {
         title: `[PUSH] ${newPushTitle.trim()}`,
@@ -1078,79 +1257,198 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       </div>
                     </div>
 
+                    {/* Opção de Agendamento */}
+                    <div className="space-y-4 border-t border-white/5 pt-4">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 font-sans">
+                          <Calendar className="w-3.5 h-3.5 text-blue-400" />
+                          Agendar Envio para o futuro?
+                        </label>
+                        <input 
+                          type="checkbox" 
+                          checked={isScheduled}
+                          onChange={(e) => {
+                            setIsScheduled(e.target.checked);
+                            if (e.target.checked) {
+                              const futureDate = new Date();
+                              futureDate.setMinutes(futureDate.getMinutes() + 30);
+                              setScheduledDate(futureDate.toISOString().split('T')[0]);
+                              setScheduledTime(futureDate.toTimeString().split(' ')[0].substring(0, 5));
+                            }
+                          }}
+                          className="w-4 h-4 rounded border-slate-800 bg-slate-900 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                        />
+                      </div>
+
+                      {isScheduled && (
+                        <div className="grid grid-cols-2 gap-4 animate-[fadeIn_0.3s_ease-out]">
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest font-sans">Data de Envio</label>
+                            <input 
+                              type="date" 
+                              value={scheduledDate}
+                              onChange={(e) => setScheduledDate(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-850 rounded-xl px-4 py-2.5 text-white text-[11px] outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                              required={isScheduled}
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest font-sans">Hora de Envio</label>
+                            <input 
+                              type="time" 
+                              value={scheduledTime}
+                              onChange={(e) => setScheduledTime(e.target.value)}
+                              className="w-full bg-slate-900 border border-slate-850 rounded-xl px-4 py-2.5 text-white text-[11px] outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                              required={isScheduled}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <button
                       type="submit"
                       disabled={isSendingPush}
-                      className="w-full py-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                      className={`w-full py-4 bg-gradient-to-r ${isScheduled ? 'from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500' : 'from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'} text-white font-black rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2`}
                     >
                       {isSendingPush ? (
                         <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Transmitindo...
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> {isScheduled ? 'A Agendar...' : 'Transmitindo...'}
                         </>
                       ) : (
                         <>
-                          Transmitir Notificação Push
+                          {isScheduled ? 'Confirmar Agendamento de Push' : 'Transmitir Notificação Push'}
                         </>
                       )}
                     </button>
                   </form>
 
-                  {/* Histórico de Notificações Enviadas */}
-                  <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col h-[400px]">
+                  {/* Histórico e Agendamentos de Notificações */}
+                  <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col h-[480px]">
                     <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0 font-sans">
-                      <div className="flex items-center gap-3">
-                        <BellRing className="w-5 h-5 text-blue-400" />
-                        <h4 className="text-xs font-black text-white uppercase tracking-widest">Histórico de Enviadas</h4>
+                      <div className="flex gap-4">
+                        <button
+                          type="button"
+                          onClick={() => setPushHistoryTab('sent')}
+                          className={`text-xs font-black uppercase tracking-widest pb-1 transition-all ${pushHistoryTab === 'sent' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                          Enviados
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setPushHistoryTab('scheduled')}
+                          className={`text-xs font-black uppercase tracking-widest pb-1 transition-all ${pushHistoryTab === 'scheduled' ? 'text-amber-400 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}
+                        >
+                          Agendados
+                        </button>
                       </div>
-                      <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">
-                        {banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length} Enviadas
-                      </span>
+                      
+                      {pushHistoryTab === 'sent' ? (
+                        <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">
+                          {banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length} Enviadas
+                        </span>
+                      ) : (
+                        <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-amber-500/80 uppercase tracking-wider font-mono">
+                          {banners.filter(p => (p.user_type as string) === 'push_scheduled').length} Agendados
+                        </span>
+                      )}
                     </div>
 
                     <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-                      {banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
-                          <BellRing className="w-10 h-10 text-slate-750 animate-pulse" />
-                          <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhuma Notificação Transmitida</p>
-                        </div>
-                      ) : (
-                        banners
-                          .filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification')
-                          .map((push) => {
-                            const displayTitle = push.title.replace('[PUSH]', '').replace('[push]', '').trim();
-                            const displayAudience = (push.user_type as string) === 'push_notification' || push.user_type === 'all' ? 'TODOS' : 
-                                                    (push.user_type === 'premium' ? 'PRO' : 'GRÁTIS');
-                            
-                            return (
-                              <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
-                                <div className="space-y-1 min-w-0 flex-1">
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
-                                      displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                                      displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                      'bg-slate-800 text-slate-400'
-                                    }`}>
-                                      {displayAudience}
-                                    </span>
-                                    <span className="text-[8px] font-mono text-slate-600 font-bold">
-                                      {push.created_at ? new Date(push.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                                    </span>
+                      {pushHistoryTab === 'sent' ? (
+                        banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
+                            <BellRing className="w-10 h-10 text-slate-750 animate-pulse" />
+                            <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhuma Notificação Transmitida</p>
+                          </div>
+                        ) : (
+                          banners
+                            .filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification')
+                            .map((push) => {
+                              const displayTitle = push.title.replace('[PUSH]', '').replace('[push]', '').trim();
+                              const displayAudience = (push.user_type as string) === 'push_notification' || push.user_type === 'all' ? 'TODOS' : 
+                                                      (push.user_type === 'premium' ? 'PRO' : 'GRÁTIS');
+                              
+                              return (
+                                <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
+                                  <div className="space-y-1 min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
+                                        displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
+                                        displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                        'bg-slate-800 text-slate-400'
+                                      }`}>
+                                        {displayAudience}
+                                      </span>
+                                      <span className="text-[8px] font-mono text-slate-600 font-bold">
+                                        {push.created_at ? new Date(push.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                                      </span>
+                                    </div>
+                                    <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
+                                    <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight || push.subtitle}</p>
                                   </div>
-                                  <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
-                                  <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight || push.subtitle}</p>
+                                  
+                                  <button
+                                    type="button"
+                                    onClick={() => setItemToDelete({ id: push.id, name: displayTitle, type: 'banner' })}
+                                    className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                    title="Remover Notificação"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
                                 </div>
-                                
-                                <button
-                                  type="button"
-                                  onClick={() => setItemToDelete({ id: push.id, name: displayTitle, type: 'banner' })}
-                                  className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                  title="Remover Notificação"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            );
-                          })
+                              );
+                            })
+                        )
+                      ) : (
+                        banners.filter(p => (p.user_type as string) === 'push_scheduled').length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
+                            <Calendar className="w-10 h-10 text-slate-750 animate-pulse" />
+                            <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhum Agendamento Ativo</p>
+                          </div>
+                        ) : (
+                          banners
+                            .filter(p => (p.user_type as string) === 'push_scheduled')
+                            .map((push) => {
+                              const displayTitle = push.title.replace('[SCHEDULED]', '').trim();
+                              const displayAudience = push.subtitle === 'all' ? 'TODOS' : (push.subtitle === 'premium' ? 'PRO' : 'GRÁTIS');
+                              
+                              let schedDateStr = '---';
+                              try {
+                                schedDateStr = new Date(push.cta_link).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                              } catch (e) {}
+
+                              return (
+                                <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
+                                  <div className="space-y-1 min-w-0 flex-1">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                        AGENDADO: {schedDateStr}
+                                      </span>
+                                      <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
+                                        displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
+                                        displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                        'bg-slate-800 text-slate-400'
+                                      }`}>
+                                        {displayAudience}
+                                      </span>
+                                    </div>
+                                    <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
+                                    <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight}</p>
+                                  </div>
+                                  
+                                  <button
+                                    type="button"
+                                    onClick={() => setItemToDelete({ id: push.id, name: `Agendamento: ${displayTitle}`, type: 'banner' })}
+                                    className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                    title="Remover Agendamento"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              );
+                            })
+                        )
                       )}
                     </div>
                   </div>
