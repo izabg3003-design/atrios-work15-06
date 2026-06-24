@@ -6,12 +6,12 @@ import appletConfig from '../firebase-applet-config.json';
 const metaEnv = (import.meta as any).env || {};
 
 const firebaseConfig = {
-  apiKey: metaEnv.VITE_FIREBASE_API_KEY || appletConfig.apiKey,
-  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || appletConfig.authDomain,
-  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || appletConfig.projectId,
-  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || appletConfig.storageBucket,
-  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || appletConfig.messagingSenderId,
-  appId: metaEnv.VITE_FIREBASE_APP_ID || appletConfig.appId,
+  apiKey: metaEnv.VITE_FIREBASE_API_KEY || "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo" || appletConfig.apiKey,
+  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || "push-atrios-work.firebaseapp.com" || appletConfig.authDomain,
+  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || "push-atrios-work" || appletConfig.projectId,
+  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || "push-atrios-work.firebasestorage.app" || appletConfig.storageBucket,
+  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "409947740098" || appletConfig.messagingSenderId,
+  appId: metaEnv.VITE_FIREBASE_APP_ID || "1:409947740098:web:ed16cb847b12182eab685b" || appletConfig.appId,
 };
 
 // Verifica se as variáveis mínimas de configuração do Firebase estão presentes
