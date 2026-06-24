@@ -105,8 +105,11 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
               const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
               
-              // 1. Mostrar Notificação Nativa Push
-              triggerNativePush(cleanTitle, cleanBody);
+              // 1. Mostrar Notificação Nativa Push (Apenas como fallback se FCM não estiver ativo no dispositivo)
+              const hasFCMActive = isFirebaseConfigured && isPushSupported() && notificationPermission === 'granted';
+              if (!hasFCMActive) {
+                triggerNativePush(cleanTitle, cleanBody);
+              }
               
               // 2. Mostrar Alerta Visual no App
               setNewPushAlert({
@@ -130,7 +133,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     checkBroadcastNotifications();
     const interval = setInterval(checkBroadcastNotifications, 30000);
     return () => clearInterval(interval);
-  }, [user.id]);
+  }, [user.id, notificationPermission]);
 
   // 3. Verificar Expiração da Assinatura (Aviso prévio de expiração)
   useEffect(() => {
@@ -288,8 +291,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       const title = payload.notification?.title || 'Mensagem';
       const body = payload.notification?.body || '';
 
-      // Mostrar notificação nativa
-      triggerNativePush(title, body);
+      // O Service Worker (sw-v3.js) já exibe a notificação de sistema nativa automaticamente
+      // ao escutar o evento 'push'. Em primeiro plano, evitamos re-disparar a notificação
+      // de sistema para não duplicar, e apenas mostramos o banner interno do app.
 
       // Atualizar Alerta Visual no App (banner flutuante superior)
       setNewPushAlert({
