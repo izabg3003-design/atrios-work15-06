@@ -133,6 +133,24 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
               title: title,
               body: body,
             },
+            android: {
+              priority: "high"
+            },
+            apns: {
+              headers: {
+                "apns-priority": "10"
+              },
+              payload: {
+                aps: {
+                  sound: "default"
+                }
+              }
+            },
+            webpush: {
+              headers: {
+                "Urgency": "high"
+              }
+            },
             data: {
               url: "/",
               click_action: "/"
