@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Sparkles, Megaphone } from 'lucide-react';
 import { UserProfile } from '../types';
 import { supabase } from '../lib/supabase';
+import { messaging, getToken, isFirebaseConfigured, isPushSupported, onMessage } from '../lib/firebase';
 
 interface Props {
   user: UserProfile;
@@ -193,6 +194,72 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   };
 
+  // Função para registrar o token FCM no Supabase
+  const registerFCMToken = async () => {
+    if (!isFirebaseConfigured || !isPushSupported() || !messaging || !user.id) {
+      console.log('FCM não configurado ou notificações não suportadas, pulando registro de token.');
+      return;
+    }
+
+    try {
+      // Obter registro do Service Worker atual (/sw-v3.js)
+      const reg = await navigator.serviceWorker.ready;
+      const vapidKey = (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+
+      const token = await getToken(messaging, {
+        serviceWorkerRegistration: reg,
+        vapidKey: vapidKey || undefined
+      });
+
+      if (token) {
+        console.log('Token FCM obtido:', token);
+        // Atualizar o fcm_token do usuário na tabela de profiles
+        const { error } = await supabase
+          .from('profiles')
+          .update({ fcm_token: token })
+          .eq('id', user.id);
+
+        if (error) {
+          console.error('Erro ao salvar FCM token no perfil:', error);
+        } else {
+          console.log('FCM token salvo com sucesso no perfil do usuário.');
+        }
+      }
+    } catch (err) {
+      console.error('Falha ao obter token FCM:', err);
+    }
+  };
+
+  // Efeito para registrar o token automaticamente se a permissão já estiver concedida
+  useEffect(() => {
+    if (user.id && notificationPermission === 'granted') {
+      registerFCMToken();
+    }
+  }, [user.id, notificationPermission]);
+
+  // Efeito para escutar mensagens em primeiro plano (foreground)
+  useEffect(() => {
+    if (!messaging || !user.id) return;
+
+    const unsubscribe = onMessage(messaging, (payload) => {
+      console.log('Mensagem FCM em primeiro plano recebida:', payload);
+      const title = payload.notification?.title || 'Mensagem';
+      const body = payload.notification?.body || '';
+
+      // Mostrar notificação nativa
+      triggerNativePush(title, body);
+
+      // Atualizar Alerta Visual no App (banner flutuante superior)
+      setNewPushAlert({
+        id: payload.messageId || String(Date.now()),
+        title: title,
+        subtitle: body
+      });
+    });
+
+    return () => unsubscribe();
+  }, [user.id]);
+
   // Pedir Permissão de Notificações
   const requestPermission = async () => {
     if (!('Notification' in window)) {
@@ -210,6 +277,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           '🔔 Notificações Ativas!',
           'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
         );
+        if (user.id) {
+          registerFCMToken();
+        }
       }
     } catch (err) {
       console.error('Erro ao pedir permissão de notificações:', err);

@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Help primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    // Rules for users
+    match /users/{userId} {
+      allow get: if isOwner(userId);
+      allow create, update: if isOwner(userId) && isValidId(userId) && (
+        incoming().keys().hasAll(['id']) &&
+        incoming().keys().size() <= 3 &&
+        incoming().id == userId &&
+        (!incoming().keys().hasAny(['fcm_token']) || incoming().fcm_token == null || (incoming().fcm_token is string && incoming().fcm_token.size() <= 512))
+      );
+      allow delete: if isOwner(userId);
+    }
+  }
+}

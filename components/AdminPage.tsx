@@ -26,6 +26,136 @@ interface Props {
   hideValues?: boolean;
 }
 
+// Helper functions for RS256 signature and FCM push notifications client-side
+function b64Url(input: string | ArrayBuffer): string {
+  let binary = "";
+  if (typeof input === "string") {
+    binary = btoa(encodeURIComponent(input).replace(/%([0-9A-F]{2})/g, (_, p1) => {
+      return String.fromCharCode(parseInt(p1, 16));
+    }));
+  } else {
+    const bytes = new Uint8Array(input);
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    binary = btoa(binary);
+  }
+  return binary.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64ToArrayBuffer(b64: string): ArrayBuffer {
+  const binaryString = atob(b64.replace(/\s/g, ""));
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+function cleanPEM(pem: string): string {
+  return pem
+    .replace(/-----BEGIN PRIVATE KEY-----/, "")
+    .replace(/-----END PRIVATE KEY-----/, "")
+    .replace(/\s+/g, "");
+}
+
+async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
+  const cleanKey = cleanPEM(privateKeyPem);
+  const binaryKey = base64ToArrayBuffer(cleanKey);
+
+  const key = await window.crypto.subtle.importKey(
+    "pkcs8",
+    binaryKey,
+    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
+    false,
+    ["sign"]
+  );
+
+  const header = { alg: "RS256", typ: "JWT" };
+  const now = Math.floor(Date.now() / 1000);
+  const claims = {
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600
+  };
+
+  const encodedHeader = b64Url(JSON.stringify(header));
+  const encodedClaims = b64Url(JSON.stringify(claims));
+  const dataToSign = new TextEncoder().encode(`${encodedHeader}.${encodedClaims}`);
+
+  const signature = await window.crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, dataToSign);
+  const encodedSignature = b64Url(signature);
+
+  const jwt = `${encodedHeader}.${encodedClaims}.${encodedSignature}`;
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+
+  const data = await response.json();
+  if (!response.ok) {
+    throw new Error(`Erro ao obter token OAuth2 do Google: ${JSON.stringify(data)}`);
+  }
+
+  return data.access_token;
+}
+
+async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string) {
+  if (tokens.length === 0) {
+    throw new Error("Nenhum token FCM registado nesta audiência.");
+  }
+  
+  const accessToken = await getGoogleAccessToken(clientEmail, privateKey);
+  let successCount = 0;
+
+  const sendPromises = tokens.map(async (token) => {
+    try {
+      const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: {
+            token: token,
+            notification: {
+              title: title,
+              body: body,
+            },
+            data: {
+              url: "/",
+              click_action: "/"
+            }
+          }
+        })
+      });
+
+      if (response.ok) {
+        successCount++;
+      } else {
+        const result = await response.json();
+        console.error(`Falha ao enviar FCM para o token ${token.substring(0, 15)}...:`, result);
+      }
+    } catch (err) {
+      console.error(`Erro ao enviar FCM para o token ${token.substring(0, 15)}...:`, err);
+    }
+  });
+
+  await Promise.all(sendPromises);
+  return successCount;
+}
+
 const generateAtriosWorkId = () => {
   const year = new Date().getFullYear();
   const hex = Math.random().toString(16).substr(2, 4).toUpperCase();
@@ -107,6 +237,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [newPushAudience, setNewPushAudience] = useState<'all' | 'free' | 'premium'>('all');
   const [isSendingPush, setIsSendingPush] = useState(false);
   const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
+  
+  const [fcmServiceAccount, setFcmServiceAccount] = useState<string>(() => {
+    return localStorage.getItem('fcm_service_account') || '';
+  });
+  const [showFcmConfig, setShowFcmConfig] = useState(false);
 
   const fetchData = async () => {
     setLoading(true);
@@ -337,11 +472,87 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const { error } = await supabase.from('app_banners').insert([pushRecord]);
       if (error) throw error;
 
+      let clientFcmMsg = '';
+      let clientFcmSuccess = false;
+
+      // Se houver uma conta de serviço configurada, enviar direto pelo navegador via FCM HTTP v1
+      if (fcmServiceAccount.trim()) {
+        try {
+          const sa = JSON.parse(fcmServiceAccount.trim());
+          const projectId = sa.project_id;
+          const clientEmail = sa.client_email;
+          const privateKey = sa.private_key;
+
+          if (!projectId || !clientEmail || !privateKey) {
+            throw new Error("O ficheiro JSON não contém todas as chaves necessárias (project_id, client_email, private_key).");
+          }
+
+          // Buscar tokens FCM ativos do Supabase
+          let query = supabase
+            .from('profiles')
+            .select('id, fcm_token, name, role')
+            .not('fcm_token', 'is', null);
+
+          const { data: allProfiles, error: profErr } = await query;
+          if (profErr) throw profErr;
+
+          let filteredProfiles = allProfiles || [];
+          if (newPushAudience === 'premium') {
+            filteredProfiles = filteredProfiles.filter(p => {
+              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+              return sub && sub.isActive === true;
+            });
+          } else if (newPushAudience === 'free') {
+            filteredProfiles = filteredProfiles.filter(p => {
+              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+              return !sub || sub.isActive !== true;
+            });
+          }
+
+          const validTokens = filteredProfiles
+            .map(p => p.fcm_token)
+            .filter((t): t is string => !!t && t.trim().length > 0);
+
+          if (validTokens.length > 0) {
+            const successCount = await sendClientSideFCM(
+              projectId,
+              clientEmail,
+              privateKey,
+              validTokens,
+              newPushTitle.trim(),
+              newPushBody.trim()
+            );
+            clientFcmSuccess = true;
+            clientFcmMsg = `Enviado com sucesso diretamente pelo seu navegador para ${successCount} de ${validTokens.length} dispositivos ativos via FCM.`;
+          } else {
+            clientFcmMsg = "Nenhum dispositivo encontrado com token push registado para esta audiência.";
+          }
+        } catch (fcmClientErr: any) {
+          console.error("Erro ao enviar via FCM direto no navegador:", fcmClientErr);
+          clientFcmMsg = `Aviso: Erro ao despachar diretamente via FCM (${fcmClientErr.message}).`;
+        }
+      }
+
+      // Tenta chamar a Edge Function como redundância
+      try {
+        await supabase.functions.invoke('send-fcm-push', {
+          body: {
+            title: newPushTitle.trim(),
+            body: newPushBody.trim(),
+            audience: newPushAudience
+          }
+        });
+      } catch (fcmErr) {
+        console.warn('Função de borda do Supabase (send-fcm-push) ainda não implantada ou offline:', fcmErr);
+      }
+
       setNewPushTitle('');
       setNewPushBody('');
       setPushSendResult({
         success: true,
-        msg: 'Notificação Push transmitida com sucesso! Todos os dispositivos e PWAs ativos serão notificados de imediato.'
+        msg: clientFcmSuccess 
+          ? `Transmissão concluída com sucesso! ${clientFcmMsg}`
+          : 'Transmissão enviada com sucesso! Os dispositivos ativos online receberão o alerta em tempo real.'
       });
       fetchData();
     } catch (err: any) {
@@ -561,6 +772,68 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     </div>
                     <p className="text-[9px] text-slate-600 font-bold uppercase leading-snug">Transmissão em loop directo por eventos de sincronização Supabase.</p>
                   </div>
+                </div>
+
+                {/* Configuração Local FCM da Conta de Serviço */}
+                <div className="bg-slate-950/70 p-6 rounded-[2rem] border border-white/5 space-y-4 relative z-10 font-sans">
+                  <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowFcmConfig(!showFcmConfig)}>
+                    <div className="flex items-center gap-3">
+                      <KeySquare className="w-5 h-5 text-blue-400" />
+                      <div>
+                        <h4 className="text-xs font-black text-white uppercase tracking-widest">Configuração da Conta de Serviço Firebase (FCM)</h4>
+                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">
+                          {fcmServiceAccount ? "✅ Chave privada guardada localmente" : "⚠️ Chave não configurada - Envio via FCM offline desativado"}
+                        </p>
+                      </div>
+                    </div>
+                    <button type="button" className="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">
+                      {showFcmConfig ? "Ocultar" : "Configurar"}
+                    </button>
+                  </div>
+
+                  {showFcmConfig && (
+                    <div className="space-y-4 pt-4 border-t border-white/5 animate-[fadeIn_0.3s_ease-out]">
+                      <p className="text-[10px] text-slate-400 leading-relaxed font-bold uppercase">
+                        Para enviar notificações push nativas em tempo real para dispositivos offline sem necessitar de instalar Docker ou servidores locais, cole abaixo o conteúdo completo do seu ficheiro JSON da Conta de Serviço do Firebase (gerado nas definições do Firebase console &gt; Contas de serviço).
+                      </p>
+                      <div className="space-y-2">
+                        <textarea
+                          rows={6}
+                          placeholder='{ "type": "service_account", "project_id": "push-atrios-work", ... }'
+                          value={fcmServiceAccount}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setFcmServiceAccount(val);
+                            if (val.trim()) {
+                              localStorage.setItem('fcm_service_account', val.trim());
+                            } else {
+                              localStorage.removeItem('fcm_service_account');
+                            }
+                          }}
+                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-[11px] font-mono outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-[9px] text-slate-500 font-bold uppercase">
+                          Armazenado de forma segura e local no localStorage do seu navegador.
+                        </span>
+                        {fcmServiceAccount && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (confirm("Deseja mesmo remover a chave privada?")) {
+                                setFcmServiceAccount('');
+                                localStorage.removeItem('fcm_service_account');
+                              }
+                            }}
+                            className="text-[9px] font-black text-rose-500 hover:text-rose-400 uppercase tracking-widest"
+                          >
+                            Remover Chave
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10">

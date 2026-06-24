@@ -77,30 +77,35 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
-// Suporte para Receber Notificações Push Locais ou de Servidor
+// Suporte para Receber Notificações Push Locais ou de Servidor (compatível com FCM e padrão)
 self.addEventListener('push', (event) => {
-  let data = { title: 'AtriosWork', body: 'Nova notificação do sistema!' };
+  let rawData = {};
   if (event.data) {
     try {
-      data = event.data.json();
+      rawData = event.data.json();
     } catch (e) {
-      data = { title: 'AtriosWork', body: event.data.text() };
+      rawData = { title: 'AtriosWork', body: event.data.text() };
     }
   }
 
+  // Extrair informações tratando a estrutura FCM (nested em notification) e estrutura plana
+  const title = rawData.notification?.title || rawData.title || 'AtriosWork';
+  const body = rawData.notification?.body || rawData.body || 'Nova notificação do sistema!';
+  const url = rawData.data?.url || rawData.url || '/';
+
   const options = {
-    body: data.body,
+    body: body,
     icon: '/logo_atualizado.jpg?v=20260314_v1',
     badge: '/logo_atualizado.jpg?v=20260314_v1',
     vibrate: [200, 100, 200],
-    data: data.url || '/',
+    data: url,
     actions: [
       { action: 'open', title: 'Ver App' }
     ]
   };
 
   event.waitUntil(
-    self.registration.showNotification(data.title, options)
+    self.registration.showNotification(title, options)
   );
 });
 
