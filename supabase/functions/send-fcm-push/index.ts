@@ -149,28 +149,40 @@ serve(async (req) => {
     }
 
     // 1. Obter lista de usuários com token FCM de acordo com a audiência
-    let query = supabaseAdmin
+    const { data: profiles, error: dbError } = await supabaseAdmin
       .from('profiles')
-      .select('id, fcm_token, name, role')
+      .select('id, fcm_token, name, role, email')
       .not('fcm_token', 'is', null);
-
-    if (audience === 'vendors') {
-      query = query.eq('role', 'vendor');
-    } else if (audience === 'admin') {
-      query = query.eq('role', 'admin');
-    } else if (audience === 'support') {
-      query = query.eq('role', 'support');
-    } else if (audience === 'part_time' || audience === 'user') {
-      query = query.eq('role', 'user');
-    }
-
-    const { data: profiles, error: dbError } = await query;
 
     if (dbError) {
       throw new Error(`Erro ao consultar perfis de destino no Supabase: ${dbError.message}`);
     }
 
-    const validTokens = (profiles || [])
+    const isMasterEmail = (email?: string) => {
+      const e = email?.toLowerCase() || '';
+      return e.includes('master@atrioswork.com') || 
+             e.includes('izarellebraga@gmail.com') || 
+             e.includes('master@digitalnexus.com') ||
+             e === 'admin@atrioswork.com';
+    };
+
+    const isAdminUser = (profile: any) => {
+      return profile.role === 'admin' || isMasterEmail(profile.email);
+    };
+
+    let filteredProfiles = profiles || [];
+
+    if (audience === 'vendors') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'vendor');
+    } else if (audience === 'admin') {
+      filteredProfiles = filteredProfiles.filter(p => isAdminUser(p));
+    } else if (audience === 'support') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'support' || isAdminUser(p));
+    } else if (audience === 'part_time' || audience === 'user') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'user' && !isMasterEmail(p.email));
+    }
+
+    const validTokens = (filteredProfiles || [])
       .map(p => p.fcm_token)
       .filter((t): t is string => !!t && t.trim().length > 0);
 

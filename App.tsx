@@ -458,7 +458,13 @@ const App: React.FC = () => {
                   }
                 }
 
-                const { error } = await supabase.from('work_records').upsert({ user_id: user.id, date: r.date, data: r }, { onConflict: 'user_id,date' });
+                const { error } = await supabase.from('work_records').upsert({ 
+                   user_id: user.id, 
+                   user_email: user.email,
+                   user_name: user.name,
+                   date: r.date, 
+                   data: r 
+                 }, { onConflict: 'user_id,date' });
                 if (error) return false;
                 setRecords(prev => ({ ...prev, [r.date]: r }));
                 return true;
@@ -494,7 +500,13 @@ const App: React.FC = () => {
                       return false;
                     }
 
-                    const { error } = await supabase.from('work_records').upsert({ user_id: user.id, date: r.date, data: r }, { onConflict: 'user_id,date' });
+                    const { error } = await supabase.from('work_records').upsert({ 
+                   user_id: user.id, 
+                   user_email: user.email,
+                   user_name: user.name,
+                   date: r.date, 
+                   data: r 
+                 }, { onConflict: 'user_id,date' });
                     if (error) return false;
                     setRecords(prev => ({ ...prev, [r.date]: r }));
                     return true;
