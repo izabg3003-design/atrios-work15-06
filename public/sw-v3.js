@@ -71,6 +71,7 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         }).catch((err) => {
           console.log(`Falha ao obter recurso fora de rede: ${event.request.url}`, err);
+          return new Response('Offline', { status: 503, statusText: 'Offline' });
         });
       })
     );

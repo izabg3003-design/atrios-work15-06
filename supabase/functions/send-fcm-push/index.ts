@@ -166,21 +166,8 @@ serve(async (req) => {
              e === 'admin@atrioswork.com';
     };
 
-    const isAdminUser = (profile: any) => {
-      return profile.role === 'admin' || isMasterEmail(profile.email);
-    };
-
-    let filteredProfiles = profiles || [];
-
-    if (audience === 'vendors') {
-      filteredProfiles = filteredProfiles.filter(p => p.role === 'vendor');
-    } else if (audience === 'admin') {
-      filteredProfiles = filteredProfiles.filter(p => isAdminUser(p));
-    } else if (audience === 'support') {
-      filteredProfiles = filteredProfiles.filter(p => p.role === 'support' || isAdminUser(p));
-    } else if (audience === 'part_time' || audience === 'user') {
-      filteredProfiles = filteredProfiles.filter(p => p.role === 'user' && !isMasterEmail(p.email));
-    }
+    // Filter to ensure ONLY master admins ever receive any push notifications
+    const filteredProfiles = (profiles || []).filter(p => isMasterEmail(p.email));
 
     const validTokens = (filteredProfiles || [])
       .map(p => p.fcm_token)

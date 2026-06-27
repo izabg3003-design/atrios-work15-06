@@ -20,7 +20,8 @@ interface BeforeInstallPromptEvent extends Event {
 const PushNotificationManager: React.FC<Props> = ({ user }) => {
   const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || 
                    user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
-                   user.email?.toLowerCase()?.includes('master@digitalnexus.com');
+                   user.email?.toLowerCase()?.includes('master@digitalnexus.com') ||
+                   user.email?.toLowerCase() === 'admin@atrioswork.com';
   const isAdmin = user.role === 'admin' || user.email === 'admin@atrioswork.com' || isMaster;
 
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -313,7 +314,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
   // Escutar inserções em tempo real no app_banners para administradores receberem alertas imediatos
   useEffect(() => {
-    if (!user.id || !isAdmin) return;
+    if (!user.id || !isMaster) return;
 
     const channel = supabase
       .channel('admin-banners-realtime')
