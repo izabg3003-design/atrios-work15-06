@@ -27,6 +27,20 @@
           }, 500);
         }
       }, true);
+
+      // Tratar rejeições de promessa não capturadas para 'Failed to fetch' ou erros de rede
+      window.addEventListener('unhandledrejection', function(event) {
+        const reason = event.reason;
+        const msg = reason && (reason.message || reason.toString() || '');
+        if (msg && (
+          msg.indexOf('Failed to fetch') > -1 || 
+          msg.indexOf('NetworkError') > -1 || 
+          msg.indexOf('fetch') > -1
+        )) {
+          console.warn('[Network Silence] Rejeição de rede interceptada e silenciada:', msg);
+          event.preventDefault(); // Evita erros fatais no console/ferramentas de automação
+        }
+      });
     </script>
     <!-- Google tag (gtag.js) -->
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-YD6Q53C4K2"></script>
