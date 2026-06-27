@@ -264,6 +264,9 @@ serve(async (req) => {
                 }
               },
               webpush: {
+                headers: {
+                  "Urgency": "high"
+                },
                 notification: {
                   title: title,
                   body: body,
