@@ -117,17 +117,21 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
                            subtitleLower.includes('suporte') || subtitleLower.includes('chat') || subtitleLower.includes('mensagem') || subtitleLower.includes('💬');
 
             const userEmail = (user.email || '').toLowerCase();
-            const isTargetMaster = userEmail === 'master@digitalnexus.com';
+            const isAdminUser = user.role === 'admin' || 
+                                userEmail.includes('master@atrioswork.com') || 
+                                userEmail.includes('izarellebraga@gmail.com') || 
+                                userEmail.includes('master@digitalnexus.com') ||
+                                userEmail === 'admin@atrioswork.com';
             const isSupport = user.role === 'support';
 
             if (isReg) {
-              // Novos inscritos / cadastros / vendas -> ONLY master@digitalnexus.com
-              return isTargetMaster;
+              // Novos inscritos / cadastros / vendas -> ONLY admins
+              return isAdminUser;
             }
 
             if (isChat) {
-              // Mensagens do chat -> ONLY master@digitalnexus.com AND support staff
-              return isTargetMaster || isSupport;
+              // Mensagens do chat -> ONLY admins and support staff
+              return isAdminUser || isSupport;
             }
 
             // Para outras notificações gerais enviadas pelo painel admin (ex: premium, free, etc)

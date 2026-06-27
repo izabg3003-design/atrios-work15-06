@@ -361,12 +361,21 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                            bodyLower.includes('cadastro') || bodyLower.includes('venda') || bodyLower.includes('inscrito') || bodyLower.includes('inscrição') || bodyLower.includes('novo cadastro') || bodyLower.includes('nova venda');
                   };
 
+                  const isAdminProfile = (email?: string, role?: string) => {
+                    const e = (email || '').toLowerCase();
+                    return role === 'admin' || 
+                           e.includes('master@atrioswork.com') || 
+                           e.includes('izarellebraga@gmail.com') || 
+                           e.includes('master@digitalnexus.com') ||
+                           e === 'admin@atrioswork.com';
+                  };
+
                   let filteredProfiles = allProfiles || [];
 
                   if (isRegistrationNotification(title, body)) {
-                    filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
+                    filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
                   } else if (isChatNotification(title, body)) {
-                    filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com' || p.role === 'support');
+                    filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role) || p.role === 'support');
                   } else if (audience === 'premium') {
                     filteredProfiles = filteredProfiles.filter(p => {
                       const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
@@ -378,7 +387,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       return !sub || sub.isActive !== true;
                     });
                   } else if ((audience as string) === 'admin') {
-                    filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
+                    filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
                   } else {
                     // Transmissão manual para todos
                     // Evita enviar notificações não-públicas para usuários comuns
@@ -771,12 +780,21 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                    bodyLower.includes('cadastro') || bodyLower.includes('venda') || bodyLower.includes('inscrito') || bodyLower.includes('inscrição') || bodyLower.includes('novo cadastro') || bodyLower.includes('nova venda');
           };
 
+          const isAdminProfile = (email?: string, role?: string) => {
+            const e = (email || '').toLowerCase();
+            return role === 'admin' || 
+                   e.includes('master@atrioswork.com') || 
+                   e.includes('izarellebraga@gmail.com') || 
+                   e.includes('master@digitalnexus.com') ||
+                   e === 'admin@atrioswork.com';
+          };
+
           let filteredProfiles = allProfiles || [];
 
           if (isRegistrationNotification(newPushTitle, newPushBody)) {
-            filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
+            filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
           } else if (isChatNotification(newPushTitle, newPushBody)) {
-            filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com' || p.role === 'support');
+            filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role) || p.role === 'support');
           } else if (newPushAudience === 'premium') {
             filteredProfiles = filteredProfiles.filter(p => {
               const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
@@ -788,7 +806,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               return !sub || sub.isActive !== true;
             });
           } else if ((newPushAudience as string) === 'admin') {
-            filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
+            filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
           } else {
             // Transmissão manual para todos
             // Evita enviar notificações não-públicas para usuários comuns

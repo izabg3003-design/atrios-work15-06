@@ -172,18 +172,27 @@ serve(async (req) => {
              b.includes('suporte') || b.includes('chat') || b.includes('mensagem') || b.includes('💬');
     };
 
+    const isAdminProfile = (email?: string, role?: string) => {
+      const e = (email || '').toLowerCase();
+      return role === 'admin' || 
+             e.includes('master@atrioswork.com') || 
+             e.includes('izarellebraga@gmail.com') || 
+             e.includes('master@digitalnexus.com') ||
+             e === 'admin@atrioswork.com';
+    };
+
     // Filter to ensure appropriate targeting
     let filteredProfiles = profiles || [];
 
     if (isRegistrationNotification(title, body)) {
-      // "notificações de novos inscritos" - strictly ONLY go to master@digitalnexus.com
-      filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
+      // "notificações de novos inscritos" - strictly ONLY go to admins
+      filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
     } else if (isChatNotification(title, body)) {
-      // "mensagens do chat" - strictly ONLY go to master@digitalnexus.com AND support staff
-      filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com' || p.role === 'support');
+      // "mensagens do chat" - strictly ONLY go to admins AND support staff
+      filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role) || p.role === 'support');
     } else if (audience === 'admin') {
       // Outras notificações de admin padrão
-      filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
+      filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
     } else if (audience === 'premium') {
       filteredProfiles = filteredProfiles.filter(p => {
         const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
