@@ -173,6 +173,19 @@ const PublicSupportChat: React.FC = () => {
         sender_role: 'user'
       });
       
+      // Trigger push notification to admins about the new guest support message
+      try {
+        await supabase.functions.invoke('send-fcm-push', {
+          body: {
+            title: '💬 Novo Chat com Visitante!',
+            body: `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
+            audience: 'admin'
+          }
+        });
+      } catch (fcmErr) {
+        console.warn('Erro ao disparar push de mensagem de visitante:', fcmErr);
+      }
+      
       return true;
     } catch (err: any) {
       console.error("AtriosWork Sync Error:", err.message);

@@ -269,6 +269,19 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
 
         if (profileError) throw profileError;
         
+        // Trigger push notification to admins about the new license sale
+        try {
+          await supabase.functions.invoke('send-fcm-push', {
+            body: {
+              title: '💰 Nova Venda Realizada!',
+              body: `O utilizador ${formData.name} (${formData.email}) comprou uma Licença AtriosWork por €${finalAmount}! Código: ${isDiscountApplied ? vendorCode.trim().toUpperCase() : 'Nenhum'}`,
+              audience: 'admin'
+            }
+          });
+        } catch (fcmErr) {
+          console.warn('Erro ao disparar push de nova venda:', fcmErr);
+        }
+        
         setPaymentStep('success');
         setTimeout(() => onSuccess(), 1500);
       }

@@ -5,8 +5,9 @@ import {
   Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Tag, UserPlus2, 
   Percent, CalendarDays, Activity, Settings, Megaphone, Plus, Power, Zap,
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
-  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe
+  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile
 } from 'lucide-react';
+import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
@@ -270,6 +271,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
   const [pushHistoryTab, setPushHistoryTab] = useState<'sent' | 'scheduled'>('sent');
+  
+  // Emoji picker visibility states
+  const [showTitleEmojiPicker, setShowTitleEmojiPicker] = useState(false);
+  const [showBodyEmojiPicker, setShowBodyEmojiPicker] = useState(false);
   
   const [fcmServiceAccount, setFcmServiceAccount] = useState<string>(() => {
     return localStorage.getItem('fcm_service_account') || '';
@@ -1213,28 +1218,82 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       </div>
                     )}
 
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
-                      <input 
-                        type="text" 
-                        placeholder="Ex: ⚠️ Atualização de Assinatura" 
-                        value={newPushTitle}
-                        onChange={(e) => setNewPushTitle(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                        required
-                      />
+                    <div className="space-y-2 relative">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowTitleEmojiPicker(!showTitleEmojiPicker);
+                            setShowBodyEmojiPicker(false);
+                          }}
+                          className="text-slate-500 hover:text-amber-500 transition-colors p-1"
+                          title="Inserir Emoji"
+                        >
+                          <Smile className="w-4.5 h-4.5" />
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <input 
+                          type="text" 
+                          placeholder="Ex: ⚠️ Atualização de Assinatura" 
+                          value={newPushTitle}
+                          onChange={(e) => setNewPushTitle(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                        />
+                        {showTitleEmojiPicker && (
+                          <div className="absolute z-50 right-0 top-14 shadow-2xl border border-white/10 rounded-2xl overflow-hidden scale-90 origin-top-right">
+                            <EmojiPicker 
+                              theme={Theme.DARK}
+                              emojiStyle={EmojiStyle.NATIVE}
+                              onEmojiClick={(emojiData) => {
+                                setNewPushTitle(prev => prev + emojiData.emoji);
+                                setShowTitleEmojiPicker(false);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
-                      <textarea 
-                        rows={3}
-                        placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já no menu de faturamento." 
-                        value={newPushBody}
-                        onChange={(e) => setNewPushBody(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                        required
-                      />
+                    <div className="space-y-2 relative">
+                      <div className="flex justify-between items-center">
+                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setShowBodyEmojiPicker(!showBodyEmojiPicker);
+                            setShowTitleEmojiPicker(false);
+                          }}
+                          className="text-slate-500 hover:text-amber-500 transition-colors p-1"
+                          title="Inserir Emoji"
+                        >
+                          <Smile className="w-4.5 h-4.5" />
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <textarea 
+                          rows={3}
+                          placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já no menu de faturamento." 
+                          value={newPushBody}
+                          onChange={(e) => setNewPushBody(e.target.value)}
+                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                          required
+                        />
+                        {showBodyEmojiPicker && (
+                          <div className="absolute z-50 right-0 top-14 shadow-2xl border border-white/10 rounded-2xl overflow-hidden scale-90 origin-top-right">
+                            <EmojiPicker 
+                              theme={Theme.DARK}
+                              emojiStyle={EmojiStyle.NATIVE}
+                              onEmojiClick={(emojiData) => {
+                                setNewPushBody(prev => prev + emojiData.emoji);
+                                setShowBodyEmojiPicker(false);
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
                     </div>
 
                     <div className="space-y-2">

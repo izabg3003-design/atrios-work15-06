@@ -215,6 +215,19 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
           status: 'open',
           updated_at: new Date().toISOString() 
         }).eq('user_id', user.id);
+
+        // Trigger push notification to admins about the new support message
+        try {
+          await supabase.functions.invoke('send-fcm-push', {
+            body: {
+              title: '💬 Nova Mensagem de Suporte',
+              body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+              audience: 'admin'
+            }
+          });
+        } catch (fcmErr) {
+          console.warn('Erro ao disparar push de mensagem de suporte:', fcmErr);
+        }
       } catch (err) {
         console.error("Error sending message:", err);
       } finally {

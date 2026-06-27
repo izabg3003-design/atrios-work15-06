@@ -114,6 +114,19 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
 
         if (profileError) throw profileError;
         
+        // Trigger push notification to admins about the new user registration
+        try {
+          await supabase.functions.invoke('send-fcm-push', {
+            body: {
+              title: '🆕 Novo Cadastro no App!',
+              body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
+              audience: 'admin'
+            }
+          });
+        } catch (fcmErr) {
+          console.warn('Erro ao disparar push de novo cadastro:', fcmErr);
+        }
+        
         onLogin(regData.email);
       }
     } catch (error: any) {
