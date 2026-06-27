@@ -5,9 +5,8 @@ import {
   Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Tag, UserPlus2, 
   Percent, CalendarDays, Activity, Settings, Megaphone, Plus, Power, Zap,
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
-  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile
+  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe
 } from 'lucide-react';
-import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
@@ -272,10 +271,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [scheduledTime, setScheduledTime] = useState('');
   const [pushHistoryTab, setPushHistoryTab] = useState<'sent' | 'scheduled'>('sent');
   
-  // Emoji picker visibility states
-  const [showTitleEmojiPicker, setShowTitleEmojiPicker] = useState(false);
-  const [showBodyEmojiPicker, setShowBodyEmojiPicker] = useState(false);
-  
   const [fcmServiceAccount, setFcmServiceAccount] = useState<string>(() => {
     return localStorage.getItem('fcm_service_account') || '';
   });
@@ -343,40 +338,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               if (projectId && clientEmail && privateKey) {
                 const { data: allProfiles, error: profErr } = await supabase
                   .from('profiles')
-                  .select('id, fcm_token, name, role, email')
+                  .select('id, fcm_token, name, role, subscription')
                   .not('fcm_token', 'is', null);
 
                 if (!profErr && allProfiles) {
-                  const isChatNotification = (t: string, b: string) => {
-                    const titleLower = (t || '').toLowerCase();
-                    const bodyLower = (b || '').toLowerCase();
-                    return titleLower.includes('suporte') || titleLower.includes('chat') || titleLower.includes('mensagem') || titleLower.includes('💬') ||
-                           bodyLower.includes('suporte') || bodyLower.includes('chat') || bodyLower.includes('mensagem') || bodyLower.includes('💬');
-                  };
-
-                  const isRegistrationNotification = (t: string, b: string) => {
-                    const titleLower = (t || '').toLowerCase();
-                    const bodyLower = (b || '').toLowerCase();
-                    return titleLower.includes('cadastro') || titleLower.includes('venda') || titleLower.includes('inscrito') || titleLower.includes('inscrição') || titleLower.includes('novo cadastro') || titleLower.includes('nova venda') ||
-                           bodyLower.includes('cadastro') || bodyLower.includes('venda') || bodyLower.includes('inscrito') || bodyLower.includes('inscrição') || bodyLower.includes('novo cadastro') || bodyLower.includes('nova venda');
-                  };
-
-                  const isAdminProfile = (email?: string, role?: string) => {
-                    const e = (email || '').toLowerCase();
-                    return role === 'admin' || 
-                           e.includes('master@atrioswork.com') || 
-                           e.includes('izarellebraga@gmail.com') || 
-                           e.includes('master@digitalnexus.com') ||
-                           e === 'admin@atrioswork.com';
-                  };
-
                   let filteredProfiles = allProfiles || [];
-
-                  if (isRegistrationNotification(title, body)) {
-                    filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
-                  } else if (isChatNotification(title, body)) {
-                    filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role) || p.role === 'support');
-                  } else if (audience === 'premium') {
+                  if (audience === 'premium') {
                     filteredProfiles = filteredProfiles.filter(p => {
                       const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
                       return sub && sub.isActive === true;
@@ -386,12 +353,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
                       return !sub || sub.isActive !== true;
                     });
-                  } else if ((audience as string) === 'admin') {
-                    filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
-                  } else {
-                    // Transmissão manual para todos
-                    // Evita enviar notificações não-públicas para usuários comuns
-                    filteredProfiles = filteredProfiles.filter(p => p.role !== 'user');
                   }
 
                   const validTokens = filteredProfiles
@@ -760,42 +721,14 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           // Buscar tokens FCM ativos do Supabase
           let query = supabase
             .from('profiles')
-            .select('id, fcm_token, name, role, email')
+            .select('id, fcm_token, name, role, subscription')
             .not('fcm_token', 'is', null);
 
           const { data: allProfiles, error: profErr } = await query;
           if (profErr) throw profErr;
 
-          const isChatNotification = (t: string, b: string) => {
-            const titleLower = (t || '').toLowerCase();
-            const bodyLower = (b || '').toLowerCase();
-            return titleLower.includes('suporte') || titleLower.includes('chat') || titleLower.includes('mensagem') || titleLower.includes('💬') ||
-                   bodyLower.includes('suporte') || bodyLower.includes('chat') || bodyLower.includes('mensagem') || bodyLower.includes('💬');
-          };
-
-          const isRegistrationNotification = (t: string, b: string) => {
-            const titleLower = (t || '').toLowerCase();
-            const bodyLower = (b || '').toLowerCase();
-            return titleLower.includes('cadastro') || titleLower.includes('venda') || titleLower.includes('inscrito') || titleLower.includes('inscrição') || titleLower.includes('novo cadastro') || titleLower.includes('nova venda') ||
-                   bodyLower.includes('cadastro') || bodyLower.includes('venda') || bodyLower.includes('inscrito') || bodyLower.includes('inscrição') || bodyLower.includes('novo cadastro') || bodyLower.includes('nova venda');
-          };
-
-          const isAdminProfile = (email?: string, role?: string) => {
-            const e = (email || '').toLowerCase();
-            return role === 'admin' || 
-                   e.includes('master@atrioswork.com') || 
-                   e.includes('izarellebraga@gmail.com') || 
-                   e.includes('master@digitalnexus.com') ||
-                   e === 'admin@atrioswork.com';
-          };
-
           let filteredProfiles = allProfiles || [];
-
-          if (isRegistrationNotification(newPushTitle, newPushBody)) {
-            filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
-          } else if (isChatNotification(newPushTitle, newPushBody)) {
-            filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role) || p.role === 'support');
-          } else if (newPushAudience === 'premium') {
+          if (newPushAudience === 'premium') {
             filteredProfiles = filteredProfiles.filter(p => {
               const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
               return sub && sub.isActive === true;
@@ -805,12 +738,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
               return !sub || sub.isActive !== true;
             });
-          } else if ((newPushAudience as string) === 'admin') {
-            filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
-          } else {
-            // Transmissão manual para todos
-            // Evita enviar notificações não-públicas para usuários comuns
-            filteredProfiles = filteredProfiles.filter(p => p.role !== 'user');
           }
 
           const validTokens = filteredProfiles
@@ -1286,82 +1213,28 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       </div>
                     )}
 
-                    <div className="space-y-2 relative">
-                      <div className="flex justify-between items-center">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowTitleEmojiPicker(!showTitleEmojiPicker);
-                            setShowBodyEmojiPicker(false);
-                          }}
-                          className="text-slate-500 hover:text-amber-500 transition-colors p-1"
-                          title="Inserir Emoji"
-                        >
-                          <Smile className="w-4.5 h-4.5" />
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <input 
-                          type="text" 
-                          placeholder="Ex: ⚠️ Atualização de Assinatura" 
-                          value={newPushTitle}
-                          onChange={(e) => setNewPushTitle(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
-                        {showTitleEmojiPicker && (
-                          <div className="absolute z-50 right-0 top-14 shadow-2xl border border-white/10 rounded-2xl overflow-hidden scale-90 origin-top-right">
-                            <EmojiPicker 
-                              theme={Theme.DARK}
-                              emojiStyle={EmojiStyle.NATIVE}
-                              onEmojiClick={(emojiData) => {
-                                setNewPushTitle(prev => prev + emojiData.emoji);
-                                setShowTitleEmojiPicker(false);
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
+                      <input 
+                        type="text" 
+                        placeholder="Ex: ⚠️ Atualização de Assinatura" 
+                        value={newPushTitle}
+                        onChange={(e) => setNewPushTitle(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
                     </div>
 
-                    <div className="space-y-2 relative">
-                      <div className="flex justify-between items-center">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowBodyEmojiPicker(!showBodyEmojiPicker);
-                            setShowTitleEmojiPicker(false);
-                          }}
-                          className="text-slate-500 hover:text-amber-500 transition-colors p-1"
-                          title="Inserir Emoji"
-                        >
-                          <Smile className="w-4.5 h-4.5" />
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <textarea 
-                          rows={3}
-                          placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já no menu de faturamento." 
-                          value={newPushBody}
-                          onChange={(e) => setNewPushBody(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                          required
-                        />
-                        {showBodyEmojiPicker && (
-                          <div className="absolute z-50 right-0 top-14 shadow-2xl border border-white/10 rounded-2xl overflow-hidden scale-90 origin-top-right">
-                            <EmojiPicker 
-                              theme={Theme.DARK}
-                              emojiStyle={EmojiStyle.NATIVE}
-                              onEmojiClick={(emojiData) => {
-                                setNewPushBody(prev => prev + emojiData.emoji);
-                                setShowBodyEmojiPicker(false);
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
+                    <div className="space-y-2">
+                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
+                      <textarea 
+                        rows={3}
+                        placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já no menu de faturamento." 
+                        value={newPushBody}
+                        onChange={(e) => setNewPushBody(e.target.value)}
+                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                        required
+                      />
                     </div>
 
                     <div className="space-y-2">

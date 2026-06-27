@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v7.0';
+const CACHE_NAME = 'atrioswork-v6.0';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -71,7 +71,6 @@ self.addEventListener('fetch', (event) => {
           return networkResponse;
         }).catch((err) => {
           console.log(`Falha ao obter recurso fora de rede: ${event.request.url}`, err);
-          return new Response('Offline', { status: 503, statusText: 'Offline' });
         });
       })
     );
@@ -80,18 +79,24 @@ self.addEventListener('fetch', (event) => {
 
 // Suporte para Receber Notificações Push Locais ou de Servidor (compatível com FCM e padrão)
 self.addEventListener('push', (event) => {
-  let rawData = {};
+  let rawData = null;
   if (event.data) {
     try {
       rawData = event.data.json();
     } catch (e) {
-      rawData = { title: 'AtriosWork', body: event.data.text() };
+      console.warn('Falha ao processar dados do push como JSON:', e);
     }
   }
 
-  // Extrair informações tratando a estrutura FCM (nested em notification) e estrutura plana
-  const title = rawData.notification?.title || rawData.title || 'AtriosWork';
-  const body = rawData.notification?.body || rawData.body || 'Nova notificação do sistema!';
+  // Se não houver dados válidos em JSON, tenta obter como texto simples
+  if (!rawData || typeof rawData !== 'object') {
+    const textData = event.data ? event.data.text() : '';
+    rawData = { title: 'AtriosWork', body: textData || 'Nova notificação do sistema!' };
+  }
+
+  // Extrair informações tratando a estrutura FCM (nested em notification), estrutura de dados e estrutura plana
+  const title = rawData.notification?.title || rawData.data?.title || rawData.title || 'AtriosWork';
+  const body = rawData.notification?.body || rawData.data?.body || rawData.body || 'Nova notificação do sistema!';
   const url = rawData.data?.url || rawData.url || '/';
 
   const options = {

@@ -43,25 +43,3 @@ export const supabase = isConfigured
         });
       }
     }) as any);
-
-// Patchear supabase.functions.invoke para evitar que erros de rede ou de funções não implantadas causem crash de "Failed to fetch"
-if (isConfigured && supabase && supabase.functions) {
-  const originalInvoke = supabase.functions.invoke.bind(supabase.functions);
-  supabase.functions.invoke = async function (functionName: string, options?: any) {
-    try {
-      const result = await originalInvoke(functionName, options);
-      return result;
-    } catch (err: any) {
-      console.warn(`[Supabase Functions] Invoke falhou de forma silenciosa e controlada para '${functionName}':`, err.message || err);
-      return { 
-        data: null, 
-        error: {
-          message: err.message || "Falha na comunicação com a função do Supabase",
-          context: {
-            json: async () => ({ error: err.message || "Failed to fetch" })
-          }
-        } as any
-      };
-    }
-  };
-}

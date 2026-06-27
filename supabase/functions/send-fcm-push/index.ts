@@ -149,50 +149,31 @@ serve(async (req) => {
     }
 
     // 1. Obter lista de usuários com token FCM de acordo com a audiência
-    const { data: profiles, error: dbError } = await supabaseAdmin
+    const query = supabaseAdmin
       .from('profiles')
-      .select('id, fcm_token, name, role, email')
+      .select('id, fcm_token, name, role, email, subscription')
       .not('fcm_token', 'is', null);
+
+    const { data: profiles, error: dbError } = await query;
 
     if (dbError) {
       throw new Error(`Erro ao consultar perfis de destino no Supabase: ${dbError.message}`);
     }
 
-    const isRegistrationNotification = (title: string, body: string) => {
-      const t = (title || '').toLowerCase();
-      const b = (body || '').toLowerCase();
-      return t.includes('cadastro') || t.includes('venda') || t.includes('inscrito') || t.includes('inscrição') || t.includes('novo cadastro') || t.includes('nova venda') ||
-             b.includes('cadastro') || b.includes('venda') || b.includes('inscrito') || b.includes('inscrição') || b.includes('novo cadastro') || b.includes('nova venda');
-    };
-
-    const isChatNotification = (title: string, body: string) => {
-      const t = (title || '').toLowerCase();
-      const b = (body || '').toLowerCase();
-      return t.includes('suporte') || t.includes('chat') || t.includes('mensagem') || t.includes('💬') ||
-             b.includes('suporte') || b.includes('chat') || b.includes('mensagem') || b.includes('💬');
-    };
-
-    const isAdminProfile = (email?: string, role?: string) => {
-      const e = (email || '').toLowerCase();
-      return role === 'admin' || 
-             e.includes('master@atrioswork.com') || 
-             e.includes('izarellebraga@gmail.com') || 
-             e.includes('master@digitalnexus.com') ||
-             e === 'admin@atrioswork.com';
-    };
-
-    // Filter to ensure appropriate targeting
     let filteredProfiles = profiles || [];
-
-    if (isRegistrationNotification(title, body)) {
-      // "notificações de novos inscritos" - strictly ONLY go to admins
-      filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
-    } else if (isChatNotification(title, body)) {
-      // "mensagens do chat" - strictly ONLY go to admins AND support staff
-      filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role) || p.role === 'support');
+    if (audience === 'vendors') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'vendor');
     } else if (audience === 'admin') {
-      // Outras notificações de admin padrão
-      filteredProfiles = filteredProfiles.filter(p => isAdminProfile(p.email, p.role));
+      filteredProfiles = filteredProfiles.filter(p => 
+        p.role === 'admin' || 
+        p.email?.toLowerCase()?.includes('master@atrioswork.com') || 
+        p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
+        p.email?.toLowerCase()?.includes('master@digitalnexus.com')
+      );
+    } else if (audience === 'support') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'support');
+    } else if (audience === 'part_time' || audience === 'user') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'user');
     } else if (audience === 'premium') {
       filteredProfiles = filteredProfiles.filter(p => {
         const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
@@ -203,13 +184,9 @@ serve(async (req) => {
         const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
         return !sub || sub.isActive !== true;
       });
-    } else {
-      // Transmissão manual geral (para todos)
-      // Evita enviar notificações automáticas para usuários comuns
-      filteredProfiles = filteredProfiles.filter(p => p.role !== 'user');
     }
 
-    const validTokens = (filteredProfiles || [])
+    const validTokens = filteredProfiles
       .map(p => p.fcm_token)
       .filter((t): t is string => !!t && t.trim().length > 0);
 
@@ -248,10 +225,7 @@ serve(async (req) => {
                 body: body,
               },
               android: {
-                priority: "high",
-                notification: {
-                  sound: "default"
-                }
+                priority: "high"
               },
               apns: {
                 headers: {
@@ -266,19 +240,11 @@ serve(async (req) => {
               webpush: {
                 headers: {
                   "Urgency": "high"
-                },
-                notification: {
-                  title: title,
-                  body: body,
-                  icon: "/logo_atualizado.jpg?v=20260314_v1",
-                  badge: "/logo_atualizado.jpg?v=20260314_v1",
-                  requireInteraction: true
-                },
-                fcm_options: {
-                  link: "/"
                 }
               },
               data: {
+                title: title,
+                body: body,
                 url: "/",
                 click_action: "/"
               }
