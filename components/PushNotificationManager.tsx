@@ -18,6 +18,11 @@ interface BeforeInstallPromptEvent extends Event {
 }
 
 const PushNotificationManager: React.FC<Props> = ({ user }) => {
+  const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || 
+                   user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
+                   user.email?.toLowerCase()?.includes('master@digitalnexus.com');
+  const isAdmin = user.role === 'admin' || user.email === 'admin@atrioswork.com' || isMaster;
+
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isReadyToInstall, setIsReadyToInstall] = useState(false);
   const [isInstalled, setIsInstalled] = useState(false);
@@ -305,6 +310,44 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
     return () => unsubscribe();
   }, [user.id]);
+
+  // Escutar inserções em tempo real no app_banners para administradores receberem alertas imediatos
+  useEffect(() => {
+    if (!user.id || !isAdmin) return;
+
+    const channel = supabase
+      .channel('admin-banners-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'app_banners'
+        },
+        (payload: any) => {
+          const newBanner = payload.new;
+          if (newBanner && (newBanner.title?.includes('[PUSH]') || newBanner.user_type === 'push_notification')) {
+            const cleanTitle = newBanner.title.replace('[PUSH]', '').trim();
+            const cleanBody = newBanner.highlight || '';
+            
+            // Exibir no pop-up flutuante do app
+            setNewPushAlert({
+              id: String(newBanner.id || Date.now()),
+              title: cleanTitle,
+              subtitle: cleanBody
+            });
+
+            // Disparar notificação do browser nativa se a permissão estiver concedida
+            triggerNativePush(cleanTitle, cleanBody);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user.id, isAdmin]);
 
   // Pedir Permissão de Notificações
   const requestPermission = async () => {

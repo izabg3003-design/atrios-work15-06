@@ -216,6 +216,22 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
           updated_at: new Date().toISOString() 
         }).eq('user_id', user.id);
 
+        // Log notification in history (app_banners) and trigger push
+        try {
+          await supabase.from('app_banners').insert([{
+            title: `[PUSH] 💬 Suporte: ${user.name || 'Utilizador'}`,
+            highlight: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+            subtitle: 'Notificação de Suporte',
+            cta_text: 'Atender',
+            cta_link: '/',
+            theme_color: 'blue',
+            is_active: true,
+            user_type: 'push_notification'
+          }]);
+        } catch (dbErr) {
+          console.error('Erro ao registrar push no histórico:', dbErr);
+        }
+
         // Trigger push notification to admins about the new support message
         try {
           await supabase.functions.invoke('send-fcm-push', {
