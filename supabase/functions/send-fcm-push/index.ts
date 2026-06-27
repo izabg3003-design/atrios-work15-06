@@ -158,12 +158,11 @@ serve(async (req) => {
       throw new Error(`Erro ao consultar perfis de destino no Supabase: ${dbError.message}`);
     }
 
-    const isMasterEmail = (email?: string) => {
-      const e = email?.toLowerCase() || '';
-      return e.includes('master@atrioswork.com') || 
-             e.includes('izarellebraga@gmail.com') || 
-             e.includes('master@digitalnexus.com') ||
-             e === 'admin@atrioswork.com';
+    const isRegistrationNotification = (title: string, body: string) => {
+      const t = (title || '').toLowerCase();
+      const b = (body || '').toLowerCase();
+      return t.includes('cadastro') || t.includes('venda') || t.includes('inscrito') || t.includes('inscrição') || t.includes('novo cadastro') || t.includes('nova venda') ||
+             b.includes('cadastro') || b.includes('venda') || b.includes('inscrito') || b.includes('inscrição') || b.includes('novo cadastro') || b.includes('nova venda');
     };
 
     const isChatNotification = (title: string, body: string) => {
@@ -173,25 +172,32 @@ serve(async (req) => {
              b.includes('suporte') || b.includes('chat') || b.includes('mensagem') || b.includes('💬');
     };
 
-    const isRegistrationNotification = (title: string, body: string) => {
-      const t = (title || '').toLowerCase();
-      const b = (body || '').toLowerCase();
-      return t.includes('cadastro') || t.includes('venda') || t.includes('inscrito') || t.includes('inscrição') || t.includes('novo cadastro') || t.includes('nova venda') ||
-             b.includes('cadastro') || b.includes('venda') || b.includes('inscrito') || b.includes('inscrição') || b.includes('novo cadastro') || b.includes('nova venda');
-    };
-
     // Filter to ensure appropriate targeting
     let filteredProfiles = profiles || [];
 
     if (isRegistrationNotification(title, body)) {
-      // "notificações de novos inscritos" - only go to master admins (especially master@digitalnexus.com and izarellebraga@gmail.com)
-      filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+      // "notificações de novos inscritos" - strictly ONLY go to master@digitalnexus.com
+      filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
     } else if (isChatNotification(title, body)) {
-      // "mensagens do chat" - go to master admins AND support staff
-      filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email) || p.role === 'support');
+      // "mensagens do chat" - strictly ONLY go to master@digitalnexus.com AND support staff
+      filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com' || p.role === 'support');
+    } else if (audience === 'admin') {
+      // Outras notificações de admin padrão
+      filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
+    } else if (audience === 'premium') {
+      filteredProfiles = filteredProfiles.filter(p => {
+        const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+        return sub && sub.isActive === true;
+      });
+    } else if (audience === 'free') {
+      filteredProfiles = filteredProfiles.filter(p => {
+        const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+        return !sub || sub.isActive !== true;
+      });
     } else {
-      // General notifications - only go to master admins (never regular users)
-      filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+      // Transmissão manual geral (para todos)
+      // Evita enviar notificações automáticas para usuários comuns
+      filteredProfiles = filteredProfiles.filter(p => p.role !== 'user');
     }
 
     const validTokens = (filteredProfiles || [])

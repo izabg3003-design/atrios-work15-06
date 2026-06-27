@@ -94,11 +94,55 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
         if (!error && data && data.length > 0) {
           // Filtrar por banners marcados como push ou com tag "[PUSH]" no título
-          const pushes = data.filter(b => 
+          let pushes = data.filter(b => 
             b.user_type === 'push_notification' || 
+            b.user_type === 'premium' ||
+            b.user_type === 'free' ||
             b.title.toUpperCase().includes('[PUSH]') || 
             b.highlight?.toUpperCase()?.includes('[PUSH]')
           );
+
+          // Aplicar filtros rigorosos para garantir privacidade e conformidade com o pedido do usuário
+          pushes = pushes.filter(b => {
+            const titleLower = (b.title || '').toLowerCase();
+            const highlightLower = (b.highlight || '').toLowerCase();
+            const subtitleLower = (b.subtitle || '').toLowerCase();
+
+            const isReg = titleLower.includes('cadastro') || titleLower.includes('venda') || titleLower.includes('inscrito') || titleLower.includes('inscrição') || titleLower.includes('novo cadastro') || titleLower.includes('nova venda') ||
+                          highlightLower.includes('cadastro') || highlightLower.includes('venda') || highlightLower.includes('inscrito') || highlightLower.includes('inscrição') || highlightLower.includes('novo cadastro') || highlightLower.includes('nova venda') ||
+                          subtitleLower.includes('cadastro') || subtitleLower.includes('venda') || subtitleLower.includes('inscrito') || subtitleLower.includes('inscrição') || subtitleLower.includes('novo cadastro') || subtitleLower.includes('nova venda');
+
+            const isChat = titleLower.includes('suporte') || titleLower.includes('chat') || titleLower.includes('mensagem') || titleLower.includes('💬') ||
+                           highlightLower.includes('suporte') || highlightLower.includes('chat') || highlightLower.includes('mensagem') || highlightLower.includes('💬') ||
+                           subtitleLower.includes('suporte') || subtitleLower.includes('chat') || subtitleLower.includes('mensagem') || subtitleLower.includes('💬');
+
+            const userEmail = (user.email || '').toLowerCase();
+            const isTargetMaster = userEmail === 'master@digitalnexus.com';
+            const isSupport = user.role === 'support';
+
+            if (isReg) {
+              // Novos inscritos / cadastros / vendas -> ONLY master@digitalnexus.com
+              return isTargetMaster;
+            }
+
+            if (isChat) {
+              // Mensagens do chat -> ONLY master@digitalnexus.com AND support staff
+              return isTargetMaster || isSupport;
+            }
+
+            // Para outras notificações gerais enviadas pelo painel admin (ex: premium, free, etc)
+            if (b.user_type === 'premium') {
+              const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
+              return sub && sub.isActive === true;
+            }
+            if (b.user_type === 'free') {
+              const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
+              return !sub || sub.isActive !== true;
+            }
+
+            // Qualquer outra notificação geral
+            return true;
+          });
 
           if (pushes.length > 0) {
             const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';

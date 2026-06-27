@@ -347,14 +347,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                   .not('fcm_token', 'is', null);
 
                 if (!profErr && allProfiles) {
-                  const isMasterEmail = (email?: string) => {
-                    const e = email?.toLowerCase() || '';
-                    return e.includes('master@atrioswork.com') || 
-                           e.includes('izarellebraga@gmail.com') || 
-                           e.includes('master@digitalnexus.com') ||
-                           e === 'admin@atrioswork.com';
-                  };
-
                   const isChatNotification = (t: string, b: string) => {
                     const titleLower = (t || '').toLowerCase();
                     const bodyLower = (b || '').toLowerCase();
@@ -372,11 +364,25 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                   let filteredProfiles = allProfiles || [];
 
                   if (isRegistrationNotification(title, body)) {
-                    filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+                    filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
                   } else if (isChatNotification(title, body)) {
-                    filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email) || p.role === 'support');
+                    filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com' || p.role === 'support');
+                  } else if (audience === 'premium') {
+                    filteredProfiles = filteredProfiles.filter(p => {
+                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+                      return sub && sub.isActive === true;
+                    });
+                  } else if (audience === 'free') {
+                    filteredProfiles = filteredProfiles.filter(p => {
+                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+                      return !sub || sub.isActive !== true;
+                    });
+                  } else if ((audience as string) === 'admin') {
+                    filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
                   } else {
-                    filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+                    // Transmissão manual para todos
+                    // Evita enviar notificações não-públicas para usuários comuns
+                    filteredProfiles = filteredProfiles.filter(p => p.role !== 'user');
                   }
 
                   const validTokens = filteredProfiles
@@ -751,14 +757,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           const { data: allProfiles, error: profErr } = await query;
           if (profErr) throw profErr;
 
-          const isMasterEmail = (email?: string) => {
-            const e = email?.toLowerCase() || '';
-            return e.includes('master@atrioswork.com') || 
-                   e.includes('izarellebraga@gmail.com') || 
-                   e.includes('master@digitalnexus.com') ||
-                   e === 'admin@atrioswork.com';
-          };
-
           const isChatNotification = (t: string, b: string) => {
             const titleLower = (t || '').toLowerCase();
             const bodyLower = (b || '').toLowerCase();
@@ -776,11 +774,25 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           let filteredProfiles = allProfiles || [];
 
           if (isRegistrationNotification(newPushTitle, newPushBody)) {
-            filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+            filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
           } else if (isChatNotification(newPushTitle, newPushBody)) {
-            filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email) || p.role === 'support');
+            filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com' || p.role === 'support');
+          } else if (newPushAudience === 'premium') {
+            filteredProfiles = filteredProfiles.filter(p => {
+              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+              return sub && sub.isActive === true;
+            });
+          } else if (newPushAudience === 'free') {
+            filteredProfiles = filteredProfiles.filter(p => {
+              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+              return !sub || sub.isActive !== true;
+            });
+          } else if ((newPushAudience as string) === 'admin') {
+            filteredProfiles = filteredProfiles.filter(p => (p.email || '').toLowerCase() === 'master@digitalnexus.com');
           } else {
-            filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+            // Transmissão manual para todos
+            // Evita enviar notificações não-públicas para usuários comuns
+            filteredProfiles = filteredProfiles.filter(p => p.role !== 'user');
           }
 
           const validTokens = filteredProfiles
