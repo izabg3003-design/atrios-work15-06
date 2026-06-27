@@ -343,21 +343,40 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               if (projectId && clientEmail && privateKey) {
                 const { data: allProfiles, error: profErr } = await supabase
                   .from('profiles')
-                  .select('id, fcm_token, name, role')
+                  .select('id, fcm_token, name, role, email')
                   .not('fcm_token', 'is', null);
 
                 if (!profErr && allProfiles) {
+                  const isMasterEmail = (email?: string) => {
+                    const e = email?.toLowerCase() || '';
+                    return e.includes('master@atrioswork.com') || 
+                           e.includes('izarellebraga@gmail.com') || 
+                           e.includes('master@digitalnexus.com') ||
+                           e === 'admin@atrioswork.com';
+                  };
+
+                  const isChatNotification = (t: string, b: string) => {
+                    const titleLower = (t || '').toLowerCase();
+                    const bodyLower = (b || '').toLowerCase();
+                    return titleLower.includes('suporte') || titleLower.includes('chat') || titleLower.includes('mensagem') || titleLower.includes('💬') ||
+                           bodyLower.includes('suporte') || bodyLower.includes('chat') || bodyLower.includes('mensagem') || bodyLower.includes('💬');
+                  };
+
+                  const isRegistrationNotification = (t: string, b: string) => {
+                    const titleLower = (t || '').toLowerCase();
+                    const bodyLower = (b || '').toLowerCase();
+                    return titleLower.includes('cadastro') || titleLower.includes('venda') || titleLower.includes('inscrito') || titleLower.includes('inscrição') || titleLower.includes('novo cadastro') || titleLower.includes('nova venda') ||
+                           bodyLower.includes('cadastro') || bodyLower.includes('venda') || bodyLower.includes('inscrito') || bodyLower.includes('inscrição') || bodyLower.includes('novo cadastro') || bodyLower.includes('nova venda');
+                  };
+
                   let filteredProfiles = allProfiles || [];
-                  if (audience === 'premium') {
-                    filteredProfiles = filteredProfiles.filter(p => {
-                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-                      return sub && sub.isActive === true;
-                    });
-                  } else if (audience === 'free') {
-                    filteredProfiles = filteredProfiles.filter(p => {
-                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-                      return !sub || sub.isActive !== true;
-                    });
+
+                  if (isRegistrationNotification(title, body)) {
+                    filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+                  } else if (isChatNotification(title, body)) {
+                    filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email) || p.role === 'support');
+                  } else {
+                    filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
                   }
 
                   const validTokens = filteredProfiles
@@ -726,23 +745,42 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           // Buscar tokens FCM ativos do Supabase
           let query = supabase
             .from('profiles')
-            .select('id, fcm_token, name, role')
+            .select('id, fcm_token, name, role, email')
             .not('fcm_token', 'is', null);
 
           const { data: allProfiles, error: profErr } = await query;
           if (profErr) throw profErr;
 
+          const isMasterEmail = (email?: string) => {
+            const e = email?.toLowerCase() || '';
+            return e.includes('master@atrioswork.com') || 
+                   e.includes('izarellebraga@gmail.com') || 
+                   e.includes('master@digitalnexus.com') ||
+                   e === 'admin@atrioswork.com';
+          };
+
+          const isChatNotification = (t: string, b: string) => {
+            const titleLower = (t || '').toLowerCase();
+            const bodyLower = (b || '').toLowerCase();
+            return titleLower.includes('suporte') || titleLower.includes('chat') || titleLower.includes('mensagem') || titleLower.includes('💬') ||
+                   bodyLower.includes('suporte') || bodyLower.includes('chat') || bodyLower.includes('mensagem') || bodyLower.includes('💬');
+          };
+
+          const isRegistrationNotification = (t: string, b: string) => {
+            const titleLower = (t || '').toLowerCase();
+            const bodyLower = (b || '').toLowerCase();
+            return titleLower.includes('cadastro') || titleLower.includes('venda') || titleLower.includes('inscrito') || titleLower.includes('inscrição') || titleLower.includes('novo cadastro') || titleLower.includes('nova venda') ||
+                   bodyLower.includes('cadastro') || bodyLower.includes('venda') || bodyLower.includes('inscrito') || bodyLower.includes('inscrição') || bodyLower.includes('novo cadastro') || bodyLower.includes('nova venda');
+          };
+
           let filteredProfiles = allProfiles || [];
-          if (newPushAudience === 'premium') {
-            filteredProfiles = filteredProfiles.filter(p => {
-              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-              return sub && sub.isActive === true;
-            });
-          } else if (newPushAudience === 'free') {
-            filteredProfiles = filteredProfiles.filter(p => {
-              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-              return !sub || sub.isActive !== true;
-            });
+
+          if (isRegistrationNotification(newPushTitle, newPushBody)) {
+            filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+          } else if (isChatNotification(newPushTitle, newPushBody)) {
+            filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email) || p.role === 'support');
+          } else {
+            filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
           }
 
           const validTokens = filteredProfiles

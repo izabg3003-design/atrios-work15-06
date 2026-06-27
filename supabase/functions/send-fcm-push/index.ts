@@ -166,8 +166,33 @@ serve(async (req) => {
              e === 'admin@atrioswork.com';
     };
 
-    // Filter to ensure ONLY master admins ever receive any push notifications
-    const filteredProfiles = (profiles || []).filter(p => isMasterEmail(p.email));
+    const isChatNotification = (title: string, body: string) => {
+      const t = (title || '').toLowerCase();
+      const b = (body || '').toLowerCase();
+      return t.includes('suporte') || t.includes('chat') || t.includes('mensagem') || t.includes('💬') ||
+             b.includes('suporte') || b.includes('chat') || b.includes('mensagem') || b.includes('💬');
+    };
+
+    const isRegistrationNotification = (title: string, body: string) => {
+      const t = (title || '').toLowerCase();
+      const b = (body || '').toLowerCase();
+      return t.includes('cadastro') || t.includes('venda') || t.includes('inscrito') || t.includes('inscrição') || t.includes('novo cadastro') || t.includes('nova venda') ||
+             b.includes('cadastro') || b.includes('venda') || b.includes('inscrito') || b.includes('inscrição') || b.includes('novo cadastro') || b.includes('nova venda');
+    };
+
+    // Filter to ensure appropriate targeting
+    let filteredProfiles = profiles || [];
+
+    if (isRegistrationNotification(title, body)) {
+      // "notificações de novos inscritos" - only go to master admins (especially master@digitalnexus.com and izarellebraga@gmail.com)
+      filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+    } else if (isChatNotification(title, body)) {
+      // "mensagens do chat" - go to master admins AND support staff
+      filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email) || p.role === 'support');
+    } else {
+      // General notifications - only go to master admins (never regular users)
+      filteredProfiles = filteredProfiles.filter(p => isMasterEmail(p.email));
+    }
 
     const validTokens = (filteredProfiles || [])
       .map(p => p.fcm_token)
@@ -206,6 +231,34 @@ serve(async (req) => {
               notification: {
                 title: title,
                 body: body,
+              },
+              android: {
+                priority: "high",
+                notification: {
+                  sound: "default"
+                }
+              },
+              apns: {
+                headers: {
+                  "apns-priority": "10"
+                },
+                payload: {
+                  aps: {
+                    sound: "default"
+                  }
+                }
+              },
+              webpush: {
+                notification: {
+                  title: title,
+                  body: body,
+                  icon: "/logo_atualizado.jpg?v=20260314_v1",
+                  badge: "/logo_atualizado.jpg?v=20260314_v1",
+                  requireInteraction: true
+                },
+                fcm_options: {
+                  link: "/"
+                }
               },
               data: {
                 url: "/",
