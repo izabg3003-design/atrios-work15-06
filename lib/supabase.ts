@@ -60,12 +60,10 @@ export async function invokeSendPush(body: any) {
       'apikey': supabaseAnonKey,
     };
 
-    // Só passa Authorization se houver sessão ativa do usuário.
-    // Isso evita que o gateway do Supabase barrei a chamada como 401 Unauthorized
-    // se tentarmos mandar o Anon Key no cabeçalho Authorization com JWT desativado.
-    if (session?.access_token) {
-      headers['Authorization'] = `Bearer ${session.access_token}`;
-    }
+    // Sempre garante o cabeçalho Authorization. Se houver sessão ativa do usuário,
+    // envia o token JWT do usuário, caso contrário, envia a própria anonKey.
+    // Isso evita que o gateway do Supabase (Kong) barrei a chamada como 401 Unauthorized.
+    headers['Authorization'] = `Bearer ${session?.access_token || supabaseAnonKey}`;
 
     const response = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
       method: 'POST',
