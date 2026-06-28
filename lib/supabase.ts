@@ -43,3 +43,47 @@ export const supabase = isConfigured
         });
       }
     }) as any);
+
+/**
+ * Invoca de forma segura a Edge Function 'send-push' usando fetch padrão.
+ * Isso contorna problemas de CORS/401 do Supabase JS Client ao injetar
+ * corretamente os cabeçalhos de API Key e tratar de forma opcional o JWT.
+ */
+export async function invokeSendPush(body: any) {
+  if (!isConfigured) return { error: new Error("Supabase não configurado") };
+
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+      'apikey': supabaseAnonKey,
+    };
+
+    // Só passa Authorization se houver sessão ativa do usuário.
+    // Isso evita que o gateway do Supabase barrei a chamada como 401 Unauthorized
+    // se tentarmos mandar o Anon Key no cabeçalho Authorization com JWT desativado.
+    if (session?.access_token) {
+      headers['Authorization'] = `Bearer ${session.access_token}`;
+    }
+
+    const response = await fetch(`${supabaseUrl}/functions/v1/send-push`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(body),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.warn(`Erro de resposta na Edge Function (${response.status}):`, errorText);
+      return { error: new Error(errorText) };
+    }
+
+    const data = await response.json().catch(() => ({}));
+    return { data, error: null };
+  } catch (err: any) {
+    console.error('Erro de rede ao chamar a Edge Function send-push:', err);
+    return { error: err };
+  }
+}
+

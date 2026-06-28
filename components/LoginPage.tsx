@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Lock, ArrowRight, ArrowLeft, ShieldAlert, Loader2, ShieldCheck, UserPlus, Phone, Mail, Sparkles } from 'lucide-react';
-import { supabase, supabaseAnonKey } from '../lib/supabase';
+import { supabase, supabaseAnonKey, invokeSendPush } from '../lib/supabase';
 
 interface Props {
   onLogin: (email: string) => void;
@@ -132,17 +132,10 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
         
         // Trigger push notification to admins about the new user registration
         try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const authHeader = session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`;
-          await supabase.functions.invoke('send-push', {
-            headers: {
-              Authorization: authHeader
-            },
-            body: {
-              title: '🆕 Novo Cadastro no App!',
-              body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
-              audience: 'admin'
-            }
+          await invokeSendPush({
+            title: '🆕 Novo Cadastro no App!',
+            body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
+            audience: 'admin'
           });
         } catch (fcmErr) {
           console.warn('Erro ao disparar push de novo cadastro:', fcmErr);
