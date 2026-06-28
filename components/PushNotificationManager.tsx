@@ -93,11 +93,30 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
         if (!error && data && data.length > 0) {
           // Filtrar por banners marcados como push ou com tag "[PUSH]" no título
-          const pushes = data.filter(b => 
-            b.user_type === 'push_notification' || 
-            b.title.toUpperCase().includes('[PUSH]') || 
-            b.highlight?.toUpperCase()?.includes('[PUSH]')
-          );
+          const pushes = data.filter(b => {
+            const isPush = b.user_type === 'push_notification' || 
+                           b.title.toUpperCase().includes('[PUSH]') || 
+                           b.highlight?.toUpperCase()?.includes('[PUSH]');
+            
+            if (!isPush) return false;
+
+            // Notificações de suporte, chat, novos cadastros e vendas devem ser visíveis apenas para admins/master
+            const isSupportChatOrAdminSystem = 
+              b.title.includes('💬 Suporte') || 
+              b.title.includes('💬 Visitante') || 
+              b.title.includes('Novo Cadastro') || 
+              b.title.includes('Nova Venda') || 
+              b.subtitle === 'Notificação de Suporte' || 
+              b.subtitle === 'Notificação de Visitante' || 
+              b.subtitle === 'Notificação de Sistema' || 
+              b.subtitle === 'Notificação de Vendas';
+
+            if (isSupportChatOrAdminSystem && !isAdmin) {
+              return false;
+            }
+
+            return true;
+          });
 
           if (pushes.length > 0) {
             const shownPushesRaw = localStorage.getItem('shown_push_notifications') || '[]';
