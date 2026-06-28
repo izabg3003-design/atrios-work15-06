@@ -4,7 +4,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-  'Access-Control-Allow-Methods': 'POST, GET, OPTIONS, PUT, DELETE',
 }
 
 // Funções Auxiliares para codificação Base64Url e Assinatura RS256 de forma nativa e sem dependências
@@ -96,12 +95,12 @@ async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string):
 serve(async (req) => {
   // Lidar com CORS Preflight
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders, status: 200 })
+    return new Response('ok', { headers: corsHeaders })
   }
 
   try {
     const requestData = await req.json()
-    const { title, body, audience, serviceAccount } = requestData
+    const { title, body, audience } = requestData
 
     if (!title || !body) {
       throw new Error("Título e corpo da mensagem são obrigatórios.");
@@ -119,33 +118,20 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
-    // Resolver credenciais do Firebase (Service Account) das variáveis de ambiente ou corpo do request
+    // Resolver credenciais do Firebase (Service Account) das variáveis de ambiente
+    const serviceAccountEnv = (globalThis as any).Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
     let projectId = '';
     let clientEmail = '';
     let privateKey = '';
 
-    if (serviceAccount) {
+    if (serviceAccountEnv) {
       try {
-        const sa = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
+        const sa = JSON.parse(serviceAccountEnv);
         projectId = sa.project_id || '';
         clientEmail = sa.client_email || '';
         privateKey = sa.private_key || '';
       } catch (e) {
-        console.error('Erro ao ler serviceAccount enviado no request:', e);
-      }
-    }
-
-    if (!projectId) {
-      const serviceAccountEnv = (globalThis as any).Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
-      if (serviceAccountEnv) {
-        try {
-          const sa = JSON.parse(serviceAccountEnv);
-          projectId = sa.project_id || '';
-          clientEmail = sa.client_email || '';
-          privateKey = sa.private_key || '';
-        } catch (e) {
-          console.error('Erro ao ler FIREBASE_SERVICE_ACCOUNT JSON:', e);
-        }
+        console.error('Erro ao ler FIREBASE_SERVICE_ACCOUNT JSON:', e);
       }
     }
 
@@ -163,57 +149,40 @@ serve(async (req) => {
     }
 
     // 1. Obter lista de usuários com token FCM de acordo com a audiência
-    const query = supabaseAdmin
+    const { data: profiles, error: dbError } = await supabaseAdmin
       .from('profiles')
-      .select('id, fcm_token, name, role, email, subscription')
+      .select('id, fcm_token, name, role, email')
       .not('fcm_token', 'is', null);
-
-    const { data: profiles, error: dbError } = await query;
 
     if (dbError) {
       throw new Error(`Erro ao consultar perfis de destino no Supabase: ${dbError.message}`);
     }
 
+    const isMasterEmail = (email?: string) => {
+      const e = email?.toLowerCase() || '';
+      return e.includes('master@atrioswork.com') || 
+             e.includes('izarellebraga@gmail.com') || 
+             e.includes('master@digitalnexus.com') ||
+             e === 'admin@atrioswork.com';
+    };
+
+    const isAdminUser = (profile: any) => {
+      return profile.role === 'admin' || isMasterEmail(profile.email);
+    };
+
     let filteredProfiles = profiles || [];
+
     if (audience === 'vendors') {
       filteredProfiles = filteredProfiles.filter(p => p.role === 'vendor');
     } else if (audience === 'admin') {
-      filteredProfiles = filteredProfiles.filter(p => 
-        p.role === 'admin' || 
-        p.email?.toLowerCase()?.includes('master@atrioswork.com') || 
-        p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
-        p.email?.toLowerCase()?.includes('master@digitalnexus.com')
-      );
+      filteredProfiles = filteredProfiles.filter(p => isAdminUser(p));
     } else if (audience === 'support') {
-      filteredProfiles = filteredProfiles.filter(p => p.role === 'support');
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'support' || isAdminUser(p));
     } else if (audience === 'part_time' || audience === 'user') {
-      filteredProfiles = filteredProfiles.filter(p => p.role === 'user');
-    } else if (audience === 'premium') {
-      filteredProfiles = filteredProfiles.filter(p => {
-        const isMasterOrAdmin = p.role === 'admin' || 
-          p.email?.toLowerCase()?.includes('master@atrioswork.com') || 
-          p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
-          p.email?.toLowerCase()?.includes('master@digitalnexus.com');
-        if (isMasterOrAdmin) return true;
-
-        const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-        return sub && sub.status === 'ACTIVE_PAID';
-      });
-    } else if (audience === 'free') {
-      filteredProfiles = filteredProfiles.filter(p => {
-        const isMasterOrAdmin = p.role === 'admin' || 
-          p.email?.toLowerCase()?.includes('master@atrioswork.com') || 
-          p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
-          p.email?.toLowerCase()?.includes('master@digitalnexus.com');
-        if (isMasterOrAdmin) return true; // Master e admin recebem sempre para fins de teste
-
-        const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-        const isPaid = sub && sub.status === 'ACTIVE_PAID';
-        return !isPaid;
-      });
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'user' && !isMasterEmail(p.email));
     }
 
-    const validTokens = filteredProfiles
+    const validTokens = (filteredProfiles || [])
       .map(p => p.fcm_token)
       .filter((t): t is string => !!t && t.trim().length > 0);
 
@@ -251,27 +220,7 @@ serve(async (req) => {
                 title: title,
                 body: body,
               },
-              android: {
-                priority: "high"
-              },
-              apns: {
-                headers: {
-                  "apns-priority": "10"
-                },
-                payload: {
-                  aps: {
-                    sound: "default"
-                  }
-                }
-              },
-              webpush: {
-                headers: {
-                  "Urgency": "high"
-                }
-              },
               data: {
-                title: title,
-                body: body,
                 url: "/",
                 click_action: "/"
               }
