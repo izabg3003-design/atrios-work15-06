@@ -409,7 +409,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
           // Redundância via Edge Function do Supabase
           try {
-            await supabase.functions.invoke('send-push', {
+            await supabase.functions.invoke('send-fcm-push', {
               body: {
                 title: title,
                 body: body,
@@ -808,7 +808,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
       // Tenta chamar a Edge Function como redundância
       try {
-        await supabase.functions.invoke('send-push', {
+        await supabase.functions.invoke('send-fcm-push', {
           body: {
             title: newPushTitle.trim(),
             body: newPushBody.trim(),
@@ -816,7 +816,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           }
         });
       } catch (fcmErr) {
-        console.warn('Função de borda do Supabase (send-push) ainda não implantada ou offline:', fcmErr);
+        console.warn('Função de borda do Supabase (send-fcm-push) ainda não implantada ou offline:', fcmErr);
       }
 
       setNewPushTitle('');

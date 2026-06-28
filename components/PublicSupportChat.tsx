@@ -198,7 +198,7 @@ const PublicSupportChat: React.FC = () => {
       
       // Trigger push notification to admins about the new guest support message
       try {
-        await supabase.functions.invoke('send-push', {
+        await supabase.functions.invoke('send-fcm-push', {
           body: {
             title: isHumanRequest ? '🆘 Atendimento Humano Solicitado!' : '💬 Novo Chat com Visitante!',
             body: isHumanRequest 
