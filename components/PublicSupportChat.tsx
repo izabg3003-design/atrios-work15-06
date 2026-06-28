@@ -4,7 +4,7 @@ import {
   Headphones, Mail, CheckCircle2, AlertTriangle, Fingerprint, ArrowRight 
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAnonKey } from '../lib/supabase';
 
 interface Message {
   role: 'user' | 'ai' | 'support';
@@ -191,7 +191,12 @@ const PublicSupportChat: React.FC = () => {
       
       // Trigger push notification to admins about the new guest support message
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const authHeader = session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`;
         await supabase.functions.invoke('send-push', {
+          headers: {
+            Authorization: authHeader
+          },
           body: {
             title: '💬 Novo Chat com Visitante!',
             body: `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,

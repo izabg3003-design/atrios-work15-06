@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Bot, User, LifeBuoy, Loader2, Sparkles, MessageSquare, Headphones, ArrowLeft, History, Wifi, AlertTriangle, CheckCircle2, Clock, Info, Moon, Sun } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { UserProfile } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAnonKey } from '../lib/supabase';
 import { format } from 'date-fns';
 
 interface Message {
@@ -234,7 +234,12 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
 
         // Trigger push notification to admins about the new support message
         try {
+          const { data: { session } } = await supabase.auth.getSession();
+          const authHeader = session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`;
           await supabase.functions.invoke('send-push', {
+            headers: {
+              Authorization: authHeader
+            },
             body: {
               title: '💬 Nova Mensagem de Suporte',
               body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,

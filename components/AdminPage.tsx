@@ -8,7 +8,7 @@ import {
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile
 } from 'lucide-react';
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
-import { supabase } from '../lib/supabase';
+import { supabase, supabaseAnonKey } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -387,7 +387,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
           // Redundância via Edge Function do Supabase
           try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const authHeader = session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`;
             await supabase.functions.invoke('send-push', {
+              headers: {
+                Authorization: authHeader
+              },
               body: {
                 title: title,
                 body: body,
@@ -786,7 +791,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
       // Tenta chamar a Edge Function como redundância
       try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const authHeader = session?.access_token ? `Bearer ${session.access_token}` : `Bearer ${supabaseAnonKey}`;
         await supabase.functions.invoke('send-push', {
+          headers: {
+            Authorization: authHeader
+          },
           body: {
             title: newPushTitle.trim(),
             body: newPushBody.trim(),
