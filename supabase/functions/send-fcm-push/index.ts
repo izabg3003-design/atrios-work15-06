@@ -90,10 +90,34 @@ serve(async (req) => {
       .select("fcm_token, role, email")
       .not("fcm_token", "is", null);
 
-    const tokens = profiles?.map(p => p.fcm_token).filter(Boolean) || [];
+    // Filter profiles based on audience (so master/admin receive correct targets)
+    const isMasterEmail = (email?: string) => {
+      const e = (email || '').toLowerCase();
+      return e.includes('master@atrioswork.com') || 
+             e.includes('izarellebraga@gmail.com') || 
+             e.includes('master@digitalnexus.com');
+    };
+
+    const isAdminUser = (profile: any) => {
+      return profile.role === 'admin' || isMasterEmail(profile.email);
+    };
+
+    let filteredProfiles = profiles || [];
+
+    if (audience === 'admin' || audience === 'master') {
+      filteredProfiles = filteredProfiles.filter(p => isAdminUser(p));
+    } else if (audience === 'vendors') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'vendor');
+    } else if (audience === 'support') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'support' || isAdminUser(p));
+    } else if (audience === 'user') {
+      filteredProfiles = filteredProfiles.filter(p => p.role === 'user' && !isMasterEmail(p.email));
+    }
+
+    const tokens = filteredProfiles.map(p => p.fcm_token).filter((t): t is string => !!t && t.trim().length > 0);
 
     if (!tokens.length) {
-      return new Response(JSON.stringify({ message: "No tokens" }), {
+      return new Response(JSON.stringify({ success: true, sent: 0, message: "No active tokens for this audience" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -125,6 +149,20 @@ serve(async (req) => {
                 notification: {
                   title,
                   body,
+                },
+                webpush: {
+                  notification: {
+                    title,
+                    body,
+                    icon: '/logo_atualizado.jpg?v=20260314_v1',
+                    badge: '/logo_atualizado.jpg?v=20260314_v1',
+                  },
+                  fcm_options: {
+                    link: '/',
+                  },
+                },
+                data: {
+                  url: '/',
                 },
               },
             }),
