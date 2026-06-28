@@ -234,7 +234,7 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
 
         // Trigger push notification to admins about the new support message
         try {
-          await supabase.functions.invoke('send-fcm-push', {
+          await supabase.functions.invoke('send-push', {
             body: {
               title: '💬 Nova Mensagem de Suporte',
               body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,

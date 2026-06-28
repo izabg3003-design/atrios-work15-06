@@ -132,7 +132,7 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
         
         // Trigger push notification to admins about the new user registration
         try {
-          await supabase.functions.invoke('send-fcm-push', {
+          await supabase.functions.invoke('send-push', {
             body: {
               title: '🆕 Novo Cadastro no App!',
               body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
