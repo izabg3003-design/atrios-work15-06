@@ -100,7 +100,7 @@ serve(async (req) => {
 
   try {
     const requestData = await req.json()
-    const { title, body, audience } = requestData
+    const { title, body, audience, serviceAccount } = requestData
 
     if (!title || !body) {
       throw new Error("Título e corpo da mensagem são obrigatórios.");
@@ -118,20 +118,33 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(supabaseUrl, supabaseKey);
 
-    // Resolver credenciais do Firebase (Service Account) das variáveis de ambiente
-    const serviceAccountEnv = (globalThis as any).Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
+    // Resolver credenciais do Firebase (Service Account) das variáveis de ambiente ou corpo do request
     let projectId = '';
     let clientEmail = '';
     let privateKey = '';
 
-    if (serviceAccountEnv) {
+    if (serviceAccount) {
       try {
-        const sa = JSON.parse(serviceAccountEnv);
+        const sa = typeof serviceAccount === 'string' ? JSON.parse(serviceAccount) : serviceAccount;
         projectId = sa.project_id || '';
         clientEmail = sa.client_email || '';
         privateKey = sa.private_key || '';
       } catch (e) {
-        console.error('Erro ao ler FIREBASE_SERVICE_ACCOUNT JSON:', e);
+        console.error('Erro ao ler serviceAccount enviado no request:', e);
+      }
+    }
+
+    if (!projectId) {
+      const serviceAccountEnv = (globalThis as any).Deno.env.get('FIREBASE_SERVICE_ACCOUNT');
+      if (serviceAccountEnv) {
+        try {
+          const sa = JSON.parse(serviceAccountEnv);
+          projectId = sa.project_id || '';
+          clientEmail = sa.client_email || '';
+          privateKey = sa.private_key || '';
+        } catch (e) {
+          console.error('Erro ao ler FIREBASE_SERVICE_ACCOUNT JSON:', e);
+        }
       }
     }
 
@@ -176,13 +189,26 @@ serve(async (req) => {
       filteredProfiles = filteredProfiles.filter(p => p.role === 'user');
     } else if (audience === 'premium') {
       filteredProfiles = filteredProfiles.filter(p => {
+        const isMasterOrAdmin = p.role === 'admin' || 
+          p.email?.toLowerCase()?.includes('master@atrioswork.com') || 
+          p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
+          p.email?.toLowerCase()?.includes('master@digitalnexus.com');
+        if (isMasterOrAdmin) return true;
+
         const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-        return sub && sub.isActive === true;
+        return sub && sub.status === 'ACTIVE_PAID';
       });
     } else if (audience === 'free') {
       filteredProfiles = filteredProfiles.filter(p => {
+        const isMasterOrAdmin = p.role === 'admin' || 
+          p.email?.toLowerCase()?.includes('master@atrioswork.com') || 
+          p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
+          p.email?.toLowerCase()?.includes('master@digitalnexus.com');
+        if (isMasterOrAdmin) return true; // Master e admin recebem sempre para fins de teste
+
         const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-        return !sub || sub.isActive !== true;
+        const isPaid = sub && sub.status === 'ACTIVE_PAID';
+        return !isPaid;
       });
     }
 
