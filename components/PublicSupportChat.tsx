@@ -4,7 +4,7 @@ import {
   Headphones, Mail, CheckCircle2, AlertTriangle, Fingerprint, ArrowRight 
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
-import { supabase, supabaseAnonKey, invokeSendPush } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 
 interface Message {
   role: 'user' | 'ai' | 'support';
@@ -64,30 +64,34 @@ const PublicSupportChat: React.FC = () => {
     setShowNudge(false);
 
     const setupSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        const uid = session.user.id;
-        setVisitorId(uid);
-        
-        const { data: history } = await supabase
-          .from('chat_messages')
-          .select('sender_role, text')
-          .eq('user_id', uid)
-          .order('created_at', { ascending: true });
-        
-        if (history && history.length > 0) {
-          const formatted = history.map(m => ({
-            role: m.sender_role as any,
-            text: m.text
-          }));
-          setMessages(formatted);
-          setStep('chat');
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          const uid = session.user.id;
+          setVisitorId(uid);
           
-          if (formatted.some(m => m.role === 'support')) {
-            setIsHumanModeActive(true);
-            setShowHumanSupportStatus(true);
+          const { data: history } = await supabase
+            .from('chat_messages')
+            .select('sender_role, text')
+            .eq('user_id', uid)
+            .order('created_at', { ascending: true });
+          
+          if (history && history.length > 0) {
+            const formatted = history.map(m => ({
+              role: m.sender_role as any,
+              text: m.text
+            }));
+            setMessages(formatted);
+            setStep('chat');
+            
+            if (formatted.some(m => m.role === 'support')) {
+              setIsHumanModeActive(true);
+              setShowHumanSupportStatus(true);
+            }
           }
         }
+      } catch (err) {
+        console.warn("PublicSupportChat setupSession error:", err);
       }
     };
 
@@ -174,11 +178,14 @@ const PublicSupportChat: React.FC = () => {
       });
       
       // Log notification in history (app_banners) and trigger push
+      const isHumanRequest = text.includes('solicitou atendimento humano');
       try {
         await supabase.from('app_banners').insert([{
-          title: `[PUSH] 💬 Visitante: ${userData.name.trim()}`,
-          highlight: `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
-          subtitle: 'Notificação de Visitante',
+          title: isHumanRequest ? `[PUSH] 🆘 Suporte Humano: ${userData.name.trim()}` : `[PUSH] 💬 Visitante: ${userData.name.trim()}`,
+          highlight: isHumanRequest 
+            ? `O visitante ${userData.name.trim()} (${cleanEmail}) solicitou atendimento humano no chat.` 
+            : `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
+          subtitle: isHumanRequest ? 'Solicitação de Suporte Humano' : 'Notificação de Visitante',
           cta_text: 'Atender',
           cta_link: '/',
           theme_color: 'rose',
@@ -191,10 +198,14 @@ const PublicSupportChat: React.FC = () => {
       
       // Trigger push notification to admins about the new guest support message
       try {
-        await invokeSendPush({
-          title: '💬 Novo Chat com Visitante!',
-          body: `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
-          audience: 'admin'
+        await supabase.functions.invoke('send-push', {
+          body: {
+            title: isHumanRequest ? '🆘 Atendimento Humano Solicitado!' : '💬 Novo Chat com Visitante!',
+            body: isHumanRequest 
+              ? `O visitante ${userData.name.trim()} (${cleanEmail}) solicitou atendimento humano no chat.` 
+              : `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
+            audience: 'admin'
+          }
         });
       } catch (fcmErr) {
         console.warn('Erro ao disparar push de mensagem de visitante:', fcmErr);

@@ -319,9 +319,13 @@ const App: React.FC = () => {
           setAppState('landing');
           setAuthInitialized(true);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Auth initialization failed directly (Failed to Fetch):", err);
-        setAppState('landing');
+        setAuthError({
+          title: "ERRO DE LIGAÇÃO",
+          text: "Não foi possível estabelecer ligação ao banco de dados (Failed to Fetch). Verifique a sua ligação à Internet ou se o seu projeto Supabase está ativo. Se for o administrador do projeto, certifique-se de que a sua instância está ativa no painel do Supabase, ou configure as variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para ligar à sua própria base de dados."
+        });
+        setAppState('login');
         setAuthInitialized(true);
       }
     };

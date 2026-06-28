@@ -1,7 +1,7 @@
 
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ArrowLeft, Loader2, CreditCard, Tag, Sparkles, CheckCircle2, User, Mail, Phone, Lock, Zap, ShieldCheck, AlertTriangle, CalendarDays, KeySquare, Wallet, Info, Globe, Shield, Check, ShieldAlert, Star, FileDown, Clock, Coins, Cloud, Headphones } from 'lucide-react';
-import { supabase, supabaseAnonKey, invokeSendPush } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { getStripe } from '../lib/stripe';
 
 interface Props {
@@ -287,10 +287,12 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
         
         // Trigger push notification to admins about the new license sale
         try {
-          await invokeSendPush({
-            title: '💰 Nova Venda Realizada!',
-            body: `O utilizador ${formData.name} (${formData.email}) comprou uma Licença AtriosWork por €${finalAmount}! Código: ${isDiscountApplied ? vendorCode.trim().toUpperCase() : 'Nenhum'}`,
-            audience: 'admin'
+          await supabase.functions.invoke('send-push', {
+            body: {
+              title: '💰 Nova Venda Realizada!',
+              body: `O utilizador ${formData.name} (${formData.email}) comprou uma Licença AtriosWork por €${finalAmount}! Código: ${isDiscountApplied ? vendorCode.trim().toUpperCase() : 'Nenhum'}`,
+              audience: 'admin'
+            }
           });
         } catch (fcmErr) {
           console.warn('Erro ao disparar push de nova venda:', fcmErr);

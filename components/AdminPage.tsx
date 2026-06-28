@@ -8,7 +8,7 @@ import {
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile
 } from 'lucide-react';
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
-import { supabase, supabaseAnonKey, invokeSendPush } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -169,6 +169,28 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
         const errMsg = result?.error?.message || JSON.stringify(result);
         if (!errors.includes(errMsg)) {
           errors.push(errMsg);
+        }
+
+        // Auto-limpeza de tokens obsoletos, expirados ou não registados no Firebase
+        const status = result?.error?.status;
+        const message = (result?.error?.message || '').toLowerCase();
+        if (
+          status === 'UNREGISTERED' || 
+          status === 'NOT_FOUND' || 
+          message.includes('not a valid fcm registration token') || 
+          message.includes('unregistered') || 
+          message.includes('not-registered') ||
+          message.includes('not found')
+        ) {
+          console.warn(`Limpando token FCM obsoleto do banco de dados: ${token.substring(0, 15)}...`);
+          try {
+            await supabase
+              .from('profiles')
+              .update({ fcm_token: null })
+              .eq('fcm_token', token);
+          } catch (dbCleanErr) {
+            console.error("Erro ao remover token FCM obsoleto do Supabase:", dbCleanErr);
+          }
         }
       }
     } catch (err: any) {
@@ -387,10 +409,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
           // Redundância via Edge Function do Supabase
           try {
-            await invokeSendPush({
-              title: title,
-              body: body,
-              audience: audience
+            await supabase.functions.invoke('send-push', {
+              body: {
+                title: title,
+                body: body,
+                audience: audience
+              }
             });
           } catch (fcmFuncErr) {
             console.warn('[Scheduled Push] Edge Function offline:', fcmFuncErr);
@@ -784,10 +808,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
       // Tenta chamar a Edge Function como redundância
       try {
-        await invokeSendPush({
-          title: newPushTitle.trim(),
-          body: newPushBody.trim(),
-          audience: newPushAudience
+        await supabase.functions.invoke('send-push', {
+          body: {
+            title: newPushTitle.trim(),
+            body: newPushBody.trim(),
+            audience: newPushAudience
+          }
         });
       } catch (fcmErr) {
         console.warn('Função de borda do Supabase (send-push) ainda não implantada ou offline:', fcmErr);

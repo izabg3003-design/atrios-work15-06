@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Send, Bot, User, LifeBuoy, Loader2, Sparkles, MessageSquare, Headphones, ArrowLeft, History, Wifi, AlertTriangle, CheckCircle2, Clock, Info, Moon, Sun } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { UserProfile } from '../types';
-import { supabase, supabaseAnonKey, invokeSendPush } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
 
 interface Message {
@@ -234,10 +234,12 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
 
         // Trigger push notification to admins about the new support message
         try {
-          await invokeSendPush({
-            title: '💬 Nova Mensagem de Suporte',
-            body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
-            audience: 'admin'
+          await supabase.functions.invoke('send-push', {
+            body: {
+              title: '💬 Nova Mensagem de Suporte',
+              body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+              audience: 'admin'
+            }
           });
         } catch (fcmErr) {
           console.warn('Erro ao disparar push de mensagem de suporte:', fcmErr);
@@ -344,6 +346,34 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
           last_message: triggerText, 
           updated_at: new Date().toISOString() 
         });
+      }
+
+      // Log notification in history (app_banners) and trigger push
+      try {
+        await supabase.from('app_banners').insert([{
+          title: `[PUSH] 💬 Suporte: ${user.name}`,
+          highlight: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
+          subtitle: 'Solicitação de Suporte Humano',
+          cta_text: 'Atender',
+          cta_link: '/',
+          theme_color: 'rose',
+          is_active: true,
+          user_type: 'push_notification'
+        }]);
+      } catch (dbErr) {
+        console.error('Erro ao registrar push no histórico:', dbErr);
+      }
+      
+      try {
+        await supabase.functions.invoke('send-push', {
+          body: {
+            title: '🆘 Atendimento Humano Solicitado!',
+            body: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
+            audience: 'admin'
+          }
+        });
+      } catch (fcmErr) {
+        console.warn('Erro ao disparar push de atendimento humano:', fcmErr);
       }
 
       setIsHumanSupportActive(true);
