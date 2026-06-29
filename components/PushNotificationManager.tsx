@@ -222,6 +222,61 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   };
 
+  // Helper para converter a chave pública VAPID recebida do backend
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  };
+
+  // Função para registar a subscrição nativa do Web Push (VAPID)
+  const registerVAPIDSubscription = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !user.id) {
+      console.warn('Este navegador não suporta Web Push.');
+      return;
+    }
+
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let subscription = await reg.pushManager.getSubscription();
+
+      if (!subscription) {
+        // Obter chave pública VAPID do backend
+        const res = await fetch('/api/push/public-key');
+        const { publicKey } = await res.json();
+
+        if (!publicKey) {
+          throw new Error('Chave VAPID pública não disponível no servidor.');
+        }
+
+        const convertedKey = urlBase64ToUint8Array(publicKey);
+        subscription = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedKey
+        });
+      }
+
+      // Enviar subscrição para o backend persistir
+      await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscription,
+          userId: user.id
+        })
+      });
+
+      console.log('Subscrição Web Push (VAPID) concluída com sucesso!');
+    } catch (err) {
+      console.error('Erro ao registar Web Push (VAPID):', err);
+    }
+  };
+
   // Função para registrar o token FCM no Supabase
   const registerFCMToken = async () => {
     if (!isFirebaseConfigured || !isPushSupported() || !messaging || !user.id) {
@@ -299,10 +354,11 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     applyCustomFcmConfig();
   }, [user.id]);
 
-  // Efeito para registrar o token automaticamente se a permissão já estiver concedida
+  // Efeito para registrar o token e assinatura automaticamente se a permissão já estiver concedida
   useEffect(() => {
     if (user.id && notificationPermission === 'granted') {
       registerFCMToken();
+      registerVAPIDSubscription();
     }
   }, [user.id, notificationPermission]);
 
@@ -387,6 +443,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         );
         if (user.id) {
           registerFCMToken();
+          registerVAPIDSubscription();
         }
       }
     } catch (err) {

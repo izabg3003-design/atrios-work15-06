@@ -47,27 +47,91 @@ export const supabase = isConfigured
     }) as any);
 
 // Interceptador inteligente para enviar notificações push via API local (evita erros de CORS nas Deno Edge Functions)
-if (isConfigured && supabase && supabase.functions) {
-  const originalInvoke = supabase.functions.invoke.bind(supabase.functions);
-  supabase.functions.invoke = async function (functionName: string, options?: any) {
-    if (functionName === 'send-fcm-push' || functionName === 'send-push') {
+if (isConfigured && supabase) {
+  try {
+    // Intercepta o acesso à propriedade 'functions' de forma dinâmica e robusta
+    const proto = Object.getPrototypeOf(supabase);
+    const originalFunctionsGetter = proto ? Object.getOwnPropertyDescriptor(proto, 'functions') : null;
+
+    let originalFunctions: any = null;
+    if (originalFunctionsGetter && originalFunctionsGetter.get) {
       try {
-        console.log(`[FCM Interceptor] Desviando chamada da Edge Function '${functionName}' para a API local /api/send-fcm-push...`);
-        const response = await fetch('/api/send-fcm-push', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(options?.body || {}),
-        });
-        
-        const data = await response.json();
-        return { data, error: response.ok ? null : new Error(data.error || "Erro no envio do FCM via backend") };
-      } catch (err: any) {
-        console.warn("[FCM Interceptor] Falha ao chamar a API de backup local, recorrendo à Edge Function do Supabase:", err);
-        return originalInvoke(functionName, options);
+        originalFunctions = originalFunctionsGetter.get.call(supabase);
+      } catch (e) {
+        // Ignora erros ao obter a propriedade original
       }
     }
-    return originalInvoke(functionName, options);
-  };
+    if (!originalFunctions) {
+      originalFunctions = (supabase as any).functions;
+    }
+
+    const customFunctions = {
+      invoke: async function (functionName: string, options?: any) {
+        if (functionName === 'send-fcm-push' || functionName === 'send-push') {
+          try {
+            console.log(`[FCM Interceptor] Desviando chamada da Edge Function '${functionName}' para a API local /api/send-fcm-push...`);
+            const response = await fetch('/api/send-fcm-push', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(options?.body || {}),
+            });
+            
+            const data = await response.json();
+            return { data, error: response.ok ? null : new Error(data.error || "Erro no envio do FCM via backend") };
+          } catch (err: any) {
+            console.warn("[FCM Interceptor] Falha ao chamar a API de backup local, recorrendo à Edge Function do Supabase:", err);
+            if (originalFunctions && typeof originalFunctions.invoke === 'function') {
+              return originalFunctions.invoke(functionName, options);
+            }
+            return { data: null, error: err };
+          }
+        }
+        if (originalFunctions && typeof originalFunctions.invoke === 'function') {
+          return originalFunctions.invoke(functionName, options);
+        }
+        return { data: null, error: new Error("invoke is not a function") };
+      }
+    };
+
+    // Redefine a propriedade 'functions' no próprio objeto 'supabase'
+    Object.defineProperty(supabase, 'functions', {
+      get() {
+        return customFunctions;
+      },
+      configurable: true,
+      enumerable: true
+    });
+    
+    console.log("[FCM Interceptor] Interceptador dinâmico de 'functions' instalado com sucesso.");
+  } catch (e) {
+    console.error("[FCM Interceptor] Erro ao instalar interceptador dinâmico:", e);
+    // Fallback simples caso Object.defineProperty falhe
+    const rawSupabase = supabase as any;
+    if (rawSupabase.functions) {
+      try {
+        const originalInvoke = rawSupabase.functions.invoke.bind(rawSupabase.functions);
+        rawSupabase.functions.invoke = async function (functionName: string, options?: any) {
+          if (functionName === 'send-fcm-push' || functionName === 'send-push') {
+            try {
+              console.log(`[FCM Interceptor Fallback] Desviando para a API local...`);
+              const response = await fetch('/api/send-fcm-push', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(options?.body || {}),
+              });
+              const data = await response.json();
+              return { data, error: response.ok ? null : new Error(data.error || "Erro no envio") };
+            } catch (err: any) {
+              return originalInvoke(functionName, options);
+            }
+          }
+          return originalInvoke(functionName, options);
+        };
+      } catch (err2) {
+        console.error("[FCM Interceptor] Falha no fallback do interceptador:", err2);
+      }
+    }
+  }
 }
