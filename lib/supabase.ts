@@ -45,3 +45,29 @@ export const supabase = isConfigured
         });
       }
     }) as any);
+
+// Interceptador inteligente para enviar notificações push via API local (evita erros de CORS nas Deno Edge Functions)
+if (isConfigured && supabase && supabase.functions) {
+  const originalInvoke = supabase.functions.invoke.bind(supabase.functions);
+  supabase.functions.invoke = async function (functionName: string, options?: any) {
+    if (functionName === 'send-fcm-push') {
+      try {
+        console.log("[FCM Interceptor] Desviando chamada de Edge Function para a API local /api/send-fcm-push...");
+        const response = await fetch('/api/send-fcm-push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(options?.body || {}),
+        });
+        
+        const data = await response.json();
+        return { data, error: response.ok ? null : new Error(data.error || "Erro no envio do FCM via backend") };
+      } catch (err: any) {
+        console.warn("[FCM Interceptor] Falha ao chamar a API de backup local, recorrendo à Edge Function do Supabase:", err);
+        return originalInvoke(functionName, options);
+      }
+    }
+    return originalInvoke(functionName, options);
+  };
+}

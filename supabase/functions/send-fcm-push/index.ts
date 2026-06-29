@@ -35,7 +35,7 @@ async function getGoogleAccessToken(clientEmail: string, privateKey: string) {
 
   const key = await crypto.subtle.importKey(
     "pkcs8",
-    str2ab(atob(privateKey.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|\n/g, ""))),
+    str2ab(atob(privateKey.replace(/-----BEGIN PRIVATE KEY-----|-----END PRIVATE KEY-----|[\s\n\r\t]|\\n/g, ""))),
     { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
     false,
     ["sign"]
