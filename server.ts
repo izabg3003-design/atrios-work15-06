@@ -404,7 +404,27 @@ async function startServer() {
                 title,
                 body,
               },
+              android: {
+                priority: "high",
+              },
+              apns: {
+                headers: {
+                  "apns-priority": "10",
+                },
+                payload: {
+                  aps: {
+                    alert: {
+                      title,
+                      body,
+                    },
+                    sound: "default",
+                  },
+                },
+              },
               webpush: {
+                headers: {
+                  Urgency: "high",
+                },
                 notification: {
                   title,
                   body,

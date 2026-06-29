@@ -83,15 +83,30 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       rawData = event.data.json();
+      console.log('[Service Worker] Notificação push JSON recebida:', rawData);
     } catch (e) {
+      console.log('[Service Worker] Notificação push de texto recebida:', event.data.text());
       rawData = { title: 'AtriosWork', body: event.data.text() };
     }
   }
 
-  // Extrair informações tratando a estrutura FCM (nested em notification) e estrutura plana
-  const title = rawData.notification?.title || rawData.title || 'AtriosWork';
-  const body = rawData.notification?.body || rawData.body || 'Nova notificação do sistema!';
-  const url = rawData.data?.url || rawData.url || '/';
+  // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
+  const title = rawData.notification?.title || 
+                rawData.title || 
+                rawData.data?.title || 
+                rawData.data?.notification?.title || 
+                'AtriosWork';
+                
+  const body = rawData.notification?.body || 
+               rawData.body || 
+               rawData.data?.body || 
+               rawData.data?.notification?.body || 
+               'Nova notificação do sistema!';
+               
+  const url = rawData.data?.url || 
+              rawData.url || 
+              rawData.data?.notification?.url || 
+              '/';
 
   const options = {
     body: body,
