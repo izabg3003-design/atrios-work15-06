@@ -50,9 +50,9 @@ export const supabase = isConfigured
 if (isConfigured && supabase && supabase.functions) {
   const originalInvoke = supabase.functions.invoke.bind(supabase.functions);
   supabase.functions.invoke = async function (functionName: string, options?: any) {
-    if (functionName === 'send-fcm-push') {
+    if (functionName === 'send-fcm-push' || functionName === 'send-push') {
       try {
-        console.log("[FCM Interceptor] Desviando chamada de Edge Function para a API local /api/send-fcm-push...");
+        console.log(`[FCM Interceptor] Desviando chamada da Edge Function '${functionName}' para a API local /api/send-fcm-push...`);
         const response = await fetch('/api/send-fcm-push', {
           method: 'POST',
           headers: {
