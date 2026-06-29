@@ -381,7 +381,12 @@ async function startServer() {
         });
 
         try {
-          await webpush.sendNotification(ws.subscription, payload);
+          await webpush.sendNotification(ws.subscription, payload, {
+            headers: {
+              "Urgency": "high"
+            },
+            TTL: 86400 // 1 dia de tempo de vida
+          });
           totalSent++;
         } catch (err: any) {
           if (err.statusCode === 410 || err.statusCode === 404) {
@@ -472,6 +477,9 @@ async function startServer() {
                       payload: { aps: { sound: "default" } },
                     },
                     webpush: {
+                      headers: {
+                        Urgency: "high",
+                      },
                       notification: {
                         title,
                         body,
