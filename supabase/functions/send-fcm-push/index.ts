@@ -122,9 +122,35 @@ serve(async (req) => {
       });
     }
 
-    const serviceAccount = JSON.parse(
-      Deno.env.get("FIREBASE_SERVICE_ACCOUNT")!
-    );
+    const serviceAccountEnv = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
+    if (!serviceAccountEnv) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: "A variável de ambiente FIREBASE_SERVICE_ACCOUNT não está configurada nas Secrets do Supabase. Configure-a no dashboard do Supabase ou via CLI (Project Settings -> API -> Edge Function Secrets)."
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
+
+    let serviceAccount: any;
+    try {
+      serviceAccount = JSON.parse(serviceAccountEnv);
+    } catch (parseErr) {
+      return new Response(
+        JSON.stringify({
+          success: false,
+          error: `Erro de formato JSON em FIREBASE_SERVICE_ACCOUNT: ${parseErr.message}`
+        }),
+        {
+          status: 400,
+          headers: { ...corsHeaders, "Content-Type": "application/json" }
+        }
+      );
+    }
 
     const accessToken = await getGoogleAccessToken(
       serviceAccount.client_email,
@@ -178,8 +204,11 @@ serve(async (req) => {
 
   } catch (e) {
     return new Response(
-      JSON.stringify({ error: e.message }),
-      { status: 500 }
+      JSON.stringify({ error: e.message || String(e) }),
+      { 
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" }
+      }
     );
   }
 });
