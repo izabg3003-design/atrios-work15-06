@@ -79,49 +79,75 @@ self.addEventListener('fetch', (event) => {
 
 // Suporte para Receber Notificações Push Locais ou de Servidor (compatível com FCM e padrão)
 self.addEventListener('push', (event) => {
-  let rawData = {};
-  if (event.data) {
+  event.waitUntil((async () => {
+    let rawData = {};
+    let title = 'AtriosWork';
+    let body = 'Nova notificação do sistema!';
+    let url = '/';
+
     try {
-      rawData = event.data.json();
-      console.log('[Service Worker] Notificação push JSON recebida:', rawData);
-    } catch (e) {
-      console.log('[Service Worker] Notificação push de texto recebida:', event.data.text());
-      rawData = { title: 'AtriosWork', body: event.data.text() };
+      if (event.data) {
+        try {
+          rawData = event.data.json();
+          console.log('[Service Worker] Notificação push JSON recebida:', rawData);
+        } catch (e) {
+          console.log('[Service Worker] Notificação push de texto recebida:', event.data.text());
+          rawData = { title: 'AtriosWork', body: event.data.text() };
+        }
+      }
+
+      // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
+      title = rawData.notification?.title || 
+              rawData.title || 
+              rawData.data?.title || 
+              rawData.data?.notification?.title || 
+              'AtriosWork';
+                  
+      body = rawData.notification?.body || 
+             rawData.body || 
+             rawData.data?.body || 
+             rawData.data?.notification?.body || 
+             'Nova notificação do sistema!';
+                 
+      url = rawData.data?.url || 
+            rawData.url || 
+            rawData.data?.notification?.url || 
+            '/';
+    } catch (extractErr) {
+      console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
-  }
 
-  // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
-  const title = rawData.notification?.title || 
-                rawData.title || 
-                rawData.data?.title || 
-                rawData.data?.notification?.title || 
-                'AtriosWork';
-                
-  const body = rawData.notification?.body || 
-               rawData.body || 
-               rawData.data?.body || 
-               rawData.data?.notification?.body || 
-               'Nova notificação do sistema!';
-               
-  const url = rawData.data?.url || 
-              rawData.url || 
-              rawData.data?.notification?.url || 
-              '/';
+    try {
+      // Resolver URLs relativas para absolutas usando self.location.origin para garantir que o OS consiga carregar as imagens em segundo plano com o app fechado
+      const origin = self.location.origin;
+      const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
 
-  const options = {
-    body: body,
-    icon: '/logo_atualizado.jpg?v=20260314_v1',
-    badge: '/logo_atualizado.jpg?v=20260314_v1',
-    vibrate: [200, 100, 200],
-    data: url,
-    actions: [
-      { action: 'open', title: 'Ver App' }
-    ]
-  };
+      const options = {
+        body: body,
+        icon: iconUrl,
+        badge: iconUrl,
+        vibrate: [200, 100, 200],
+        data: url,
+        actions: [
+          { action: 'open', title: 'Ver App' }
+        ]
+      };
 
-  event.waitUntil(
-    self.registration.showNotification(title, options)
-  );
+      try {
+        await self.registration.showNotification(title, options);
+      } catch (innerShowErr) {
+        console.warn('[Service Worker] Falha ao exibir com opções avançadas (ações/vibração), tentando fallback simples:', innerShowErr);
+        // Fallback simples sem ações ou vibrações complexas
+        await self.registration.showNotification(title, {
+          body: body,
+          icon: iconUrl,
+          data: url
+        });
+      }
+    } catch (showErr) {
+      console.error('[Service Worker] Erro fatal ao tentar disparar showNotification:', showErr);
+    }
+  })());
 });
 
 // Lidar com o toque ou clique na notificação push
