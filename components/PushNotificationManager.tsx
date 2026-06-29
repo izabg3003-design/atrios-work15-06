@@ -234,82 +234,102 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     return outputArray;
   };
 
-  // Função para registar a subscrição nativa do Web Push (VAPID)
-  const registerVAPIDSubscription = async () => {
-    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !user.id) {
-      console.warn('Este navegador não suporta Web Push.');
-      return;
+  // Função unificada para registar ambos os sistemas de push de forma robusta e sem conflitos
+  const registerUnifiedPush = async () => {
+    if (!user.id) return;
+
+    let fcmToken: string | null = null;
+    let vapidSub: any = null;
+
+    // 1. Tentar obter o token FCM se suportado
+    if (isFirebaseConfigured && isPushSupported() && messaging) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+        fcmToken = await getToken(messaging, {
+          serviceWorkerRegistration: reg,
+          vapidKey: vapidKey || undefined
+        });
+        if (fcmToken) {
+          console.log('[Push Manager] Token FCM obtido com sucesso:', fcmToken);
+        }
+      } catch (fcmErr) {
+        console.warn('[Push Manager] Erro ao obter token FCM:', fcmErr);
+      }
     }
 
-    try {
-      const reg = await navigator.serviceWorker.ready;
-      let subscription = await reg.pushManager.getSubscription();
+    // 2. Tentar obter a subscrição VAPID Web Push
+    if ('serviceWorker' in navigator && 'PushManager' in window) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        let subscription = await reg.pushManager.getSubscription();
 
-      if (!subscription) {
-        // Obter chave pública VAPID do backend
-        const res = await fetch('/api/push/public-key');
-        const { publicKey } = await res.json();
+        if (!subscription) {
+          const res = await fetch('/api/push/public-key');
+          const { publicKey } = await res.json();
 
-        if (!publicKey) {
-          throw new Error('Chave VAPID pública não disponível no servidor.');
+          if (publicKey) {
+            const convertedKey = urlBase64ToUint8Array(publicKey);
+            subscription = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: convertedKey
+            });
+          }
         }
 
-        const convertedKey = urlBase64ToUint8Array(publicKey);
-        subscription = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: convertedKey
-        });
+        if (subscription) {
+          vapidSub = subscription.toJSON();
+          console.log('[Push Manager] Subscrição VAPID obtida com sucesso:', vapidSub);
+        }
+      } catch (vapidErr) {
+        console.warn('[Push Manager] Erro ao obter subscrição VAPID:', vapidErr);
+      }
+    }
+
+    // 3. Persistir os dados unificados no Supabase e no Backend Local
+    try {
+      let combinedPayload: any = null;
+
+      if (vapidSub) {
+        // Se temos VAPID, ele é a estrutura principal de JSON
+        combinedPayload = {
+          ...vapidSub,
+          fcmToken: fcmToken || undefined
+        };
+      } else if (fcmToken) {
+        // Se só temos FCM, guardamos como string normal
+        combinedPayload = fcmToken;
       }
 
-      // Enviar subscrição para o backend persistir
-      await fetch('/api/push/subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          subscription,
-          userId: user.id
-        })
-      });
-
-      console.log('Subscrição Web Push (VAPID) concluída com sucesso!');
-    } catch (err) {
-      console.error('Erro ao registar Web Push (VAPID):', err);
-    }
-  };
-
-  // Função para registrar o token FCM no Supabase
-  const registerFCMToken = async () => {
-    if (!isFirebaseConfigured || !isPushSupported() || !messaging || !user.id) {
-      console.log('FCM não configurado ou notificações não suportadas, pulando registro de token.');
-      return;
-    }
-
-    try {
-      // Obter registro do Service Worker atual (/sw-v3.js)
-      const reg = await navigator.serviceWorker.ready;
-      const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
-
-      const token = await getToken(messaging, {
-        serviceWorkerRegistration: reg,
-        vapidKey: vapidKey || undefined
-      });
-
-      if (token) {
-        console.log('Token FCM obtido:', token);
-        // Atualizar o fcm_token do usuário na tabela de profiles
+      if (combinedPayload) {
+        const tokenString = typeof combinedPayload === 'object' ? JSON.stringify(combinedPayload) : combinedPayload;
+        
+        // A) Salvar no perfil do usuário no Supabase (coluna fcm_token contendo o payload unificado)
         const { error } = await supabase
           .from('profiles')
-          .update({ fcm_token: token })
+          .update({ fcm_token: tokenString })
           .eq('id', user.id);
 
         if (error) {
-          console.error('Erro ao salvar FCM token no perfil:', error);
+          console.error('[Push Manager] Erro ao sincronizar token unificado no Supabase:', error);
         } else {
-          console.log('FCM token salvo com sucesso no perfil do usuário.');
+          console.log('[Push Manager] Token unificado sincronizado com sucesso no Supabase!');
+        }
+
+        // B) Se for VAPID, também registrar no backend local para fins de cache de arquivo local / Firestore
+        if (vapidSub) {
+          await fetch('/api/push/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              subscription: combinedPayload,
+              userId: user.id
+            })
+          });
         }
       }
-    } catch (err) {
-      console.error('Falha ao obter token FCM:', err);
+    } catch (saveErr) {
+      console.error('[Push Manager] Erro fatal ao tentar persistir tokens:', saveErr);
     }
   };
 
@@ -338,7 +358,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               if (newMessaging) {
                 // Forçar registo do token com o novo projeto
                 setTimeout(() => {
-                  registerFCMToken();
+                  registerUnifiedPush();
                 }, 1500);
               }
             }
@@ -354,11 +374,10 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     applyCustomFcmConfig();
   }, [user.id]);
 
-  // Efeito para registrar o token e assinatura automaticamente se a permissão já estiver concedida
+  // Efeito para registrar o token e assinatura unificados automaticamente se a permissão já estiver concedida
   useEffect(() => {
     if (user.id && notificationPermission === 'granted') {
-      registerFCMToken();
-      registerVAPIDSubscription();
+      registerUnifiedPush();
     }
   }, [user.id, notificationPermission]);
 
@@ -442,8 +461,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
         );
         if (user.id) {
-          registerFCMToken();
-          registerVAPIDSubscription();
+          registerUnifiedPush();
         }
       }
     } catch (err) {

@@ -109,7 +109,8 @@ self.addEventListener('push', (event) => {
              rawData.data?.notification?.body || 
              'Nova notificação do sistema!';
                  
-      url = rawData.data?.url || 
+      url = rawData.notification?.data?.url ||
+            rawData.data?.url || 
             rawData.url || 
             rawData.data?.notification?.url || 
             '/';

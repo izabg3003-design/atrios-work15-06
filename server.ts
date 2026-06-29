@@ -330,6 +330,10 @@ async function startServer() {
                 subscription: sub,
                 userId: p.id,
               });
+              // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
+              if (sub.fcmToken) {
+                fcmTokens.push(sub.fcmToken);
+              }
             }
           } catch (e) {
             // Se falhar o parse, trata como token normal
@@ -525,6 +529,14 @@ async function startServer() {
   });
 
   // 🔵 6. CONFIGURAÇÃO DO MIDDLEWARE VITE E ARQUIVOS ESTÁTICOS DO CLIENTE
+  // Servir arquivos de Service Worker com cabeçalhos anti-cache estritos para atualização instantânea no PWA/Navegador
+  app.get(/^\/(sw-v3\.js|firebase-messaging-sw\.js)/, (req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    next();
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
