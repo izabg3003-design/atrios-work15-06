@@ -78,8 +78,20 @@ if (isConfigured && supabase) {
               body: JSON.stringify(options?.body || {}),
             });
             
-            const data = await response.json();
-            return { data, error: response.ok ? null : new Error(data.error || "Erro no envio do FCM via backend") };
+            const responseText = await response.text();
+            let data: any = null;
+            if (responseText.trim()) {
+              try {
+                data = JSON.parse(responseText);
+              } catch (parseErr) {
+                console.warn("[FCM Interceptor] Falha ao analisar resposta JSON do servidor local:", parseErr, "Resposta recebida:", responseText);
+                data = { success: response.ok, rawText: responseText };
+              }
+            } else {
+              data = { success: response.ok, message: "Empty response" };
+            }
+            
+            return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no envio do FCM via backend") };
           } catch (err: any) {
             console.warn("[FCM Interceptor] Falha ao chamar a API de backup local, recorrendo à Edge Function do Supabase:", err);
             if (originalFunctions && typeof originalFunctions.invoke === 'function') {
@@ -121,8 +133,18 @@ if (isConfigured && supabase) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(options?.body || {}),
               });
-              const data = await response.json();
-              return { data, error: response.ok ? null : new Error(data.error || "Erro no envio") };
+              const responseText = await response.text();
+              let data: any = null;
+              if (responseText.trim()) {
+                try {
+                  data = JSON.parse(responseText);
+                } catch (parseErr) {
+                  data = { success: response.ok, rawText: responseText };
+                }
+              } else {
+                data = { success: response.ok, message: "Empty response" };
+              }
+              return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no envio") };
             } catch (err: any) {
               return originalInvoke(functionName, options);
             }
