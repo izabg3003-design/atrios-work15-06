@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import webpush from "npm:web-push";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -164,130 +165,188 @@ serve(async (req) => {
       }
     }
 
+    // Retrieve VAPID details dynamically from app_banners table
+    let vapidPublicKey = "";
+    let vapidPrivateKey = "";
+    const vapidSubject = "mailto:master@atrioswork.com";
+
+    try {
+      const { data: keysData, error: keysError } = await supabase
+        .from("app_banners")
+        .select("*")
+        .eq("user_type", "system_vapid_keys")
+        .maybeSingle();
+
+      if (!keysError && keysData && keysData.highlight && keysData.cta_text) {
+        vapidPublicKey = keysData.highlight;
+        vapidPrivateKey = keysData.cta_text;
+        webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+        console.log("[Edge Function VAPID] Chaves Web Push obtidas do banco de dados com sucesso.");
+      }
+    } catch (err) {
+      console.warn("[Edge Function VAPID] Erro ao obter chaves do banco de dados:", err);
+    }
+
     const rawTokens = filteredProfiles.map(p => p.fcm_token).filter((t): t is string => !!t && t.trim().length > 0);
-    const tokens: string[] = [];
+    const fcmTokens: string[] = [];
+    const webPushSubscriptions: any[] = [];
 
     rawTokens.forEach((t) => {
       const trimmed = t.trim();
       if (trimmed.startsWith("{")) {
         try {
           const parsed = JSON.parse(trimmed);
-          if (parsed && parsed.fcmToken) {
-            tokens.push(parsed.fcmToken);
+          if (parsed && parsed.endpoint) {
+            webPushSubscriptions.push({
+              subscription: parsed,
+              userId: null,
+            });
+            if (parsed.fcmToken) {
+              fcmTokens.push(parsed.fcmToken);
+            }
+          } else if (parsed && parsed.fcmToken) {
+            fcmTokens.push(parsed.fcmToken);
           } else if (parsed && parsed.token) {
-            tokens.push(parsed.token);
+            fcmTokens.push(parsed.token);
           }
         } catch (_e) {
-          tokens.push(trimmed);
+          fcmTokens.push(trimmed);
         }
       } else {
-        tokens.push(trimmed);
+        fcmTokens.push(trimmed);
       }
     });
 
-    if (!tokens.length) {
-      return new Response(JSON.stringify({ success: true, sent: 0, message: "No active tokens for this audience" }), {
+    if (!fcmTokens.length && !webPushSubscriptions.length) {
+      return new Response(JSON.stringify({ success: true, sent: 0, message: "No active devices or subscriptions for this audience" }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    const serviceAccountEnv = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
-    if (!serviceAccountEnv) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: "A variável de ambiente FIREBASE_SERVICE_ACCOUNT não está configurada nas Secrets do Supabase. Configure-a no dashboard do Supabase ou via CLI (Project Settings -> API -> Edge Function Secrets)."
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        }
-      );
-    }
+    let totalSent = 0;
 
-    let serviceAccount: any;
-    try {
-      serviceAccount = JSON.parse(serviceAccountEnv);
-    } catch (parseErr) {
-      return new Response(
-        JSON.stringify({
-          success: false,
-          error: `Erro de formato JSON em FIREBASE_SERVICE_ACCOUNT: ${parseErr.message}`
-        }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" }
-        }
-      );
-    }
+    // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
+    const webPushPromises = [];
+    if (vapidPublicKey && vapidPrivateKey && webPushSubscriptions.length > 0) {
+      webPushPromises.push(...webPushSubscriptions.map(async (ws) => {
+        const payload = JSON.stringify({
+          notification: {
+            title,
+            body,
+            icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            vibrate: [100, 50, 100],
+            data: { url: finalUrl },
+          },
+        });
 
-    const accessToken = await getGoogleAccessToken(
-      serviceAccount.client_email,
-      serviceAccount.private_key
-    );
-
-    const projectId = serviceAccount.project_id;
-
-    const results = await Promise.all(
-      tokens.map(async (token) => {
-        return fetch(
-          `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
-          {
-            method: "POST",
+        try {
+          await webpush.sendNotification(ws.subscription, payload, {
             headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
+              "Urgency": "high"
             },
-            body: JSON.stringify({
-              message: {
-                token,
-                notification: {
-                  title,
-                  body,
-                },
-                android: {
-                  priority: "high",
-                },
-                apns: {
+            TTL: 86400 // 1 dia de tempo de vida
+          });
+          totalSent++;
+        } catch (err: any) {
+          console.error("[Edge VAPID] Erro ao enviar para assinatura:", err.message || err);
+        }
+      }));
+    } else {
+      console.log("[Edge Function] Web Push (VAPID) não disparado devido a chaves ou assinaturas ausentes.");
+    }
+
+    // 🔵 DISPARO 2: Enviar notificações via Firebase Cloud Messaging (FCM)
+    const fcmPromises = [];
+    if (fcmTokens.length > 0) {
+      const serviceAccountEnv = Deno.env.get("FIREBASE_SERVICE_ACCOUNT");
+      if (serviceAccountEnv) {
+        try {
+          const serviceAccount = JSON.parse(serviceAccountEnv);
+          const accessToken = await getGoogleAccessToken(
+            serviceAccount.client_email,
+            serviceAccount.private_key
+          );
+          const projectId = serviceAccount.project_id;
+
+          fcmPromises.push(...fcmTokens.map(async (token) => {
+            try {
+              const fcmResponse = await fetch(
+                `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+                {
+                  method: "POST",
                   headers: {
-                    "apns-priority": "10",
+                    Authorization: `Bearer ${accessToken}`,
+                    "Content-Type": "application/json",
                   },
-                  payload: {
-                    aps: {
-                      alert: {
+                  body: JSON.stringify({
+                    message: {
+                      token,
+                      notification: {
                         title,
                         body,
                       },
-                      sound: "default",
+                      android: {
+                        priority: "high",
+                      },
+                      apns: {
+                        headers: {
+                          "apns-priority": "10",
+                        },
+                        payload: {
+                          aps: {
+                            alert: {
+                              title,
+                              body,
+                            },
+                            sound: "default",
+                          },
+                        },
+                      },
+                      webpush: {
+                        headers: {
+                          Urgency: "high",
+                        },
+                        notification: {
+                          title,
+                          body,
+                          icon: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
+                          badge: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
+                        },
+                        fcm_options: {
+                          link: finalUrl,
+                        },
+                      },
+                      data: {
+                        url: finalUrl,
+                      },
                     },
-                  },
-                },
-                webpush: {
-                  headers: {
-                    Urgency: "high",
-                  },
-                  notification: {
-                    title,
-                    body,
-                    icon: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
-                    badge: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
-                  },
-                  fcm_options: {
-                    link: finalUrl,
-                  },
-                },
-                data: {
-                  url: finalUrl,
-                },
-              },
-            }),
-          }
-        );
-      })
-    );
+                  }),
+                }
+              );
+
+              if (fcmResponse.ok) {
+                totalSent++;
+              } else {
+                const fcmErrResult = await fcmResponse.json();
+                console.error(`[Edge FCM] Erro para o token ${token.substring(0, 15)}...:`, fcmErrResult);
+              }
+            } catch (err: any) {
+              console.error(`[Edge FCM] Falha ao despachar para o token ${token.substring(0, 15)}...:`, err);
+            }
+          }));
+        } catch (authErr: any) {
+          console.error("[Edge FCM] Falha na autenticação do Google Access Token:", authErr);
+        }
+      } else {
+        console.warn("[Edge FCM] A variável de ambiente FIREBASE_SERVICE_ACCOUNT não está configurada.");
+      }
+    }
+
+    await Promise.all([...webPushPromises, ...fcmPromises]);
 
     return new Response(
-      JSON.stringify({ success: true, sent: results.length }),
+      JSON.stringify({ success: true, sent: totalSent, message: `Disparo de push concluído: ${totalSent} destinos atendidos.` }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
 
