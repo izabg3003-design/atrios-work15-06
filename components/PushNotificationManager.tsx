@@ -280,7 +280,8 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
     // 2. Se o FCM falhou ou não for suportado, tentar obter a subscrição VAPID padrão do servidor como Fallback.
     // Para evitar o conflito que sobrescreve as chaves de criptografia no PushManager, só fazemos isso se não temos o FCM activo.
-    if (!fcmSuccess && 'serviceWorker' in navigator && 'PushManager' in window) {
+    // Desativamos o VAPID completamente para o Master (forçando apenas FCM).
+    if (!isMaster && !fcmSuccess && 'serviceWorker' in navigator && 'PushManager' in window) {
       try {
         console.log('[Push Manager] Tentando obter subscrição VAPID padrão como fallback...');
         const reg = await navigator.serviceWorker.ready;
@@ -343,14 +344,14 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     try {
       let combinedPayload: any = null;
 
-      if (vapidSub) {
+      if (!isMaster && vapidSub) {
         // Se temos VAPID, ele é a estrutura principal de JSON
         combinedPayload = {
           ...vapidSub,
           fcmToken: fcmToken || undefined
         };
       } else if (fcmToken) {
-        // Se só temos FCM, guardamos como string normal
+        // Se só temos FCM (ou se for Master), guardamos como string normal do token FCM
         combinedPayload = fcmToken;
       }
 

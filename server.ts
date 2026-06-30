@@ -504,26 +504,45 @@ async function startServer() {
         const token = p.fcm_token;
         if (!token || !token.trim()) return;
 
-        // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID
-        if (token.trim().startsWith("{")) {
-          try {
-            const sub = JSON.parse(token);
-            if (sub && sub.endpoint) {
-              webPushSubscriptions.push({
-                subscription: sub,
-                userId: p.id,
-              });
-              // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
-              if (sub.fcmToken) {
+        const isMaster = isMasterEmail(p.email);
+
+        // Se for Master, removemos o uso de VAPID completamente.
+        if (isMaster) {
+          if (token.trim().startsWith("{")) {
+            try {
+              const sub = JSON.parse(token);
+              if (sub && sub.fcmToken) {
                 fcmTokens.push(sub.fcmToken);
               }
+            } catch (e) {
+              // Se falhar o parse, trata como token normal
+              fcmTokens.push(token);
             }
-          } catch (e) {
-            // Se falhar o parse, trata como token normal
+          } else {
             fcmTokens.push(token);
           }
         } else {
-          fcmTokens.push(token);
+          // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID para usuários comuns
+          if (token.trim().startsWith("{")) {
+            try {
+              const sub = JSON.parse(token);
+              if (sub && sub.endpoint) {
+                webPushSubscriptions.push({
+                  subscription: sub,
+                  userId: p.id,
+                });
+                // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
+                if (sub.fcmToken) {
+                  fcmTokens.push(sub.fcmToken);
+                }
+              }
+            } catch (e) {
+              // Se falhar o parse, trata como token normal
+              fcmTokens.push(token);
+            }
+          } else {
+            fcmTokens.push(token);
+          }
         }
       });
 
@@ -531,19 +550,30 @@ async function startServer() {
       const localSubs = loadLocalSubscriptions();
       localSubs.forEach((ls) => {
         if (!ls.subscription || !ls.subscription.endpoint) return;
+
+        // 1. Tentar associar usando dados de perfis se disponíveis
+        const matchingProfile = profiles?.find((p) => p.id === ls.userId);
+        
+        // 2. Determinar de forma independente as informações do utilizador (usando perfil do Supabase ou dados embutidos na assinatura)
+        const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
+        const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
+
+        // 3. Verificar se o e-mail ou dados correspondem a um Master
+        const isMaster = isMasterEmail(userEmail);
+
+        // Se for Master, ignore a subscrição VAPID completamente e use FCM se disponível
+        if (isMaster) {
+          if (ls.subscription && ls.subscription.fcmToken) {
+            if (!fcmTokens.includes(ls.subscription.fcmToken)) {
+              fcmTokens.push(ls.subscription.fcmToken);
+            }
+          }
+          return;
+        }
+
         // Evitar duplicados pelo endpoint
         const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
         if (!jaExiste) {
-          // 1. Tentar associar usando dados de perfis se disponíveis
-          const matchingProfile = profiles?.find((p) => p.id === ls.userId);
-          
-          // 2. Determinar de forma independente as informações do utilizador (usando perfil do Supabase ou dados embutidos na assinatura)
-          const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
-          const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
-
-          // 3. Verificar se o e-mail ou dados correspondem a um Master
-          const isMaster = isMasterEmail(userEmail);
-
           let belongsToAudience = false;
 
           if (targetUserId) {
