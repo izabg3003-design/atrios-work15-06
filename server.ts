@@ -304,16 +304,58 @@ async function startServer() {
         return isMasterEmail(profile.email);
       };
 
+      // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
+      const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string) => {
+        const titleL = (tTitle || "").toLowerCase();
+        const bodyL = (tBody || "").toLowerCase();
+        const audL = (tAudience || "").toLowerCase();
+
+        // Se a audiência explícita for de administração ou suporte técnico, considera-se sistema sensível
+        if (audL === "admin" || audL === "master" || audL === "support") {
+          return true;
+        }
+
+        // Palavras-chave estritas associadas a notificações do sistema/atendimento
+        const systemKeywords = [
+          "atendimento",
+          "suporte",
+          "cadastro",
+          "registado",
+          "registrado",
+          "desbloqueio",
+          "novo utilizador",
+          "novo cadastro",
+          "venda realizada",
+          "nova venda",
+          "novo chat",
+          "solicitou atendimento",
+          "solicitação de"
+        ];
+
+        return systemKeywords.some(keyword => titleL.includes(keyword) || bodyL.includes(keyword));
+      };
+
+      const isSys = isSystemNotification(title, body, audience);
+      if (isSys) {
+        console.log(`[Push Server] Notificação "${title}" classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA. Filtrando apenas para contas Master.`);
+      }
+
       let filteredProfiles = profiles || [];
 
-      if (audience === "admin" || audience === "master") {
+      if (isSys) {
+        // Notificações de sistema vão UNICAMENTE para os Master accounts
         filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
-      } else if (audience === "vendors") {
-        filteredProfiles = filteredProfiles.filter((p) => p.role === "vendor");
-      } else if (audience === "support") {
-        filteredProfiles = filteredProfiles.filter((p) => p.role === "support" || isAdminUser(p));
-      } else if (audience === "user") {
-        filteredProfiles = filteredProfiles.filter((p) => p.role === "user" && !isMasterEmail(p.email));
+      } else {
+        // Fluxo normal para as outras notificações (ex: expiração de licença, informativos gerais, etc.)
+        if (audience === "admin" || audience === "master") {
+          filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
+        } else if (audience === "vendors") {
+          filteredProfiles = filteredProfiles.filter((p) => p.role === "vendor");
+        } else if (audience === "support") {
+          filteredProfiles = filteredProfiles.filter((p) => p.role === "support" || isAdminUser(p));
+        } else if (audience === "user") {
+          filteredProfiles = filteredProfiles.filter((p) => p.role === "user" && !isMasterEmail(p.email));
+        }
       }
 
       // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON
@@ -366,16 +408,20 @@ async function startServer() {
 
           let belongsToAudience = false;
 
-          if (audience === "admin" || audience === "master") {
+          if (isSys) {
             belongsToAudience = isMaster;
-          } else if (audience === "vendors") {
-            belongsToAudience = userRole === "vendor";
-          } else if (audience === "support") {
-            belongsToAudience = userRole === "support" || isMaster;
-          } else if (audience === "user") {
-            belongsToAudience = userRole === "user" && !isMaster;
-          } else if (!audience || audience === "geral" || audience === "all") {
-            belongsToAudience = true;
+          } else {
+            if (audience === "admin" || audience === "master") {
+              belongsToAudience = isMaster;
+            } else if (audience === "vendors") {
+              belongsToAudience = userRole === "vendor";
+            } else if (audience === "support") {
+              belongsToAudience = userRole === "support" || isMaster;
+            } else if (audience === "user") {
+              belongsToAudience = userRole === "user" && !isMaster;
+            } else if (!audience || audience === "geral" || audience === "all") {
+              belongsToAudience = true;
+            }
           }
 
           if (belongsToAudience) {
