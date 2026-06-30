@@ -257,11 +257,32 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
     let fcmToken: string | null = null;
     let vapidSub: any = null;
-    let standardVapidSuccess = false;
+    let fcmSuccess = false;
 
-    // 1. Tentar obter a subscrição VAPID Web Push PRIMEIRO
-    if ('serviceWorker' in navigator && 'PushManager' in window) {
+    // 1. Tentar obter o token FCM PRIMEIRO (altamente robusto e funciona com app fechado)
+    if (isFirebaseConfigured && isPushSupported() && messaging) {
       try {
+        console.log('[Push Manager] Tentando obter token FCM principal...');
+        const reg = await navigator.serviceWorker.ready;
+        const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+        fcmToken = await getToken(messaging, {
+          serviceWorkerRegistration: reg,
+          vapidKey: vapidKey || undefined
+        });
+        if (fcmToken) {
+          fcmSuccess = true;
+          console.log('[Push Manager] Token FCM obtido com sucesso:', fcmToken);
+        }
+      } catch (fcmErr) {
+        console.warn('[Push Manager] Erro ao obter token FCM:', fcmErr);
+      }
+    }
+
+    // 2. Se o FCM falhou ou não for suportado, tentar obter a subscrição VAPID padrão do servidor como Fallback.
+    // Para evitar o conflito que sobrescreve as chaves de criptografia no PushManager, só fazemos isso se não temos o FCM activo.
+    if (!fcmSuccess && 'serviceWorker' in navigator && 'PushManager' in window) {
+      try {
+        console.log('[Push Manager] Tentando obter subscrição VAPID padrão como fallback...');
         const reg = await navigator.serviceWorker.ready;
         let subscription = await reg.pushManager.getSubscription();
 
@@ -310,31 +331,11 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
           if (subscription) {
             vapidSub = subscription.toJSON();
-            standardVapidSuccess = true;
             console.log('[Push Manager] Subscrição VAPID obtida com sucesso:', vapidSub);
           }
         }
       } catch (vapidErr) {
         console.warn('[Push Manager] Erro ao obter subscrição VAPID padrão:', vapidErr);
-      }
-    }
-
-    // 2. Tentar obter o token FCM apenas se a subscrição VAPID padrão do servidor falhou ou não for suportada.
-    // Para evitar o conflito que sobrescreve as chaves de criptografia no PushManager, se já temos a
-    // subscrição VAPID com a chave do servidor activa, NÃO chamamos o getToken do Firebase que usaria outra chave.
-    if (!standardVapidSuccess && isFirebaseConfigured && isPushSupported() && messaging) {
-      try {
-        const reg = await navigator.serviceWorker.ready;
-        const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
-        fcmToken = await getToken(messaging, {
-          serviceWorkerRegistration: reg,
-          vapidKey: vapidKey || undefined
-        });
-        if (fcmToken) {
-          console.log('[Push Manager] Token FCM obtido como fallback:', fcmToken);
-        }
-      } catch (fcmErr) {
-        console.warn('[Push Manager] Erro ao obter token FCM:', fcmErr);
       }
     }
 
