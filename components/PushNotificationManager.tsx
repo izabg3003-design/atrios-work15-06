@@ -257,25 +257,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
     let fcmToken: string | null = null;
     let vapidSub: any = null;
+    let standardVapidSuccess = false;
 
-    // 1. Tentar obter o token FCM se suportado
-    if (isFirebaseConfigured && isPushSupported() && messaging) {
-      try {
-        const reg = await navigator.serviceWorker.ready;
-        const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
-        fcmToken = await getToken(messaging, {
-          serviceWorkerRegistration: reg,
-          vapidKey: vapidKey || undefined
-        });
-        if (fcmToken) {
-          console.log('[Push Manager] Token FCM obtido com sucesso:', fcmToken);
-        }
-      } catch (fcmErr) {
-        console.warn('[Push Manager] Erro ao obter token FCM:', fcmErr);
-      }
-    }
-
-    // 2. Tentar obter a subscrição VAPID Web Push
+    // 1. Tentar obter a subscrição VAPID Web Push PRIMEIRO
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       try {
         const reg = await navigator.serviceWorker.ready;
@@ -284,51 +268,73 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         const res = await fetch('/api/push/public-key');
         const { publicKey } = await res.json();
 
-        if (subscription && publicKey) {
-          // Verificar se a chave pública do servidor coincide com a chave pública da subscrição existente
-          const currentKeyBytes = urlBase64ToUint8Array(publicKey);
-          const subKeyBuffer = subscription.options.applicationServerKey;
+        if (publicKey) {
+          const serverKeyBytes = urlBase64ToUint8Array(publicKey);
           
-          let keysMatch = false;
-          if (subKeyBuffer) {
-            const subKeyBytes = new Uint8Array(subKeyBuffer);
-            if (subKeyBytes.length === currentKeyBytes.length) {
-              keysMatch = true;
-              for (let i = 0; i < subKeyBytes.length; i++) {
-                if (subKeyBytes[i] !== currentKeyBytes[i]) {
-                  keysMatch = false;
-                  break;
+          if (subscription) {
+            // Verificar se a chave pública do servidor coincide com a chave pública da subscrição existente
+            const subKeyBuffer = subscription.options.applicationServerKey;
+            
+            let keysMatch = false;
+            if (subKeyBuffer) {
+              const subKeyBytes = new Uint8Array(subKeyBuffer);
+              if (subKeyBytes.length === serverKeyBytes.length) {
+                keysMatch = true;
+                for (let i = 0; i < subKeyBytes.length; i++) {
+                  if (subKeyBytes[i] !== serverKeyBytes[i]) {
+                    keysMatch = false;
+                    break;
+                  }
                 }
               }
             }
-          }
 
-          if (!keysMatch) {
-            console.log('[Push Manager] Chave VAPID mudou ou não coincide! Desinscrevendo antiga e gerando nova...');
-            try {
-              await subscription.unsubscribe();
-            } catch (unsubErr) {
-              console.warn('[Push Manager] Erro ao desinscrever subscrição antiga:', unsubErr);
+            if (!keysMatch) {
+              console.log('[Push Manager] Chave VAPID mudou ou não coincide! Desinscrevendo antiga e gerando nova...');
+              try {
+                await subscription.unsubscribe();
+              } catch (unsubErr) {
+                console.warn('[Push Manager] Erro ao desinscrever subscrição antiga:', unsubErr);
+              }
+              subscription = null;
             }
-            subscription = null;
           }
-        }
 
-        if (!subscription && publicKey) {
-          console.log('[Push Manager] Criando nova subscrição VAPID...');
-          const convertedKey = urlBase64ToUint8Array(publicKey);
-          subscription = await reg.pushManager.subscribe({
-            userVisibleOnly: true,
-            applicationServerKey: convertedKey
-          });
-        }
+          if (!subscription) {
+            console.log('[Push Manager] Criando nova subscrição VAPID...');
+            subscription = await reg.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: serverKeyBytes
+            });
+          }
 
-        if (subscription) {
-          vapidSub = subscription.toJSON();
-          console.log('[Push Manager] Subscrição VAPID obtida com sucesso:', vapidSub);
+          if (subscription) {
+            vapidSub = subscription.toJSON();
+            standardVapidSuccess = true;
+            console.log('[Push Manager] Subscrição VAPID obtida com sucesso:', vapidSub);
+          }
         }
       } catch (vapidErr) {
-        console.warn('[Push Manager] Erro ao obter subscrição VAPID:', vapidErr);
+        console.warn('[Push Manager] Erro ao obter subscrição VAPID padrão:', vapidErr);
+      }
+    }
+
+    // 2. Tentar obter o token FCM apenas se a subscrição VAPID padrão do servidor falhou ou não for suportada.
+    // Para evitar o conflito que sobrescreve as chaves de criptografia no PushManager, se já temos a
+    // subscrição VAPID com a chave do servidor activa, NÃO chamamos o getToken do Firebase que usaria outra chave.
+    if (!standardVapidSuccess && isFirebaseConfigured && isPushSupported() && messaging) {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+        fcmToken = await getToken(messaging, {
+          serviceWorkerRegistration: reg,
+          vapidKey: vapidKey || undefined
+        });
+        if (fcmToken) {
+          console.log('[Push Manager] Token FCM obtido como fallback:', fcmToken);
+        }
+      } catch (fcmErr) {
+        console.warn('[Push Manager] Erro ao obter token FCM:', fcmErr);
       }
     }
 
