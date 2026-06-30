@@ -323,7 +323,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               subscription: combinedPayload,
-              userId: user.id
+              userId: user.id,
+              email: user.email || undefined,
+              role: user.role || undefined
             })
           });
         }

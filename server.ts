@@ -275,18 +275,21 @@ async function startServer() {
 
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-      // 2. Obter perfis ativos do Supabase que contêm fcm_token ou subscrições
-      const { data: profiles, error: dbError } = await supabase
-        .from("profiles")
-        .select("id, fcm_token, role, email")
-        .not("fcm_token", "is", null);
+      // 2. Obter perfis ativos do Supabase que contêm fcm_token ou subscrições de forma resiliente
+      let profiles: any[] = [];
+      try {
+        const { data, error: dbError } = await supabase
+          .from("profiles")
+          .select("id, fcm_token, role, email")
+          .not("fcm_token", "is", null);
 
-      if (dbError) {
-        console.error("[FCM Server] Erro ao buscar perfis no Supabase:", dbError);
-        return res.status(500).json({
-          success: false,
-          error: `Erro de banco de dados Supabase: ${dbError.message}`,
-        });
+        if (dbError) {
+          console.warn("[FCM Server] Erro ao buscar perfis no Supabase (usando dados locais de subscrições como alternativa):", dbError.message);
+        } else {
+          profiles = data || [];
+        }
+      } catch (err: any) {
+        console.warn("[FCM Server] Excepção ao buscar perfis do Supabase:", err.message || err);
       }
 
       // 3. Regras de filtragem de público-alvo (Audience filtering)
@@ -351,18 +354,32 @@ async function startServer() {
         // Evitar duplicados pelo endpoint
         const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
         if (!jaExiste) {
-          // Filtrar por audiência se for possível associar perfil do usuário correspondente
+          // 1. Tentar associar usando dados de perfis se disponíveis
           const matchingProfile = profiles?.find((p) => p.id === ls.userId);
-          if (matchingProfile) {
-            const belongsToAudience = filteredProfiles.some((p) => p.id === ls.userId);
-            if (belongsToAudience) {
-              webPushSubscriptions.push(ls);
-            }
-          } else {
-            // Se não conseguimos vincular, mas o público é geral, enviamos
-            if (!audience || audience === "geral" || audience === "all" || audience === "user") {
-              webPushSubscriptions.push(ls);
-            }
+          
+          // 2. Determinar de forma independente as informações do utilizador (usando perfil do Supabase ou dados embutidos na assinatura)
+          const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
+          const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
+
+          // 3. Verificar se o e-mail ou dados correspondem a um Master
+          const isMaster = isMasterEmail(userEmail);
+
+          let belongsToAudience = false;
+
+          if (audience === "admin" || audience === "master") {
+            belongsToAudience = isMaster;
+          } else if (audience === "vendors") {
+            belongsToAudience = userRole === "vendor";
+          } else if (audience === "support") {
+            belongsToAudience = userRole === "support" || isMaster;
+          } else if (audience === "user") {
+            belongsToAudience = userRole === "user" && !isMaster;
+          } else if (!audience || audience === "geral" || audience === "all") {
+            belongsToAudience = true;
+          }
+
+          if (belongsToAudience) {
+            webPushSubscriptions.push(ls);
           }
         }
       });

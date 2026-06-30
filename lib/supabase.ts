@@ -93,11 +93,16 @@ if (isConfigured && supabase) {
             
             return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no envio do FCM via backend") };
           } catch (err: any) {
-            console.warn("[FCM Interceptor] Falha ao chamar a API de backup local, recorrendo à Edge Function do Supabase:", err);
-            if (originalFunctions && typeof originalFunctions.invoke === 'function') {
+            console.warn("[FCM Interceptor] Falha ao chamar a API de backup local:", err);
+            // REGRA DE SEGURANÇA ESTRITA: Para evitar o vazamento de notificações push de sistema para usuários comuns
+            // através de Edge Functions reais do Supabase desatualizadas na nuvem,
+            // NUNCA recorremos à Edge Function real se a audiência for sensível (admin/master).
+            const isSensitiveAudience = options?.body?.audience === 'admin' || options?.body?.audience === 'master';
+            if (!isSensitiveAudience && originalFunctions && typeof originalFunctions.invoke === 'function') {
+              console.log("[FCM Interceptor] Recorrendo à Edge Function real do Supabase para audiência geral...");
               return originalFunctions.invoke(functionName, options);
             }
-            return { data: null, error: err };
+            return { data: null, error: new Error("Falha no envio local de push e fallback bloqueado por segurança.") };
           }
         }
         if (originalFunctions && typeof originalFunctions.invoke === 'function') {
@@ -146,7 +151,12 @@ if (isConfigured && supabase) {
               }
               return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no envio") };
             } catch (err: any) {
-              return originalInvoke(functionName, options);
+              console.warn("[FCM Interceptor Fallback] Falha na API local:", err);
+              const isSensitiveAudience = options?.body?.audience === 'admin' || options?.body?.audience === 'master';
+              if (!isSensitiveAudience && originalInvoke) {
+                return originalInvoke(functionName, options);
+              }
+              return { data: null, error: new Error("Falha no envio local de push e fallback bloqueado por segurança.") };
             }
           }
           return originalInvoke(functionName, options);
