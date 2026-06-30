@@ -78,7 +78,8 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return cors();
 
   try {
-    const { title, body, audience, targetUserId, targetUserEmail } = await req.json();
+    const { title, body, audience, targetUserId, targetUserEmail, url } = await req.json();
+    const finalUrl = url || '/';
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -163,7 +164,26 @@ serve(async (req) => {
       }
     }
 
-    const tokens = filteredProfiles.map(p => p.fcm_token).filter((t): t is string => !!t && t.trim().length > 0);
+    const rawTokens = filteredProfiles.map(p => p.fcm_token).filter((t): t is string => !!t && t.trim().length > 0);
+    const tokens: string[] = [];
+
+    rawTokens.forEach((t) => {
+      const trimmed = t.trim();
+      if (trimmed.startsWith("{")) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && parsed.fcmToken) {
+            tokens.push(parsed.fcmToken);
+          } else if (parsed && parsed.token) {
+            tokens.push(parsed.token);
+          }
+        } catch (_e) {
+          tokens.push(trimmed);
+        }
+      } else {
+        tokens.push(trimmed);
+      }
+    });
 
     if (!tokens.length) {
       return new Response(JSON.stringify({ success: true, sent: 0, message: "No active tokens for this audience" }), {
@@ -233,11 +253,11 @@ serve(async (req) => {
                     badge: '/logo_atualizado.jpg?v=20260314_v1',
                   },
                   fcm_options: {
-                    link: '/',
+                    link: finalUrl,
                   },
                 },
                 data: {
-                  url: '/',
+                  url: finalUrl,
                 },
               },
             }),
