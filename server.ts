@@ -7,100 +7,7 @@ import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import admin from "firebase-admin";
 
-// 🔵 1. DECLARAÇÃO E INICIALIZAÇÃO DE CHAVES VAPID (PERSISTÊNCIA DUPLA EM NUVEM SUPABASE + LOCAL)
-let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
-let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
-const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com";
-
-const keysFilePath = path.join(process.cwd(), "vapid-keys.json");
-
-async function initializeVapidKeys() {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-
-  if (vapidPublicKey && vapidPrivateKey) {
-    console.log("[VAPID] Chaves Web Push obtidas via variáveis de ambiente.");
-    webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
-    return;
-  }
-
-  // 1. Tentar obter do Supabase (Nuvem Persistente)
-  if (supabaseServiceKey) {
-    try {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      const { data, error } = await supabase
-        .from("app_banners")
-        .select("*")
-        .eq("user_type", "system_vapid_keys")
-        .maybeSingle();
-
-      if (!error && data && data.highlight && data.cta_text) {
-        vapidPublicKey = data.highlight;
-        vapidPrivateKey = data.cta_text;
-        console.log("[VAPID] Chaves Web Push recuperadas com sucesso do Supabase (Nuvem Persistente).");
-        
-        // Sincronizar cache local
-        try {
-          fs.writeFileSync(keysFilePath, JSON.stringify({ publicKey: vapidPublicKey, privateKey: vapidPrivateKey }, null, 2), "utf8");
-        } catch (e) {
-          console.warn("[VAPID] Não foi possível salvar cache local de chaves:", e);
-        }
-        
-        webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
-        return;
-      }
-    } catch (dbErr) {
-      console.warn("[VAPID] Falha ao consultar Supabase, tentando local:", dbErr);
-    }
-  }
-
-  // 2. Tentar obter do cache local
-  if (fs.existsSync(keysFilePath)) {
-    try {
-      const savedKeys = JSON.parse(fs.readFileSync(keysFilePath, "utf8"));
-      vapidPublicKey = savedKeys.publicKey;
-      vapidPrivateKey = savedKeys.privateKey;
-      console.log("[VAPID] Chaves de segurança carregadas do ficheiro local 'vapid-keys.json'.");
-      webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
-      return;
-    } catch (e) {
-      console.error("[VAPID] Erro ao ler cache local de chaves:", e);
-    }
-  }
-
-  // 3. Se não houver em nenhum lado, gerar chaves novas
-  const keys = webpush.generateVAPIDKeys();
-  vapidPublicKey = keys.publicKey;
-  vapidPrivateKey = keys.privateKey;
-  console.log("[VAPID] Novas chaves Web Push geradas.");
-  
-  try {
-    fs.writeFileSync(keysFilePath, JSON.stringify(keys, null, 2), "utf8");
-  } catch (e) {
-    console.error("[VAPID] Falha ao gravar novas chaves no local:", e);
-  }
-
-  // Salvar no Supabase
-  if (supabaseServiceKey) {
-    try {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
-      await supabase.from("app_banners").insert([{
-        user_type: "system_vapid_keys",
-        title: "System VAPID Keys",
-        highlight: vapidPublicKey,
-        cta_text: vapidPrivateKey,
-        is_active: true
-      }]);
-      console.log("[VAPID] Novas chaves Web Push persistidas no Supabase com sucesso.");
-    } catch (saveErr) {
-      console.error("[VAPID] Erro ao persistir novas chaves no Supabase:", saveErr);
-    }
-  }
-
-  webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
-}
-
-// 🔵 2. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO)
+// 🔵 1. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO)
 const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 let isFirebaseAdminInitialized = false;
 
@@ -129,6 +36,162 @@ if (serviceAccountEnv) {
   }
 } else {
   console.warn("[Firebase Admin] FIREBASE_SERVICE_ACCOUNT não encontrada. Envio nativo FCM desativado.");
+}
+
+// 🔵 2. DECLARAÇÃO E INICIALIZAÇÃO DE CHAVES VAPID (PERSISTÊNCIA MULTI-CAMADA EM FIRESTORE + SUPABASE + LOCAL)
+let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com";
+
+const keysFilePath = path.join(process.cwd(), "vapid-keys.json");
+
+async function initializeVapidKeys() {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (vapidPublicKey && vapidPrivateKey) {
+    console.log("[VAPID] Chaves Web Push obtidas via variáveis de ambiente.");
+    webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    return;
+  }
+
+  // Camada 1: Tentar obter do Firestore (Persistência em Nuvem Garantida)
+  if (isFirebaseAdminInitialized) {
+    try {
+      const db = adminSdk.firestore();
+      const doc = await db.collection("system_config").doc("vapid_keys").get();
+      if (doc.exists) {
+        const data = doc.data();
+        if (data && data.publicKey && data.privateKey) {
+          vapidPublicKey = data.publicKey;
+          vapidPrivateKey = data.privateKey;
+          console.log("[VAPID] Chaves Web Push recuperadas com sucesso do FIRESTORE (Nuvem Persistente).");
+          
+          // Sincronizar cache local
+          try {
+            fs.writeFileSync(keysFilePath, JSON.stringify({ publicKey: vapidPublicKey, privateKey: vapidPrivateKey }, null, 2), "utf8");
+          } catch (e) {}
+
+          webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+          return;
+        }
+      }
+    } catch (fsErr) {
+      console.warn("[VAPID] Falha ao consultar chaves no Firestore:", fsErr);
+    }
+  }
+
+  // Camada 2: Tentar obter do Supabase
+  if (supabaseServiceKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data, error } = await supabase
+        .from("app_banners")
+        .select("*")
+        .eq("user_type", "system_vapid_keys")
+        .maybeSingle();
+
+      if (!error && data && data.highlight && data.cta_text) {
+        vapidPublicKey = data.highlight;
+        vapidPrivateKey = data.cta_text;
+        console.log("[VAPID] Chaves Web Push recuperadas com sucesso do Supabase.");
+        
+        // Sincronizar cache local e Firestore
+        try {
+          fs.writeFileSync(keysFilePath, JSON.stringify({ publicKey: vapidPublicKey, privateKey: vapidPrivateKey }, null, 2), "utf8");
+        } catch (e) {}
+
+        if (isFirebaseAdminInitialized) {
+          try {
+            const db = adminSdk.firestore();
+            await db.collection("system_config").doc("vapid_keys").set({
+              publicKey: vapidPublicKey,
+              privateKey: vapidPrivateKey,
+              createdAt: new Date().toISOString()
+            });
+          } catch (e) {}
+        }
+        
+        webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+        return;
+      }
+    } catch (dbErr) {
+      console.warn("[VAPID] Falha ao consultar Supabase:", dbErr);
+    }
+  }
+
+  // Camada 3: Tentar obter do cache local
+  if (fs.existsSync(keysFilePath)) {
+    try {
+      const savedKeys = JSON.parse(fs.readFileSync(keysFilePath, "utf8"));
+      vapidPublicKey = savedKeys.publicKey;
+      vapidPrivateKey = savedKeys.privateKey;
+      console.log("[VAPID] Chaves de segurança carregadas do ficheiro local 'vapid-keys.json'.");
+
+      // Gravar no Firestore para segurança
+      if (isFirebaseAdminInitialized) {
+        try {
+          const db = adminSdk.firestore();
+          await db.collection("system_config").doc("vapid_keys").set({
+            publicKey: vapidPublicKey,
+            privateKey: vapidPrivateKey,
+            createdAt: new Date().toISOString()
+          });
+        } catch (e) {}
+      }
+
+      webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
+      return;
+    } catch (e) {
+      console.error("[VAPID] Erro ao ler cache local de chaves:", e);
+    }
+  }
+
+  // Camada 4: Se não houver em nenhum lado, gerar chaves novas estáveis e persistir em todas as camadas
+  const keys = webpush.generateVAPIDKeys();
+  vapidPublicKey = keys.publicKey;
+  vapidPrivateKey = keys.privateKey;
+  console.log("[VAPID] Novas chaves Web Push geradas com sucesso.");
+  
+  try {
+    fs.writeFileSync(keysFilePath, JSON.stringify(keys, null, 2), "utf8");
+  } catch (e) {
+    console.error("[VAPID] Falha ao gravar novas chaves no local:", e);
+  }
+
+  // Persistir no Firestore
+  if (isFirebaseAdminInitialized) {
+    try {
+      const db = adminSdk.firestore();
+      await db.collection("system_config").doc("vapid_keys").set({
+        publicKey: vapidPublicKey,
+        privateKey: vapidPrivateKey,
+        createdAt: new Date().toISOString()
+      });
+      console.log("[VAPID] Novas chaves salvas com sucesso no Firestore.");
+    } catch (saveFsErr) {
+      console.error("[VAPID] Erro ao persistir chaves no Firestore:", saveFsErr);
+    }
+  }
+
+  // Persistir no Supabase (best-effort)
+  if (supabaseServiceKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      await supabase.from("app_banners").insert([{
+        user_type: "system_vapid_keys",
+        title: "System VAPID Keys",
+        highlight: vapidPublicKey,
+        cta_text: vapidPrivateKey,
+        is_active: true
+      }]);
+      console.log("[VAPID] Novas chaves Web Push persistidas no Supabase.");
+    } catch (saveErr) {
+      console.warn("[VAPID] Aviso: Erro ao persistir chaves no Supabase (ignorável se RLS ativo):", saveErr);
+    }
+  }
+
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
 }
 
 // Helper para obter token de acesso do Google OAuth2 de forma nativa e segura para fallback HTTP v1
