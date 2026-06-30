@@ -298,7 +298,7 @@ async function startServer() {
       };
 
       const isAdminUser = (profile: any) => {
-        return profile.role === "admin" || isMasterEmail(profile.email);
+        return isMasterEmail(profile.email);
       };
 
       let filteredProfiles = profiles || [];
