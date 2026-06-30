@@ -281,17 +281,46 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         const reg = await navigator.serviceWorker.ready;
         let subscription = await reg.pushManager.getSubscription();
 
-        if (!subscription) {
-          const res = await fetch('/api/push/public-key');
-          const { publicKey } = await res.json();
+        const res = await fetch('/api/push/public-key');
+        const { publicKey } = await res.json();
 
-          if (publicKey) {
-            const convertedKey = urlBase64ToUint8Array(publicKey);
-            subscription = await reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: convertedKey
-            });
+        if (subscription && publicKey) {
+          // Verificar se a chave pública do servidor coincide com a chave pública da subscrição existente
+          const currentKeyBytes = urlBase64ToUint8Array(publicKey);
+          const subKeyBuffer = subscription.options.applicationServerKey;
+          
+          let keysMatch = false;
+          if (subKeyBuffer) {
+            const subKeyBytes = new Uint8Array(subKeyBuffer);
+            if (subKeyBytes.length === currentKeyBytes.length) {
+              keysMatch = true;
+              for (let i = 0; i < subKeyBytes.length; i++) {
+                if (subKeyBytes[i] !== currentKeyBytes[i]) {
+                  keysMatch = false;
+                  break;
+                }
+              }
+            }
           }
+
+          if (!keysMatch) {
+            console.log('[Push Manager] Chave VAPID mudou ou não coincide! Desinscrevendo antiga e gerando nova...');
+            try {
+              await subscription.unsubscribe();
+            } catch (unsubErr) {
+              console.warn('[Push Manager] Erro ao desinscrever subscrição antiga:', unsubErr);
+            }
+            subscription = null;
+          }
+        }
+
+        if (!subscription && publicKey) {
+          console.log('[Push Manager] Criando nova subscrição VAPID...');
+          const convertedKey = urlBase64ToUint8Array(publicKey);
+          subscription = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: convertedKey
+          });
         }
 
         if (subscription) {

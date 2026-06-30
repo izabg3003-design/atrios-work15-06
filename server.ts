@@ -377,6 +377,10 @@ async function startServer() {
     try {
       const { title, body, audience, url = "/", targetUserId, targetUserEmail } = req.body;
 
+      // Obter origem dinâmica para evitar URLs estáticas ou desalinhadas de pré-visualização/dev
+      const dynamicOrigin = `${req.protocol}://${req.get('host')}`;
+      const dynamicIconUrl = `${dynamicOrigin}/logo_atualizado.jpg?v=20260314_v1`;
+
       if (!title || !body) {
         return res.status(400).json({
           success: false,
@@ -578,8 +582,8 @@ async function startServer() {
           notification: {
             title,
             body,
-            icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-            badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            icon: dynamicIconUrl,
+            badge: dynamicIconUrl,
             vibrate: [100, 50, 100],
             data: { url },
           },
@@ -638,8 +642,8 @@ async function startServer() {
                 notification: {
                   title,
                   body,
-                  icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-                  badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                  icon: dynamicIconUrl,
+                  badge: dynamicIconUrl,
                 },
                 fcmOptions: {
                   link: url,
@@ -688,8 +692,8 @@ async function startServer() {
                       notification: {
                         title,
                         body,
-                        icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-                        badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                        icon: dynamicIconUrl,
+                        badge: dynamicIconUrl,
                       },
                       fcm_options: { link: url },
                     },
