@@ -25,7 +25,7 @@ self.addEventListener('activate', (event) => {
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
+          if (cacheName !== CACHE_NAME && cacheName !== 'fcm-config') {
             return caches.delete(cacheName);
           }
         })
@@ -35,8 +35,9 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // ONLY intercept GET requests to prevent issues with POST/PUT/DELETE API calls or third-party connections
-  if (event.request.method !== 'GET') {
+  const url = new URL(event.request.url);
+  // ONLY intercept GET requests from the same origin on http/https protocols
+  if (event.request.method !== 'GET' || !url.protocol.startsWith('http') || url.origin !== self.location.origin) {
     return;
   }
 
@@ -63,15 +64,12 @@ self.addEventListener('fetch', (event) => {
         })
     );
   } else {
-    // Cache First for other static assets/resources
+    // Cache First for other static assets/resources.
+    // Return cached response if found, otherwise let fetch fail naturally without swallowing rejection
+    // which avoids TypeError: "The value provided is not a Response" (Failed to fetch).
     event.respondWith(
       caches.match(event.request).then((response) => {
-        return response || fetch(event.request).then((networkResponse) => {
-          // Optional dynamic caching can be done here, or simply return the response directly
-          return networkResponse;
-        }).catch((err) => {
-          console.log(`Falha ao obter recurso fora de rede: ${event.request.url}`, err);
-        });
+        return response || fetch(event.request);
       })
     );
   }
@@ -90,6 +88,14 @@ self.addEventListener('push', (event) => {
         try {
           rawData = event.data.json();
           console.log('[Service Worker] Notificação push JSON recebida:', rawData);
+
+          // Se for uma mensagem do FCM (Firebase) e o SDK oficial estiver carregado, 
+          // evitamos tratar aqui no listener nativo para que não haja duplicações (o SDK do Firebase cuidará de onBackgroundMessage).
+          const isFromFcm = rawData.from || rawData['gcm.message_id'] || rawData.data?.['gcm.message_id'] || rawData.notification;
+          if (isFromFcm && typeof firebase !== 'undefined') {
+            console.log('[Service Worker] Mensagem FCM detectada. Delegando tratamento ao SDK do Firebase...');
+            return;
+          }
         } catch (e) {
           console.log('[Service Worker] Notificação push de texto recebida:', event.data.text());
           rawData = { title: 'AtriosWork', body: event.data.text() };
@@ -171,3 +177,71 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+
+// ============================================================================
+// 🔵 INTEGRACAO DO FIREBASE CLOUD MESSAGING SDK EM SEGUNDO PLANO (APP FECHADO)
+// ============================================================================
+try {
+  // Importar o SDK Compatível com Service Workers do Firebase v9
+  importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
+
+  const defaultFirebaseConfig = {
+    apiKey: "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo",
+    authDomain: "push-atrios-work.firebaseapp.com",
+    projectId: "push-atrios-work",
+    storageBucket: "push-atrios-work.firebasestorage.app",
+    messagingSenderId: "409947740098",
+    appId: "1:409947740098:web:ed16cb847b12182eab685b"
+  };
+
+  if (typeof firebase !== 'undefined') {
+    // 1. Tentar ler uma configuração customizada do cache dinâmico se houver
+    caches.match('/fcm-config.json')
+      .then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse.json().catch(() => null);
+        }
+        return null;
+      })
+      .then((customConfig) => {
+        const configToUse = (customConfig && customConfig.apiKey) ? customConfig : defaultFirebaseConfig;
+        
+        // Inicializar App do Firebase
+        firebase.initializeApp(configToUse);
+        const messaging = firebase.messaging();
+
+        // Registrar o manipulador de background do FCM
+        messaging.onBackgroundMessage((payload) => {
+          console.log('[SW Background FCM] Notificação recebida em segundo plano (app fechado):', payload);
+          
+          const title = payload.notification?.title || payload.data?.title || 'AtriosWork';
+          const body = payload.notification?.body || payload.data?.body || 'Nova notificação do sistema!';
+          const targetUrl = payload.data?.url || payload.notification?.data?.url || '/';
+          
+          const origin = self.location.origin;
+          const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
+
+          const options = {
+            body: body,
+            icon: iconUrl,
+            badge: iconUrl,
+            vibrate: [200, 100, 200],
+            data: targetUrl,
+            actions: [
+              { action: 'open', title: 'Ver App' }
+            ]
+          };
+
+          return self.registration.showNotification(title, options);
+        });
+
+        console.log('[SW Background FCM] Firebase Inicializado e onBackgroundMessage ativo com sucesso!');
+      })
+      .catch((err) => {
+        console.error('[SW Background FCM] Erro ao ler configuração ou inicializar:', err);
+      });
+  }
+} catch (fcmErr) {
+  console.warn('[SW Background FCM] SDK do Firebase indisponível ou erro de carregamento (VAPID nativo ativo):', fcmErr);
+}

@@ -406,6 +406,15 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             const customConfig = JSON.parse(data.highlight);
             if (customConfig && customConfig.apiKey && customConfig.projectId) {
               console.log('Detectada configuração customizada do Firebase:', customConfig.projectId);
+              
+              // Salvar no Cache para o Service Worker ler em background (app fechado)
+              if ('caches' in window) {
+                caches.open('fcm-config').then((cache) => {
+                  cache.put('/fcm-config.json', new Response(JSON.stringify(customConfig)));
+                  console.log('[Push Manager] Configuração FCM customizada persistida no Cache.');
+                }).catch((e) => console.warn('Erro ao cachear config FCM:', e));
+              }
+
               if (customConfig.vapidKey) {
                 setCustomVapidKey(customConfig.vapidKey);
               }
