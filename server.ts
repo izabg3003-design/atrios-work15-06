@@ -145,7 +145,7 @@ function removeLocalSubscription(endpoint: string) {
 }
 
 // 🔵 4. SALVAR ASSINATURA COMPLETA (FIRESTORE + LOCAL + SUPABASE)
-async function saveSubscriptionToDatabase(data: { subscription: any; userId: string; companyId?: string }) {
+async function saveSubscriptionToDatabase(data: { subscription: any; userId: string; companyId?: string; email?: string; role?: string }) {
   // 1. Gravar no arquivo local (garantia de persistência local)
   saveLocalSubscription(data);
 
@@ -158,9 +158,11 @@ async function saveSubscriptionToDatabase(data: { subscription: any; userId: str
         subscription: data.subscription,
         userId: data.userId || "unknown",
         companyId: data.companyId || "unknown",
+        email: data.email || null,
+        role: data.role || null,
         updatedAt: adminSdk.firestore.FieldValue.serverTimestamp(),
       }, { merge: true });
-      console.log(`[Firestore] Assinatura salva com sucesso para o usuário ${data.userId}`);
+      console.log(`[Firestore] Assinatura salva com sucesso para o usuário ${data.userId} (${data.email})`);
     } catch (err) {
       console.error("[Firestore] Erro ao gravar assinatura de Web Push:", err);
     }
@@ -214,11 +216,11 @@ async function startServer() {
 
   // ROTA: Receber e salvar subscrições Web Push (VAPID) do cliente
   app.post("/api/push/subscribe", async (req, res) => {
-    const { subscription, userId, companyId } = req.body;
+    const { subscription, userId, companyId, email, role } = req.body;
     if (!subscription || !subscription.endpoint) {
       return res.status(400).json({ success: false, error: "Subscrição inválida." });
     }
-    await saveSubscriptionToDatabase({ subscription, userId, companyId });
+    await saveSubscriptionToDatabase({ subscription, userId, companyId, email, role });
     return res.status(201).json({ success: true });
   });
 
@@ -251,7 +253,7 @@ async function startServer() {
   // ROTA: Envio de Push Inteligente (Suporta FCM de forma nativa/v1 + Web Push VAPID + Fallbacks)
   app.post("/api/send-fcm-push", async (req, res) => {
     try {
-      const { title, body, audience, url = "/" } = req.body;
+      const { title, body, audience, url = "/", targetUserId, targetUserEmail } = req.body;
 
       if (!title || !body) {
         return res.status(400).json({
@@ -260,7 +262,7 @@ async function startServer() {
         });
       }
 
-      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}"`);
+      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'})`);
 
       // 1. Obter credenciais do Supabase
       const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
@@ -301,11 +303,18 @@ async function startServer() {
       };
 
       const isAdminUser = (profile: any) => {
-        return isMasterEmail(profile.email);
+        const emailVal = (profile.email || "").toLowerCase();
+        const roleVal = (profile.role || "").toLowerCase();
+        return isMasterEmail(emailVal) || roleVal === "admin" || roleVal === "master";
       };
 
       // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
-      const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string) => {
+      const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string, hasTargetUser?: boolean) => {
+        // Se houver destinatário específico ou for para audiência de usuários comuns, NÃO é notificação de sistema administrativo!
+        if (hasTargetUser || tAudience === "user") {
+          return false;
+        }
+
         const titleL = (tTitle || "").toLowerCase();
         const bodyL = (tBody || "").toLowerCase();
         const audL = (tAudience || "").toLowerCase();
@@ -315,19 +324,17 @@ async function startServer() {
           return true;
         }
 
-        // Palavras-chave estritas associadas a notificações do sistema/atendimento
+        // Palavras-chave estritas associadas a notificações do sistema/atendimento administrativo
         const systemKeywords = [
-          "atendimento",
-          "suporte",
-          "cadastro",
-          "registado",
-          "registrado",
-          "desbloqueio",
+          "atendimento humano",
           "novo utilizador",
           "novo cadastro",
+          "novo registo",
+          "registou-se",
+          "registrado",
+          "desbloqueio",
           "venda realizada",
           "nova venda",
-          "novo chat",
           "solicitou atendimento",
           "solicitação de"
         ];
@@ -335,14 +342,19 @@ async function startServer() {
         return systemKeywords.some(keyword => titleL.includes(keyword) || bodyL.includes(keyword));
       };
 
-      const isSys = isSystemNotification(title, body, audience);
+      const hasTargetUser = !!(targetUserId || targetUserEmail);
+      const isSys = isSystemNotification(title, body, audience, hasTargetUser);
       if (isSys) {
         console.log(`[Push Server] Notificação "${title}" classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA. Filtrando apenas para contas Master.`);
       }
 
       let filteredProfiles = profiles || [];
 
-      if (isSys) {
+      if (targetUserId) {
+        filteredProfiles = filteredProfiles.filter((p) => p.id === targetUserId);
+      } else if (targetUserEmail) {
+        filteredProfiles = filteredProfiles.filter((p) => (p.email || "").toLowerCase() === targetUserEmail.toLowerCase());
+      } else if (isSys) {
         // Notificações de sistema vão UNICAMENTE para os Master accounts
         filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
       } else {
@@ -408,7 +420,11 @@ async function startServer() {
 
           let belongsToAudience = false;
 
-          if (isSys) {
+          if (targetUserId) {
+            belongsToAudience = ls.userId === targetUserId;
+          } else if (targetUserEmail) {
+            belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
+          } else if (isSys) {
             belongsToAudience = isMaster;
           } else {
             if (audience === "admin" || audience === "master") {

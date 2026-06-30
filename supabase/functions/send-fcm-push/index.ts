@@ -78,7 +78,7 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return cors();
 
   try {
-    const { title, body, audience } = await req.json();
+    const { title, body, audience, targetUserId, targetUserEmail } = await req.json();
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -87,7 +87,7 @@ serve(async (req) => {
 
     const { data: profiles } = await supabase
       .from("profiles")
-      .select("fcm_token, role, email")
+      .select("id, fcm_token, role, email")
       .not("fcm_token", "is", null);
 
     // Filter profiles based on audience (so master/admin receive correct targets)
@@ -99,11 +99,18 @@ serve(async (req) => {
     };
 
     const isAdminUser = (profile: any) => {
-      return isMasterEmail(profile.email);
+      const emailVal = (profile.email || "").toLowerCase();
+      const roleVal = (profile.role || "").toLowerCase();
+      return isMasterEmail(emailVal) || roleVal === "admin" || roleVal === "master";
     };
 
     // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
-    const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string) => {
+    const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string, hasTargetUser?: boolean) => {
+      // Se houver destinatário específico ou for para audiência de usuários comuns, NÃO é notificação de sistema administrativo!
+      if (hasTargetUser || tAudience === "user") {
+        return false;
+      }
+
       const titleL = (tTitle || "").toLowerCase();
       const bodyL = (tBody || "").toLowerCase();
       const audL = (tAudience || "").toLowerCase();
@@ -113,19 +120,17 @@ serve(async (req) => {
         return true;
       }
 
-      // Palavras-chave estritas associadas a notificações do sistema/atendimento
+      // Palavras-chave estritas associadas a notificações do sistema/atendimento administrativo
       const systemKeywords = [
-        "atendimento",
-        "suporte",
-        "cadastro",
-        "registado",
-        "registrado",
-        "desbloqueio",
+        "atendimento humano",
         "novo utilizador",
         "novo cadastro",
+        "novo registo",
+        "registou-se",
+        "registrado",
+        "desbloqueio",
         "venda realizada",
         "nova venda",
-        "novo chat",
         "solicitou atendimento",
         "solicitação de"
       ];
@@ -133,11 +138,16 @@ serve(async (req) => {
       return systemKeywords.some(keyword => titleL.includes(keyword) || bodyL.includes(keyword));
     };
 
-    const isSys = isSystemNotification(title, body, audience);
+    const hasTargetUser = !!(targetUserId || targetUserEmail);
+    const isSys = isSystemNotification(title, body, audience, hasTargetUser);
 
     let filteredProfiles = profiles || [];
 
-    if (isSys) {
+    if (targetUserId) {
+      filteredProfiles = filteredProfiles.filter(p => p.id === targetUserId);
+    } else if (targetUserEmail) {
+      filteredProfiles = filteredProfiles.filter(p => (p.email || "").toLowerCase() === targetUserEmail.toLowerCase());
+    } else if (isSys) {
       // Notificações de sistema vão UNICAMENTE para os Master accounts
       filteredProfiles = filteredProfiles.filter(p => isAdminUser(p));
     } else {

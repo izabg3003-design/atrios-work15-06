@@ -100,16 +100,33 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             
             if (!isPush) return false;
 
-            // Notificações de suporte, chat, novos cadastros e vendas devem ser visíveis apenas para admins/master
+            // Notificações administrativas de sistema (chat de visitante, suporte solicitado, vendas, cadastros, etc.) devem ser visíveis APENAS para admins/master.
+            // No entanto, as respostas de suporte enviadas para o próprio utilizador (ex: "💬 Suporte AtriosWork") devem ser visíveis para utilizadores comuns!
+            const titleUpper = b.title.toUpperCase();
+            const subtitleUpper = (b.subtitle || "").toUpperCase();
+            const highlightUpper = (b.highlight || "").toUpperCase();
+
+            const isSupportReply = titleUpper.includes('ATRIOSWORK') || 
+                                   titleUpper.includes('RESPOSTA') ||
+                                   titleUpper.includes('💬 RESPOSTA');
+
             const isSupportChatOrAdminSystem = 
-              b.title.includes('💬 Suporte') || 
-              b.title.includes('💬 Visitante') || 
-              b.title.includes('Novo Cadastro') || 
-              b.title.includes('Nova Venda') || 
-              b.subtitle === 'Notificação de Suporte' || 
-              b.subtitle === 'Notificação de Visitante' || 
-              b.subtitle === 'Notificação de Sistema' || 
-              b.subtitle === 'Notificação de Vendas';
+              !isSupportReply && (
+                titleUpper.includes('💬 SUPORTE') || 
+                titleUpper.includes('🆘 SUPORTE') || 
+                titleUpper.includes('💬 VISITANTE') || 
+                titleUpper.includes('SUPORTE HUMANO') ||
+                titleUpper.includes('NOVO CADASTRO') || 
+                titleUpper.includes('NOVA VENDA') || 
+                titleUpper.includes('ATENDIMENTO') ||
+                subtitleUpper.includes('SUPORTE HUMANO') ||
+                subtitleUpper.includes('VISITANTE') ||
+                subtitleUpper.includes('SISTEMA') ||
+                subtitleUpper.includes('VENDAS') ||
+                subtitleUpper.includes('SUPORTE') ||
+                highlightUpper.includes('SOLICITOU ATENDIMENTO') ||
+                highlightUpper.includes('SUPORTE HUMANO')
+              );
 
             if (isSupportChatOrAdminSystem && !isAdmin) {
               return false;
