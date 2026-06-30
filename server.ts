@@ -7,40 +7,98 @@ import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 import admin from "firebase-admin";
 
-// 🔵 1. GERAÇÃO/CARREGAMENTO DE CHAVES VAPID (WEB PUSH PADRÃO)
+// 🔵 1. DECLARAÇÃO E INICIALIZAÇÃO DE CHAVES VAPID (PERSISTÊNCIA DUPLA EM NUVEM SUPABASE + LOCAL)
 let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com";
 
 const keysFilePath = path.join(process.cwd(), "vapid-keys.json");
 
-if (!vapidPublicKey || !vapidPrivateKey) {
+async function initializeVapidKeys() {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (vapidPublicKey && vapidPrivateKey) {
+    console.log("[VAPID] Chaves Web Push obtidas via variáveis de ambiente.");
+    webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    return;
+  }
+
+  // 1. Tentar obter do Supabase (Nuvem Persistente)
+  if (supabaseServiceKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data, error } = await supabase
+        .from("app_banners")
+        .select("*")
+        .eq("user_type", "system_vapid_keys")
+        .maybeSingle();
+
+      if (!error && data && data.highlight && data.cta_text) {
+        vapidPublicKey = data.highlight;
+        vapidPrivateKey = data.cta_text;
+        console.log("[VAPID] Chaves Web Push recuperadas com sucesso do Supabase (Nuvem Persistente).");
+        
+        // Sincronizar cache local
+        try {
+          fs.writeFileSync(keysFilePath, JSON.stringify({ publicKey: vapidPublicKey, privateKey: vapidPrivateKey }, null, 2), "utf8");
+        } catch (e) {
+          console.warn("[VAPID] Não foi possível salvar cache local de chaves:", e);
+        }
+        
+        webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+        return;
+      }
+    } catch (dbErr) {
+      console.warn("[VAPID] Falha ao consultar Supabase, tentando local:", dbErr);
+    }
+  }
+
+  // 2. Tentar obter do cache local
   if (fs.existsSync(keysFilePath)) {
     try {
       const savedKeys = JSON.parse(fs.readFileSync(keysFilePath, "utf8"));
       vapidPublicKey = savedKeys.publicKey;
       vapidPrivateKey = savedKeys.privateKey;
-      console.log("[VAPID] Chaves de segurança carregadas do ficheiro 'vapid-keys.json'.");
+      console.log("[VAPID] Chaves de segurança carregadas do ficheiro local 'vapid-keys.json'.");
+      webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
+      return;
     } catch (e) {
-      console.error("[VAPID] Erro ao ler 'vapid-keys.json', gerando novas chaves...", e);
+      console.error("[VAPID] Erro ao ler cache local de chaves:", e);
     }
   }
 
-  if (!vapidPublicKey || !vapidPrivateKey) {
-    const keys = webpush.generateVAPIDKeys();
-    vapidPublicKey = keys.publicKey;
-    vapidPrivateKey = keys.privateKey;
+  // 3. Se não houver em nenhum lado, gerar chaves novas
+  const keys = webpush.generateVAPIDKeys();
+  vapidPublicKey = keys.publicKey;
+  vapidPrivateKey = keys.privateKey;
+  console.log("[VAPID] Novas chaves Web Push geradas.");
+  
+  try {
+    fs.writeFileSync(keysFilePath, JSON.stringify(keys, null, 2), "utf8");
+  } catch (e) {
+    console.error("[VAPID] Falha ao gravar novas chaves no local:", e);
+  }
+
+  // Salvar no Supabase
+  if (supabaseServiceKey) {
     try {
-      fs.writeFileSync(keysFilePath, JSON.stringify(keys, null, 2), "utf8");
-      console.log("[VAPID] Novas chaves Web Push geradas e guardadas em 'vapid-keys.json'.");
-    } catch (e) {
-      console.error("[VAPID] Falha ao gravar novas chaves:", e);
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      await supabase.from("app_banners").insert([{
+        user_type: "system_vapid_keys",
+        title: "System VAPID Keys",
+        highlight: vapidPublicKey,
+        cta_text: vapidPrivateKey,
+        is_active: true
+      }]);
+      console.log("[VAPID] Novas chaves Web Push persistidas no Supabase com sucesso.");
+    } catch (saveErr) {
+      console.error("[VAPID] Erro ao persistir novas chaves no Supabase:", saveErr);
     }
   }
-}
 
-// Configura os detalhes VAPID no pacote web-push
-webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
+}
 
 // 🔵 2. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO)
 const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
@@ -204,6 +262,7 @@ async function deleteSubscriptionFromDatabase(endpoint: string) {
 
 // 🔵 5. START DO SERVIDOR EXPRESS
 async function startServer() {
+  await initializeVapidKeys();
   const app = express();
   const PORT = 3000;
 
@@ -456,8 +515,8 @@ async function startServer() {
           notification: {
             title,
             body,
-            icon: "/logo_atualizado.jpg?v=20260314_v1",
-            badge: "/logo_atualizado.jpg?v=20260314_v1",
+            icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
             vibrate: [100, 50, 100],
             data: { url },
           },
@@ -516,8 +575,8 @@ async function startServer() {
                 notification: {
                   title,
                   body,
-                  icon: "/logo_atualizado.jpg?v=20260314_v1",
-                  badge: "/logo_atualizado.jpg?v=20260314_v1",
+                  icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                  badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
                 },
                 fcmOptions: {
                   link: url,
@@ -566,8 +625,8 @@ async function startServer() {
                       notification: {
                         title,
                         body,
-                        icon: "/logo_atualizado.jpg?v=20260314_v1",
-                        badge: "/logo_atualizado.jpg?v=20260314_v1",
+                        icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                        badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
                       },
                       fcm_options: { link: url },
                     },

@@ -245,12 +245,32 @@ serve(async (req) => {
                   title,
                   body,
                 },
+                android: {
+                  priority: "high",
+                },
+                apns: {
+                  headers: {
+                    "apns-priority": "10",
+                  },
+                  payload: {
+                    aps: {
+                      alert: {
+                        title,
+                        body,
+                      },
+                      sound: "default",
+                    },
+                  },
+                },
                 webpush: {
+                  headers: {
+                    Urgency: "high",
+                  },
                   notification: {
                     title,
                     body,
-                    icon: '/logo_atualizado.jpg?v=20260314_v1',
-                    badge: '/logo_atualizado.jpg?v=20260314_v1',
+                    icon: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
+                    badge: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
                   },
                   fcm_options: {
                     link: finalUrl,
