@@ -64,34 +64,30 @@ const PublicSupportChat: React.FC = () => {
     setShowNudge(false);
 
     const setupSession = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session?.user) {
-          const uid = session.user.id;
-          setVisitorId(uid);
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        const uid = session.user.id;
+        setVisitorId(uid);
+        
+        const { data: history } = await supabase
+          .from('chat_messages')
+          .select('sender_role, text')
+          .eq('user_id', uid)
+          .order('created_at', { ascending: true });
+        
+        if (history && history.length > 0) {
+          const formatted = history.map(m => ({
+            role: m.sender_role as any,
+            text: m.text
+          }));
+          setMessages(formatted);
+          setStep('chat');
           
-          const { data: history } = await supabase
-            .from('chat_messages')
-            .select('sender_role, text')
-            .eq('user_id', uid)
-            .order('created_at', { ascending: true });
-          
-          if (history && history.length > 0) {
-            const formatted = history.map(m => ({
-              role: m.sender_role as any,
-              text: m.text
-            }));
-            setMessages(formatted);
-            setStep('chat');
-            
-            if (formatted.some(m => m.role === 'support')) {
-              setIsHumanModeActive(true);
-              setShowHumanSupportStatus(true);
-            }
+          if (formatted.some(m => m.role === 'support')) {
+            setIsHumanModeActive(true);
+            setShowHumanSupportStatus(true);
           }
         }
-      } catch (err) {
-        console.warn("PublicSupportChat setupSession error:", err);
       }
     };
 
@@ -176,40 +172,6 @@ const PublicSupportChat: React.FC = () => {
         text: text,
         sender_role: 'user'
       });
-      
-      // Log notification in history (app_banners) and trigger push
-      const isHumanRequest = text.includes('solicitou atendimento humano');
-      try {
-        await supabase.from('app_banners').insert([{
-          title: isHumanRequest ? `[PUSH] 🆘 Suporte Humano: ${userData.name.trim()}` : `[PUSH] 💬 Visitante: ${userData.name.trim()}`,
-          highlight: isHumanRequest 
-            ? `O visitante ${userData.name.trim()} (${cleanEmail}) solicitou atendimento humano no chat.` 
-            : `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
-          subtitle: isHumanRequest ? 'Solicitação de Suporte Humano' : 'Notificação de Visitante',
-          cta_text: 'Atender',
-          cta_link: '/',
-          theme_color: 'rose',
-          is_active: true,
-          user_type: 'push_notification'
-        }]);
-      } catch (dbErr) {
-        console.error('Erro ao registrar push no histórico:', dbErr);
-      }
-      
-      // Trigger push notification to admins about the new guest support message
-      try {
-        await supabase.functions.invoke('send-fcm-push', {
-          body: {
-            title: isHumanRequest ? '🆘 Atendimento Humano Solicitado!' : '💬 Novo Chat com Visitante!',
-            body: isHumanRequest 
-              ? `O visitante ${userData.name.trim()} (${cleanEmail}) solicitou atendimento humano no chat.` 
-              : `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
-            audience: 'admin'
-          }
-        });
-      } catch (fcmErr) {
-        console.warn('Erro ao disparar push de mensagem de visitante:', fcmErr);
-      }
       
       return true;
     } catch (err: any) {

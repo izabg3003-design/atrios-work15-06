@@ -20,8 +20,6 @@ import PrivacyPage from './components/PrivacyPage';
 import TermsPage from './components/TermsPage';
 import AboutAtriosWorkPage from './components/AboutAtriosWorkPage';
 import PublicSupportChat from './components/PublicSupportChat';
-import PushNotificationManager from './components/PushNotificationManager';
-import { InstallAppModal } from './components/InstallAppModal';
 import { AppState, UserProfile, WorkRecord, Language, Currency } from './types';
 import { supabase, isConfigured } from './lib/supabase';
 import { translations } from './translations';
@@ -128,45 +126,6 @@ const App: React.FC = () => {
   const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
   const [loginInRegisterMode, setLoginInRegisterMode] = useState(false);
   
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
-  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
-
-  useEffect(() => {
-    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
-                          (navigator as any).standalone === true;
-    
-    if (isStandalone) {
-      console.log('Running as a PWA standalone app');
-      return;
-    }
-
-    const handleBeforeInstallPrompt = (e: Event) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
-      setIsInstallModalOpen(true);
-    };
-
-    const handleOpenPwaModal = () => {
-      setIsInstallModalOpen(true);
-    };
-
-    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-    window.addEventListener('open-pwa-install-modal', handleOpenPwaModal);
-
-    const timer = setTimeout(() => {
-      const alreadyDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
-      if (!alreadyDismissed) {
-        setIsInstallModalOpen(true);
-      }
-    }, 4000);
-
-    return () => {
-      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      window.removeEventListener('open-pwa-install-modal', handleOpenPwaModal);
-      clearTimeout(timer);
-    };
-  }, []);
-  
   const [now, setNow] = useState(new Date());
   const isInitialLoad = useRef(true);
 
@@ -177,94 +136,19 @@ const App: React.FC = () => {
 
   const isPro = useMemo(() => {
     const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
+    const isPaid = sub?.status === 'ACTIVE_PAID';
     const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
     const isAdmin = user.role === 'admin';
     
     if (isMaster || isAdmin) return true;
+    if (!isPaid) return false;
     
-    // Se a conta estiver suspensa, remove todos os bloqueios/privilégios PRO
-    if (sub?.isActive === false) return false;
-    
-    // Se a promoção ou subscrição estiver ativa (data de expiração no futuro), remove todos os bloqueios!
     if (sub?.expiryDate) {
       return new Date(sub.expiryDate) > now;
     }
     
-    // Caso contrário, verifica o status de pagamento normal
-    const isPaid = sub?.status === 'ACTIVE_PAID';
-    return !!isPaid;
+    return true;
   }, [user, now]);
-
-  // Canal de tempo real para escutar atualizações do perfil do utilizador (Ex: Promoções, Bloqueios, Exclusões)
-  useEffect(() => {
-    if (!user.id) return;
-    
-    const profileChannel = supabase
-      .channel(`profile-changes-${user.id}`)
-      .on('postgres_changes', {
-        event: 'UPDATE',
-        schema: 'public',
-        table: 'profiles'
-      }, async (payload: any) => {
-        if (payload.new && payload.new.id === user.id) {
-          console.log('[App] Profile updated in real-time. Fetching fresh profile...');
-          const { data: freshProfile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .maybeSingle();
-
-          if (!freshProfile) return;
-
-          const sub = typeof freshProfile.subscription === 'string' ? JSON.parse(freshProfile.subscription) : freshProfile.subscription;
-          const isMaster = freshProfile.email?.toLowerCase()?.includes('master@atrioswork.com') || freshProfile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || freshProfile.email?.toLowerCase()?.includes('master@digitalnexus.com');
-          
-          if (sub?.isActive === false && !isMaster) {
-            // Conta suspensa/bloqueada
-            supabase.auth.signOut().then(() => {
-              setUser(DEFAULT_USER);
-              setAuthError({ 
-                title: 'ACESSO BLOQUEADO', 
-                text: 'A sua conta foi suspensa ou desativada pelo administrador.' 
-              });
-              setAppState('login');
-            });
-          } else {
-            setUser(freshProfile);
-          }
-        }
-      })
-      .on('postgres_changes', {
-        event: 'DELETE',
-        schema: 'public',
-        table: 'profiles'
-      }, (payload: any) => {
-        if (payload.old && payload.old.id === user.id) {
-          console.log('[App] Profile deleted in real-time:', payload.old);
-          supabase.auth.signOut().then(() => {
-            setUser(DEFAULT_USER);
-            setAuthError({ 
-              title: 'CONTA ELIMINADA', 
-              text: 'A sua conta foi excluída pelo administrador.' 
-            });
-            setAppState('login');
-          });
-        }
-      })
-      .subscribe();
-      
-    return () => {
-      supabase.removeChannel(profileChannel);
-    };
-  }, [user.id]);
-
-  // Se a subscrição/promoção expirar e o utilizador estiver numa aba premium, redireciona e bloqueia imediatamente
-  useEffect(() => {
-    if (!isPro && ['reports', 'accountant'].includes(appState)) {
-      setAppState('dashboard');
-      setIsPremiumModalOpen(true);
-    }
-  }, [isPro, appState]);
 
   const totalHours = useMemo(() => {
     return Object.values(records).reduce((acc, r) => {
@@ -361,8 +245,7 @@ const App: React.FC = () => {
         const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
         if (parsedSub.isActive === false && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
-          setUser(DEFAULT_USER);
-          setAuthError({ title: 'ACESSO BLOQUEADO', text: 'A sua conta foi suspensa ou desativada pelo administrador.' });
+          setAuthError({ title: 'BEM-VINDO', text: 'Faça o login para aceder sua conta.' });
           setAppState('login');
           setAuthInitialized(true);
           return;
@@ -379,13 +262,7 @@ const App: React.FC = () => {
           dbRecords.forEach((r: any) => { if (r.data) formatted[r.date] = r.data; });
           setRecords(formatted);
         }
-      } else {
-        // Se após retentativas o perfil não existir, significa que foi excluído pelo administrador
-        await supabase.auth.signOut();
-        setUser(DEFAULT_USER);
-        setAuthError({ title: 'CONTA ELIMINADA', text: 'A sua conta foi excluída pelo administrador.' });
-        setAppState('login');
-      }
+      } else setAppState('landing');
     } catch (e) { setAppState('landing'); }
     finally { setTimeout(() => setAuthInitialized(true), 100); }
   }, []);
@@ -401,13 +278,9 @@ const App: React.FC = () => {
           setAppState('landing');
           setAuthInitialized(true);
         }
-      } catch (err: any) {
+      } catch (err) {
         console.error("Auth initialization failed directly (Failed to Fetch):", err);
-        setAuthError({
-          title: "ERRO DE LIGAÇÃO",
-          text: "Não foi possível estabelecer ligação ao banco de dados (Failed to Fetch). Verifique a sua ligação à Internet ou se o seu projeto Supabase está ativo. Se for o administrador do projeto, certifique-se de que a sua instância está ativa no painel do Supabase, ou configure as variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para ligar à sua própria base de dados."
-        });
-        setAppState('login');
+        setAppState('landing');
         setAuthInitialized(true);
       }
     };
@@ -453,15 +326,6 @@ const App: React.FC = () => {
           setAppState('subscription');
         }} 
       />
-      <InstallAppModal 
-        isOpen={isInstallModalOpen}
-        onClose={() => {
-          setIsInstallModalOpen(false);
-          sessionStorage.setItem('pwa_install_dismissed', 'true');
-        }}
-        deferredPrompt={deferredPrompt}
-        setDeferredPrompt={setDeferredPrompt}
-      />
       {appState === 'splash' ? <SplashScreen t={t} /> : null}
       {appState === 'language-gate' && <LanguageGate onSelect={(lang) => { setSystemLang(lang); setAppState('landing'); }} />}
       {appState === 'landing' && (
@@ -498,7 +362,6 @@ const App: React.FC = () => {
       {appState === 'about-atrioswork' && <AboutAtriosWorkPage onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} />}
       
       {user.id && <PublicSupportChat />}
-      {user.id && <PushNotificationManager user={user} />}
 
       {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">
@@ -544,13 +407,7 @@ const App: React.FC = () => {
                   }
                 }
 
-                const { error } = await supabase.from('work_records').upsert({ 
-                   user_id: user.id, 
-                   user_email: user.email,
-                   user_name: user.name,
-                   date: r.date, 
-                   data: r 
-                 }, { onConflict: 'user_id,date' });
+                const { error } = await supabase.from('work_records').upsert({ user_id: user.id, date: r.date, data: r }, { onConflict: 'user_id,date' });
                 if (error) return false;
                 setRecords(prev => ({ ...prev, [r.date]: r }));
                 return true;
@@ -586,13 +443,7 @@ const App: React.FC = () => {
                       return false;
                     }
 
-                    const { error } = await supabase.from('work_records').upsert({ 
-                   user_id: user.id, 
-                   user_email: user.email,
-                   user_name: user.name,
-                   date: r.date, 
-                   data: r 
-                 }, { onConflict: 'user_id,date' });
+                    const { error } = await supabase.from('work_records').upsert({ user_id: user.id, date: r.date, data: r }, { onConflict: 'user_id,date' });
                     if (error) return false;
                     setRecords(prev => ({ ...prev, [r.date]: r }));
                     return true;

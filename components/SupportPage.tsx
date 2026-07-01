@@ -209,22 +209,6 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
         last_message: currentReply, 
         updated_at: new Date().toISOString() 
       }).eq('user_id', selectedUser.id);
-
-      // Disparar push fcm/vapid direcionado e exclusivo para o usuário que abriu o ticket
-      try {
-        await supabase.functions.invoke('send-fcm-push', {
-          body: {
-            title: '💬 Suporte AtriosWork',
-            body: `Nova mensagem do suporte: "${currentReply.substring(0, 60)}${currentReply.length > 60 ? '...' : ''}"`,
-            audience: 'user',
-            targetUserId: selectedUser.id,
-            targetUserEmail: selectedUser.email,
-            url: '/'
-          }
-        });
-      } catch (fcmErr) {
-        console.warn('Erro ao disparar push de resposta de suporte:', fcmErr);
-      }
     } catch (err) {
       console.error("Error sending reply:", err);
     } finally {

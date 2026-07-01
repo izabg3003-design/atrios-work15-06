@@ -64,13 +64,9 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
           .order('created_at', { ascending: false });
 
         if (!error && data && data.length > 0) {
-          // Filtrar banners por tipo de usuário e excluir qualquer notificação push
+          // Filtrar banners por tipo de usuário
           const targetType = isPro ? 'premium' : 'free';
-          const filteredBanners = data.filter(b => 
-            (b.user_type === 'all' || b.user_type === targetType) && 
-            !b.title.toUpperCase().includes('[PUSH]') && 
-            (b.user_type as string) !== 'push_notification'
-          );
+          const filteredBanners = data.filter(b => b.user_type === 'all' || b.user_type === targetType);
           
           if (filteredBanners.length > 0) {
             // Pega o banner mais recente para este tipo de usuário
@@ -300,9 +296,6 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
     );
   };
 
-  const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
-  const isAdmin = user.role === 'admin';
-
   return (
     <div className="space-y-6 animate-[fadeIn_0.5s_ease-out]">
       <PostLoginBannerOverlay />
@@ -322,27 +315,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
          <p className={`text-[9px] font-black ${isPro ? 'text-emerald-500/60' : 'text-amber-500/60'} uppercase tracking-[0.2em] font-mono`}>v16.0.4-{isPro ? 'PRO' : 'FREE'}</p>
       </div>
 
-      {!isPro && daysRemaining !== null && daysRemaining <= 0 && (
-        <div className="bg-gradient-to-r from-red-600 to-rose-500 p-4 md:p-6 rounded-[2.5rem] border border-red-400/30 shadow-[0_0_30px_rgba(239,68,68,0.2)] flex flex-col md:flex-row items-center justify-between gap-4 animate-soft">
-          <div className="flex items-center gap-4 text-white">
-             <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0 border border-white/30">
-                <ShieldAlert className="w-6 h-6 text-white" />
-             </div>
-             <div>
-                <h4 className="text-sm font-black uppercase tracking-widest leading-none">A sua assinatura expirou!</h4>
-                <p className="text-[10px] font-bold text-white/80 mt-1.5 uppercase tracking-widest opacity-90 italic">O prazo da sua subscrição AtriosWork Pro terminou. Renove para reativar as funções premium (Relatórios, Contabilista, etc.).</p>
-             </div>
-          </div>
-          <button 
-            onClick={onOpenPremium}
-            className="w-full md:w-auto px-8 py-3 bg-white text-red-600 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 transition-all"
-          >
-            Renovar Agora
-          </button>
-        </div>
-      )}
-
-      {!isMaster && !isAdmin && daysRemaining !== null && daysRemaining > 0 && daysRemaining <= 30 && (
+      {daysRemaining !== null && daysRemaining <= 30 && (
         <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-4 md:p-6 rounded-[2.5rem] border border-amber-400/30 shadow-[0_0_30px_rgba(245,158,11,0.2)] flex flex-col md:flex-row items-center justify-between gap-4 animate-soft">
           <div className="flex items-center gap-4 text-white">
              <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0 border border-white/30">

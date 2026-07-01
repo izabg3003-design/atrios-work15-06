@@ -30,12 +30,8 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
       try {
         const { data, error } = await supabase.from('app_banners').select('*').eq('is_active', true).eq('user_type', 'public').order('created_at', { ascending: false });
         if (!error && data && data.length > 0) {
-          // Filtrar qualquer potencial push notification
-          const filtered = data.filter(b => !b.title.toUpperCase().includes('[PUSH]') && (b.user_type as string) !== 'push_notification');
-          if (filtered.length > 0) {
-            setActiveBanners(filtered);
-            setTimeout(() => setShowBannerOverlay(true), 1500);
-          }
+          setActiveBanners(data);
+          setTimeout(() => setShowBannerOverlay(true), 1500);
         }
       } catch (e) {
         console.warn("AtriosWork Banners: Tabela não configurada ou inacessível.");

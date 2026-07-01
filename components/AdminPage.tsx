@@ -5,9 +5,8 @@ import {
   Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Tag, UserPlus2, 
   Percent, CalendarDays, Activity, Settings, Megaphone, Plus, Power, Zap,
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
-  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile
+  BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook
 } from 'lucide-react';
-import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
@@ -25,185 +24,6 @@ interface Props {
   t: (key: string) => any;
   onUpdateProfile: (user: UserProfile) => Promise<boolean>;
   hideValues?: boolean;
-}
-
-// Helper functions for RS256 signature and FCM push notifications client-side
-function b64Url(input: string | ArrayBuffer): string {
-  let binary = "";
-  if (typeof input === "string") {
-    binary = btoa(encodeURIComponent(input).replace(/%([0-9A-F]{2})/g, (_, p1) => {
-      return String.fromCharCode(parseInt(p1, 16));
-    }));
-  } else {
-    const bytes = new Uint8Array(input);
-    for (let i = 0; i < bytes.byteLength; i++) {
-      binary += String.fromCharCode(bytes[i]);
-    }
-    binary = btoa(binary);
-  }
-  return binary.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function base64ToArrayBuffer(b64: string): ArrayBuffer {
-  const binaryString = atob(b64.replace(/\s/g, ""));
-  const len = binaryString.length;
-  const bytes = new Uint8Array(len);
-  for (let i = 0; i < len; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return bytes.buffer;
-}
-
-function cleanPEM(pem: string): string {
-  return pem
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s+/g, "");
-}
-
-async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string): Promise<string> {
-  const cleanKey = cleanPEM(privateKeyPem);
-  const binaryKey = base64ToArrayBuffer(cleanKey);
-
-  const key = await window.crypto.subtle.importKey(
-    "pkcs8",
-    binaryKey,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const header = { alg: "RS256", typ: "JWT" };
-  const now = Math.floor(Date.now() / 1000);
-  const claims = {
-    iss: clientEmail,
-    scope: "https://www.googleapis.com/auth/firebase.messaging",
-    aud: "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600
-  };
-
-  const encodedHeader = b64Url(JSON.stringify(header));
-  const encodedClaims = b64Url(JSON.stringify(claims));
-  const dataToSign = new TextEncoder().encode(`${encodedHeader}.${encodedClaims}`);
-
-  const signature = await window.crypto.subtle.sign("RSASSA-PKCS1-v1_5", key, dataToSign);
-  const encodedSignature = b64Url(signature);
-
-  const jwt = `${encodedHeader}.${encodedClaims}.${encodedSignature}`;
-
-  const response = await fetch("https://oauth2.googleapis.com/token", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-
-  const data = await response.json();
-  if (!response.ok) {
-    throw new Error(`Erro ao obter token OAuth2 do Google: ${JSON.stringify(data)}`);
-  }
-
-  return data.access_token;
-}
-
-async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string): Promise<{ successCount: number; errors: string[] }> {
-  if (tokens.length === 0) {
-    throw new Error("Nenhum token FCM registado nesta audiência.");
-  }
-  
-  const accessToken = await getGoogleAccessToken(clientEmail, privateKey);
-  let successCount = 0;
-  const errors: string[] = [];
-
-  const sendPromises = tokens.map(async (token) => {
-    try {
-      const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: {
-            token: token,
-            notification: {
-              title: title,
-              body: body,
-            },
-            android: {
-              priority: "high"
-            },
-            apns: {
-              headers: {
-                "apns-priority": "10"
-              },
-              payload: {
-                aps: {
-                  sound: "default"
-                }
-              }
-            },
-            webpush: {
-              headers: {
-                "Urgency": "high"
-              }
-            },
-            data: {
-              url: "/",
-              click_action: "/"
-            }
-          }
-        })
-      });
-
-      if (response.ok) {
-        successCount++;
-      } else {
-        const result = await response.json();
-        console.error(`Falha ao enviar FCM para o token ${token.substring(0, 15)}...:`, result);
-        const errMsg = result?.error?.message || JSON.stringify(result);
-        if (!errors.includes(errMsg)) {
-          errors.push(errMsg);
-        }
-
-        // Auto-limpeza de tokens obsoletos, expirados ou não registados no Firebase
-        const status = result?.error?.status;
-        const message = (result?.error?.message || '').toLowerCase();
-        if (
-          status === 'UNREGISTERED' || 
-          status === 'NOT_FOUND' || 
-          message.includes('not a valid fcm registration token') || 
-          message.includes('unregistered') || 
-          message.includes('not-registered') ||
-          message.includes('not found')
-        ) {
-          console.warn(`Limpando token FCM obsoleto do banco de dados: ${token.substring(0, 15)}...`);
-          try {
-            await supabase
-              .from('profiles')
-              .update({ fcm_token: null })
-              .eq('fcm_token', token);
-          } catch (dbCleanErr) {
-            console.error("Erro ao remover token FCM obsoleto do Supabase:", dbCleanErr);
-          }
-        }
-      }
-    } catch (err: any) {
-      console.error(`Erro ao enviar FCM para o token ${token.substring(0, 15)}...:`, err);
-      const errMsg = err.message || String(err);
-      if (!errors.includes(errMsg)) {
-        errors.push(errMsg);
-      }
-    }
-  });
-
-  await Promise.all(sendPromises);
-  return { successCount, errors };
 }
 
 const generateAtriosWorkId = () => {
@@ -282,174 +102,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     title: '', highlight: '', subtitle: '', cta_text: 'Ver Oferta', theme_color: 'emerald', is_active: true, image_url: '', user_type: 'all'
   });
 
-  const [newPushTitle, setNewPushTitle] = useState('');
-  const [newPushBody, setNewPushBody] = useState('');
-  const [newPushAudience, setNewPushAudience] = useState<'all' | 'free' | 'premium'>('all');
-  const [isSendingPush, setIsSendingPush] = useState(false);
-  const [pushSendResult, setPushSendResult] = useState<{ success: boolean; msg: string } | null>(null);
-  
-  // Novos estados para agendamento de push
-  const [isScheduled, setIsScheduled] = useState(false);
-  const [scheduledDate, setScheduledDate] = useState('');
-  const [scheduledTime, setScheduledTime] = useState('');
-  const [pushHistoryTab, setPushHistoryTab] = useState<'sent' | 'scheduled'>('sent');
-  
-  // Emoji picker visibility states
-  const [showTitleEmojiPicker, setShowTitleEmojiPicker] = useState(false);
-  const [showBodyEmojiPicker, setShowBodyEmojiPicker] = useState(false);
-  
-  const [fcmServiceAccount, setFcmServiceAccount] = useState<string>(() => {
-    return localStorage.getItem('fcm_service_account') || '';
-  });
-  const [showFcmConfig, setShowFcmConfig] = useState(false);
-  const [fcmClientConfig, setFcmClientConfig] = useState<string>('');
-  const [isSavingClientConfig, setIsSavingClientConfig] = useState(false);
-
-  useEffect(() => {
-    const loadClientConfig = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('app_banners')
-          .select('*')
-          .eq('user_type', 'fcm_config')
-          .maybeSingle();
-        if (!error && data) {
-          setFcmClientConfig(data.highlight || '');
-        }
-      } catch (err) {
-        console.warn('Erro ao carregar fcm_config:', err);
-      }
-    };
-    loadClientConfig();
-  }, [activeSubTab]);
-
-  // Verificação automática e disparo em background de notificações agendadas pendentes
-  useEffect(() => {
-    const checkAndDispatchScheduledPushes = async () => {
-      const scheduledPushes = banners.filter(b => b.user_type === 'push_scheduled');
-      if (scheduledPushes.length === 0) return;
-
-      const currentTime = new Date();
-      const pendingPushes = scheduledPushes.filter(b => {
-        try {
-          const schedTime = new Date(b.cta_link);
-          return schedTime <= currentTime;
-        } catch (e) {
-          return false;
-        }
-      });
-
-      if (pendingPushes.length === 0) return;
-
-      console.log(`[Scheduled Push] Detetados ${pendingPushes.length} agendamentos pendentes para disparar!`);
-
-      for (const push of pendingPushes) {
-        try {
-          const title = push.title.replace('[SCHEDULED]', '').trim();
-          const body = push.highlight;
-          const audience = push.subtitle as 'all' | 'free' | 'premium';
-
-          console.log(`[Scheduled Push] A disparar automaticamente: "${title}" para ${audience}`);
-
-          let clientFcmMsg = '';
-          let clientFcmSuccess = false;
-
-          // Se tiver conta de serviço local, envia o FCM nativo
-          if (fcmServiceAccount.trim()) {
-            try {
-              const sa = JSON.parse(fcmServiceAccount.trim());
-              const projectId = sa.project_id;
-              const clientEmail = sa.client_email;
-              const privateKey = sa.private_key;
-
-              if (projectId && clientEmail && privateKey) {
-                const { data: allProfiles, error: profErr } = await supabase
-                  .from('profiles')
-                  .select('id, fcm_token, name, role')
-                  .not('fcm_token', 'is', null);
-
-                if (!profErr && allProfiles) {
-                  let filteredProfiles = allProfiles || [];
-                  if (audience === 'premium') {
-                    filteredProfiles = filteredProfiles.filter(p => {
-                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-                      return sub && sub.isActive === true;
-                    });
-                  } else if (audience === 'free') {
-                    filteredProfiles = filteredProfiles.filter(p => {
-                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-                      return !sub || sub.isActive !== true;
-                    });
-                  }
-
-                  const validTokens = filteredProfiles
-                    .map(p => p.fcm_token)
-                    .filter((t): t is string => !!t && t.trim().length > 0);
-
-                  if (validTokens.length > 0) {
-                    const { successCount } = await sendClientSideFCM(
-                      projectId,
-                      clientEmail,
-                      privateKey,
-                      validTokens,
-                      title,
-                      body
-                    );
-                    if (successCount > 0) {
-                      clientFcmSuccess = true;
-                      clientFcmMsg = `Enviado para ${successCount} dispositivos ativos.`;
-                    }
-                  }
-                }
-              }
-            } catch (fcmErr) {
-              console.error("[Scheduled Push] Falha ao enviar FCM nativo:", fcmErr);
-            }
-          }
-
-          // Redundância via Edge Function do Supabase
-          try {
-            await supabase.functions.invoke('send-fcm-push', {
-              body: {
-                title: title,
-                body: body,
-                audience: audience
-              }
-            });
-          } catch (fcmFuncErr) {
-            console.warn('[Scheduled Push] Edge Function offline:', fcmFuncErr);
-          }
-
-          // Atualizar o registro do banner na tabela 'app_banners' de volta para ativo/enviado
-          const { error: updateErr } = await supabase
-            .from('app_banners')
-            .update({
-              title: `[PUSH] ${title}`,
-              user_type: audience === 'all' ? 'push_notification' : (audience === 'premium' ? 'premium' : 'free'),
-              is_active: true,
-              cta_link: '/',
-              created_at: new Date().toISOString()
-            })
-            .eq('id', push.id);
-
-          if (updateErr) throw updateErr;
-
-        } catch (err) {
-          console.error(`[Scheduled Push] Erro ao disparar push ${push.id}:`, err);
-        }
-      }
-
-      // Recarregar os dados do painel para refletir o disparo
-      fetchData();
-    };
-
-    // Roda a verificação a cada 10 segundos se o painel de notificações estiver aberto
-    if (activeSubTab === 'notifications') {
-      const interval = setInterval(checkAndDispatchScheduledPushes, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [activeSubTab, banners, fcmServiceAccount]);
-
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -463,21 +115,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       } else if (activeSubTab === 'support') {
         const { data } = await supabase.from('profiles').select('*').eq('role', 'support');
         setSupportStaff(data || []);
-      } else if (activeSubTab === 'banners' || activeSubTab === 'notifications') {
+      } else if (activeSubTab === 'banners') {
         const { data, error } = await supabase.from('app_banners').select('*').order('created_at', { ascending: false });
         if (error && error.code === '42P01') {
           setBanners([]);
           setShowSqlHelp(true);
         } else {
           setBanners(data || []);
-        }
-        
-        // Se for o painel de notificações, buscar os perfis de utilizadores para estatísticas de ecrã
-        if (activeSubTab === 'notifications') {
-          const { data: userData } = await supabase.from('profiles').select('id, name, email');
-          if (userData) {
-            setUsers(userData as any);
-          }
         }
       }
     } catch (e) { 
@@ -488,7 +132,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   };
 
   useEffect(() => { 
-    if (!['profile', 'reports', 'analytics', 'ledger'].includes(activeSubTab)) fetchData(); 
+    if (!['profile', 'reports', 'analytics', 'ledger', 'notifications'].includes(activeSubTab)) fetchData(); 
   }, [activeSubTab]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
@@ -647,258 +291,9 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       setNewBanner({ title: '', highlight: '', subtitle: '', cta_text: 'Ver Oferta', theme_color: 'emerald', is_active: true, image_url: '', user_type: 'all' });
       fetchData();
     } catch (e: any) { 
-      const isUserTypeErr = e.message?.includes('user_type') || e.message?.includes('column') || JSON.stringify(e).includes('user_type');
-      if (isUserTypeErr) {
-        alert(`Erro AtriosWork: A tabela 'app_banners' não possui a coluna 'user_type' no seu Supabase.\n\nPara corrigir, aceda ao SQL Editor no painel do Supabase e execute:\n\nALTER TABLE app_banners ADD COLUMN IF NOT EXISTS user_type TEXT DEFAULT 'all';`);
-      } else {
-        alert(`Erro AtriosWork: ${e.message}`);
-      }
+      alert(`Erro AtriosWork: ${e.message}`);
     } finally { 
       setIsCreating(false); 
-    }
-  };
-
-  const handleSendPushNotification = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newPushTitle.trim() || !newPushBody.trim()) {
-      alert('Por favor, preencha o título e a mensagem para a notificação push!');
-      return;
-    }
-    
-    setIsSendingPush(true);
-    setPushSendResult(null);
-    try {
-      if (isScheduled) {
-        if (!scheduledDate || !scheduledTime) {
-          alert('Por favor, selecione a data e a hora para o agendamento!');
-          setIsSendingPush(false);
-          return;
-        }
-
-        const scheduledDateTime = `${scheduledDate}T${scheduledTime}:00`;
-        const testDate = new Date(scheduledDateTime);
-        if (isNaN(testDate.getTime())) {
-          throw new Error("A data ou hora inserida é inválida.");
-        }
-
-        if (testDate <= new Date()) {
-          alert("A data e hora do agendamento têm de ser no futuro!");
-          setIsSendingPush(false);
-          return;
-        }
-
-        const pushRecord = {
-          title: `[SCHEDULED] ${newPushTitle.trim()}`,
-          highlight: newPushBody.trim(),
-          subtitle: newPushAudience, // Guardamos a audiência original para ser disparada
-          cta_text: 'Abrir App',
-          cta_link: testDate.toISOString(), // Guardamos o timestamp ISO no cta_link
-          theme_color: 'amber',
-          is_active: false, // Inativo por padrão para não aparecer para os usuários antes do tempo
-          user_type: 'push_scheduled',
-          image_url: null
-        };
-
-        const { error } = await supabase.from('app_banners').insert([pushRecord]);
-        if (error) throw error;
-
-        setNewPushTitle('');
-        setNewPushBody('');
-        setIsScheduled(false);
-        setPushSendResult({
-          success: true,
-          msg: `Notificação agendada com sucesso para ${testDate.toLocaleDateString('pt-PT')} às ${testDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}!`
-        });
-        fetchData();
-        setIsSendingPush(false);
-        return;
-      }
-
-      // Marcamos o banner como [PUSH] no título ou colocamos o tipo 'push_notification'
-      const pushRecord = {
-        title: `[PUSH] ${newPushTitle.trim()}`,
-        highlight: newPushBody.trim(),
-        subtitle: 'Notificação AtriosWork Push',
-        cta_text: 'Abrir App',
-        cta_link: '/',
-        theme_color: 'amber',
-        is_active: true,
-        user_type: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free'),
-        image_url: null
-      };
-
-      const { error } = await supabase.from('app_banners').insert([pushRecord]);
-      if (error) throw error;
-
-      let clientFcmMsg = '';
-      let clientFcmSuccess = false;
-
-      // Se houver uma conta de serviço configurada, enviar direto pelo navegador via FCM HTTP v1
-      if (fcmServiceAccount.trim()) {
-        try {
-          const sa = JSON.parse(fcmServiceAccount.trim());
-          const projectId = sa.project_id;
-          const clientEmail = sa.client_email;
-          const privateKey = sa.private_key;
-
-          if (!projectId || !clientEmail || !privateKey) {
-            throw new Error("O ficheiro JSON não contém todas as chaves necessárias (project_id, client_email, private_key).");
-          }
-
-          // Buscar tokens FCM ativos do Supabase
-          let query = supabase
-            .from('profiles')
-            .select('id, fcm_token, name, role')
-            .not('fcm_token', 'is', null);
-
-          const { data: allProfiles, error: profErr } = await query;
-          if (profErr) throw profErr;
-
-          let filteredProfiles = allProfiles || [];
-          if (newPushAudience === 'premium') {
-            filteredProfiles = filteredProfiles.filter(p => {
-              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-              return sub && sub.isActive === true;
-            });
-          } else if (newPushAudience === 'free') {
-            filteredProfiles = filteredProfiles.filter(p => {
-              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-              return !sub || sub.isActive !== true;
-            });
-          }
-
-          const validTokens = filteredProfiles
-            .map(p => p.fcm_token)
-            .filter((t): t is string => !!t && t.trim().length > 0);
-
-          if (validTokens.length > 0) {
-            const { successCount, errors } = await sendClientSideFCM(
-              projectId,
-              clientEmail,
-              privateKey,
-              validTokens,
-              newPushTitle.trim(),
-              newPushBody.trim()
-            );
-            if (successCount > 0) {
-              clientFcmSuccess = true;
-              clientFcmMsg = `Enviado com sucesso diretamente pelo seu navegador para ${successCount} de ${validTokens.length} dispositivos ativos via FCM.`;
-              if (errors.length > 0) {
-                clientFcmMsg += ` Alguns avisos de erro em alguns dispositivos: ${errors.join('; ')}`;
-              }
-            } else {
-              clientFcmSuccess = false;
-              const detailedErr = errors.join('; ');
-              if (detailedErr.includes("403") || detailedErr.toLowerCase().includes("permission") || detailedErr.toLowerCase().includes("forbidden") || detailedErr.toLowerCase().includes("not been used")) {
-                clientFcmMsg = `Erro 403 (Permissão Negada): Certifique-se de que a API "Firebase Cloud Messaging API (V1)" está ATIVADA no Google Cloud Console do projeto "${projectId}" (e que as credenciais inseridas têm acesso). Detalhes: ${detailedErr}`;
-              } else if (detailedErr.toLowerCase().includes("sender_id_mismatch") || detailedErr.toLowerCase().includes("mismatch") || detailedErr.toLowerCase().includes("not-registered")) {
-                clientFcmMsg = `Erro de Mismatch / Token Inválido: Os tokens gerados no telemóvel dos utilizadores pertencem a outro projeto Firebase. Se está a usar o seu projeto Firebase "${projectId}" para enviar notificações, também deve configurar as credenciais do seu projeto Firebase no frontend (variáveis .env como VITE_FIREBASE_*) para que os tokens coincidam com o seu projeto!`;
-              } else {
-                clientFcmMsg = `Erro no envio FCM: ${detailedErr}`;
-              }
-            }
-          } else {
-            clientFcmMsg = "Nenhum dispositivo encontrado com token push registado para esta audiência.";
-          }
-        } catch (fcmClientErr: any) {
-          console.error("Erro ao enviar via FCM direto no navegador:", fcmClientErr);
-          clientFcmMsg = `Aviso: Erro ao despachar diretamente via FCM (${fcmClientErr.message}).`;
-        }
-      }
-
-      // Tenta chamar a Edge Function como redundância
-      try {
-        await supabase.functions.invoke('send-fcm-push', {
-          body: {
-            title: newPushTitle.trim(),
-            body: newPushBody.trim(),
-            audience: newPushAudience
-          }
-        });
-      } catch (fcmErr) {
-        console.warn('Função de borda do Supabase (send-fcm-push) ainda não implantada ou offline:', fcmErr);
-      }
-
-      setNewPushTitle('');
-      setNewPushBody('');
-      setPushSendResult({
-        success: clientFcmSuccess,
-        msg: clientFcmSuccess 
-          ? `Transmissão concluída! ${clientFcmMsg}`
-          : `Transmissão falhou ou precisa de ajuste: ${clientFcmMsg}`
-      });
-      fetchData();
-    } catch (err: any) {
-      const isUserTypeErr = err.message?.includes('user_type') || err.message?.includes('column') || JSON.stringify(err).includes('user_type');
-      setPushSendResult({
-        success: false,
-        msg: isUserTypeErr 
-          ? `Erro: A tabela 'app_banners' não possui a coluna 'user_type' no seu Supabase.\n\nPara corrigir, aceda ao painel do Supabase > SQL Editor e execute:\n\nALTER TABLE app_banners ADD COLUMN IF NOT EXISTS user_type TEXT DEFAULT 'all';\n\n(E depois recarregue esta página!)`
-          : `Falha ao transmitir push: ${err.message}`
-      });
-    } finally {
-      setIsSendingPush(false);
-    }
-  };
-
-  const handleSaveFcmClientConfig = async () => {
-    setIsSavingClientConfig(true);
-    try {
-      if (!fcmClientConfig.trim()) {
-        // Remover a configuração de fcm_config se tiver vazia
-        const { error } = await supabase
-          .from('app_banners')
-          .delete()
-          .eq('user_type', 'fcm_config');
-        if (error) throw error;
-        alert('Configuração de cliente removida com sucesso. O app voltará a usar o Firebase padrão.');
-      } else {
-        // Validar JSON
-        try {
-          JSON.parse(fcmClientConfig);
-        } catch (e) {
-          alert('Erro de Sintaxe: O texto inserido não é um JSON válido. Por favor verifique as aspas e vírgulas.');
-          setIsSavingClientConfig(false);
-          return;
-        }
-
-        // Buscar se já existe
-        const { data: existing } = await supabase
-          .from('app_banners')
-          .select('id')
-          .eq('user_type', 'fcm_config')
-          .maybeSingle();
-
-        if (existing) {
-          const { error } = await supabase
-            .from('app_banners')
-            .update({
-              highlight: fcmClientConfig.trim(),
-              title: 'FCM Client Config',
-              subtitle: 'Configurações de cliente Firebase Customizado para Push Notifications',
-              is_active: true
-            })
-            .eq('id', existing.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase
-            .from('app_banners')
-            .insert([{
-              user_type: 'fcm_config',
-              title: 'FCM Client Config',
-              highlight: fcmClientConfig.trim(),
-              subtitle: 'Configurações de cliente Firebase Customizado para Push Notifications',
-              is_active: true,
-              theme_color: 'blue'
-            }]);
-          if (error) throw error;
-        }
-        alert('Configuração de cliente gravada e publicada com sucesso! Agora todos os telemóveis dos utilizadores vão registar-se no seu projeto customizado.');
-      }
-    } catch (err: any) {
-      alert(`Erro ao gravar configuração: ${err.message}`);
-    } finally {
-      setIsSavingClientConfig(false);
     }
   };
 
@@ -921,19 +316,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const nextStatus = sub.isActive === false;
       const updatedSub = { ...sub, isActive: nextStatus };
       
-      const response = await fetch('/api/admin/update-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          adminUserId: currentUser?.id,
-          targetUserId: inputUser.id,
-          updateFields: { subscription: updatedSub }
-        })
-      });
-      const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || 'Falha ao atualizar status');
-      }
+      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', inputUser.id);
+      if (error) throw error;
       await fetchData();
     } catch (e: any) {
       alert(`Erro ao mudar status: ${e.message}`);
@@ -961,19 +345,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         promotionDays: days
       };
 
-      const response = await fetch('/api/admin/update-profile', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          adminUserId: currentUser?.id,
-          targetUserId: userId,
-          updateFields: { subscription: updatedSub }
-        })
-      });
-      const resData = await response.json();
-      if (!response.ok || !resData.success) {
-        throw new Error(resData.error || 'Falha ao promover utilizador');
-      }
+      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', userId);
+      if (error) throw error;
       
       setPromotingUser(null);
       await fetchData();
@@ -995,20 +368,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         if (typeof profileData.subscription === 'string') { try { sub = JSON.parse(profileData.subscription); } catch(e) { sub = {}; } }
         else { sub = profileData.subscription || {}; }
         const updatedSub = { ...sub, custom_commission: newCommRate, custom_discount: newDiscRate };
-        
-        const response = await fetch('/api/admin/update-profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            adminUserId: currentUser?.id,
-            targetUserId: editingCommissionVendor.id,
-            updateFields: { subscription: updatedSub }
-          })
-        });
-        const resData = await response.json();
-        if (!response.ok || !resData.success) {
-          throw new Error(resData.error || 'Falha ao atualizar comissão');
-        }
+        await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', editingCommissionVendor.id);
       }
       setEditingCommissionVendor(null);
       await fetchData();
@@ -1026,19 +386,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       if (itemToDelete.type === 'banner') await supabase.from('app_banners').delete().eq('id', itemToDelete.id);
       else {
         if (itemToDelete.type === 'vendor') await supabase.from('vendors').delete().eq('id', itemToDelete.id);
-        
-        const response = await fetch('/api/admin/delete-profile', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            adminUserId: currentUser?.id,
-            targetUserId: itemToDelete.id
-          })
-        });
-        const resData = await response.json();
-        if (!response.ok || !resData.success) {
-          throw new Error(resData.error || 'Falha ao eliminar perfil');
-        }
+        await supabase.from('profiles').delete().eq('id', itemToDelete.id);
       }
       fetchData();
       setItemToDelete(null);
@@ -1050,11 +398,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     if (activeSubTab === 'users') return users.filter(u => u.name.toLowerCase().includes(term) || u.email?.toLowerCase().includes(term));
     if (activeSubTab === 'vendors') return vendors.filter(v => v.name.toLowerCase().includes(term) || v.code.toLowerCase().includes(term));
     if (activeSubTab === 'support') return supportStaff.filter(s => s.name.toLowerCase().includes(term) || s.email?.toLowerCase().includes(term));
-    if (activeSubTab === 'banners') {
-      return banners
-        .filter(b => !b.title.toUpperCase().includes('[PUSH]') && (b.user_type as string) !== 'push_notification')
-        .filter(b => b.title.toLowerCase().includes(term) || b.highlight.toLowerCase().includes(term));
-    }
+    if (activeSubTab === 'banners') return banners.filter(b => b.title.toLowerCase().includes(term) || b.highlight.toLowerCase().includes(term));
     return [];
   }, [searchTerm, users, vendors, supportStaff, banners, activeSubTab]);
 
@@ -1129,485 +473,44 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             <div className="bg-slate-800/20 border border-blue-500/20 p-10 rounded-[3rem] space-y-8 shadow-2xl relative overflow-hidden">
                <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none"><Webhook className="w-64 h-64 text-blue-500" /></div>
                <div className="space-y-2 relative z-10">
-                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter font-sans">Central de <span className="text-blue-400">Notificações Push</span></h3>
-                </div>
+                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Protocolo de <span className="text-blue-400">Alertas AtriosWork</span></h3>
+                  <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">Configure como a equipa de suporte é notificada sobre novos tickets. Recomendamos a utilização de Webhooks para integração direta com E-mail ou Push via Smartphone.</p>
+               </div>
 
-                {/* Estatísticas Rápidas de Dispositivos */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 relative z-10 font-sans">
-                  <div className="bg-slate-950/60 p-6 rounded-[2rem] border border-white/5 space-y-2 animate-[fadeIn_0.4s_ease-out]">
-                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Membros do Painel</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold font-mono text-white">{users.length}</span>
-                      <span className="text-[10px] font-black text-emerald-400 uppercase">Utilizadores</span>
-                    </div>
-                    <p className="text-[9px] text-slate-600 font-bold uppercase leading-snug">Todos que se registaram e podem aceitar alertas em sua conta.</p>
-                  </div>
-
-                  <div className="bg-slate-950/60 p-6 rounded-[2rem] border border-white/5 space-y-2 animate-[fadeIn_0.5s_ease-out]">
-                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Canal PWA Activos</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold font-mono text-emerald-400">PWA</span>
-                      <span className="text-[10px] font-black text-emerald-500 uppercase">Habilitado</span>
-                    </div>
-                    <p className="text-[9px] text-slate-600 font-bold uppercase leading-snug">Dispositivos preparados com Service Worker para receção imediata.</p>
-                  </div>
-
-                  <div className="bg-slate-950/60 p-6 rounded-[2rem] border border-white/5 space-y-2 animate-[fadeIn_0.6s_ease-out]">
-                    <p className="text-[10px] font-black uppercase text-slate-500 tracking-wider">Notificações Nativa</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-3xl font-bold font-mono text-blue-400">Push</span>
-                      <span className="text-[10px] font-black text-blue-500 uppercase">Configurado</span>
-                    </div>
-                    <p className="text-[9px] text-slate-600 font-bold uppercase leading-snug">Transmissão em loop directo por eventos de sincronização Supabase.</p>
-                  </div>
-                </div>
-
-                {/* Configuração Local FCM da Conta de Serviço */}
-                <div className="bg-slate-950/70 p-6 rounded-[2rem] border border-white/5 space-y-4 relative z-10 font-sans">
-                  <div className="flex items-center justify-between cursor-pointer" onClick={() => setShowFcmConfig(!showFcmConfig)}>
-                    <div className="flex items-center gap-3">
-                      <KeySquare className="w-5 h-5 text-blue-400" />
-                      <div>
-                        <h4 className="text-xs font-black text-white uppercase tracking-widest">Configuração da Conta de Serviço Firebase (FCM)</h4>
-                        <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">
-                          {fcmServiceAccount ? "✅ Chave privada guardada localmente" : "⚠️ Chave não configurada - Envio via FCM offline desativado"}
-                        </p>
-                      </div>
-                    </div>
-                    <button type="button" className="text-[10px] font-black text-blue-400 hover:text-blue-300 uppercase tracking-widest">
-                      {showFcmConfig ? "Ocultar" : "Configurar"}
-                    </button>
-                  </div>
-
-                  {showFcmConfig && (
-                    <div className="space-y-4 pt-4 border-t border-white/5 animate-[fadeIn_0.3s_ease-out]">
-                      <p className="text-[10px] text-slate-400 leading-relaxed font-bold uppercase">
-                        Para enviar notificações push nativas em tempo real para dispositivos offline sem necessitar de instalar Docker ou servidores locais, cole abaixo o conteúdo completo do seu ficheiro JSON da Conta de Serviço do Firebase (gerado nas definições do Firebase console &gt; Contas de serviço).
-                      </p>
-                      <div className="space-y-2">
-                        <textarea
-                          rows={6}
-                          placeholder='{ "type": "service_account", "project_id": "push-atrios-work", ... }'
-                          value={fcmServiceAccount}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            setFcmServiceAccount(val);
-                            if (val.trim()) {
-                              localStorage.setItem('fcm_service_account', val.trim());
-                            } else {
-                              localStorage.removeItem('fcm_service_account');
-                            }
-                          }}
-                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-[11px] font-mono outline-none focus:ring-2 focus:ring-blue-500"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-[9px] text-slate-500 font-bold uppercase">
-                          Armazenado de forma segura e local no localStorage do seu navegador.
-                        </span>
-                        {fcmServiceAccount && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              if (confirm("Deseja mesmo remover a chave privada?")) {
-                                setFcmServiceAccount('');
-                                localStorage.removeItem('fcm_service_account');
-                              }
-                            }}
-                            className="text-[9px] font-black text-rose-500 hover:text-rose-400 uppercase tracking-widest"
-                          >
-                            Remover Chave
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Configuração de Cliente Web Firebase (Público) em cartão independente */}
-                <div className="bg-slate-950/70 p-6 rounded-[2rem] border border-white/5 space-y-4 relative z-10 font-sans">
-                  <div className="flex items-center gap-3">
-                    <Globe className="w-5 h-5 text-blue-400" />
-                    <div>
-                      <h4 className="text-xs font-black text-white uppercase tracking-widest">Configuração do Cliente Web Firebase (Frontend / Telemóvel)</h4>
-                      <p className="text-[9px] text-slate-500 font-bold uppercase mt-0.5">
-                        {fcmClientConfig ? "✅ Configuração de Cliente gravada e publicada" : "⚠️ Usando o projeto Firebase padrão do workspace"}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="space-y-4 pt-4 border-t border-white/5">
-                    <p className="text-[10px] text-slate-400 leading-relaxed font-bold uppercase">
-                      Para que os telemóveis e computadores dos seus colaboradores registem os tokens de push no seu projeto Firebase customizado em vez do projeto padrão do workspace, cole abaixo o objeto JSON de configuração web do seu Firebase (gerado no painel do Firebase Console &gt; Definições do Projeto &gt; Os seus apps).
-                    </p>
-                    <div className="space-y-2">
-                      <textarea
-                        rows={5}
-                        placeholder={`{
-  "apiKey": "AIzaSy...",
-  "authDomain": "push-atrios-work.firebaseapp.com",
-  "projectId": "push-atrios-work",
-  "storageBucket": "push-atrios-work.appspot.com",
-  "messagingSenderId": "1234567890",
-  "appId": "1:12345:web:abcd",
-  "vapidKey": "B..." // Opcional: Chave VAPID pública de Web Push Certificates
-}`}
-                        value={fcmClientConfig}
-                        onChange={(e) => setFcmClientConfig(e.target.value)}
-                        className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-[11px] font-mono outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[9px] text-slate-500 font-bold uppercase">
-                        Isto sincroniza com a base de dados Supabase e atualiza automaticamente todos os utilizadores ativos.
-                      </span>
-                      <button
-                        type="button"
-                        onClick={handleSaveFcmClientConfig}
-                        disabled={isSavingClientConfig}
-                        className="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all disabled:opacity-50"
-                      >
-                        {isSavingClientConfig ? 'A Guardar...' : 'Guardar Configuração'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 relative z-10">
-                  {/* Formulário de Envio */}
-                  <form onSubmit={handleSendPushNotification} className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6">
-                    <div className="flex items-center gap-3 border-b border-white/5 pb-4">
-                      <Megaphone className="w-5 h-5 text-amber-500 animate-pulse" />
-                      <h4 className="text-xs font-black text-white uppercase tracking-widest font-sans">Escrever Notificação Push</h4>
-                    </div>
-
-                    {pushSendResult && (
-                      <div className={`p-4 rounded-2xl border text-[10px] font-bold uppercase tracking-wider ${pushSendResult.success ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'}`}>
-                        {pushSendResult.msg}
-                      </div>
-                    )}
-
-                    <div className="space-y-2 relative">
-                      <div className="flex justify-between items-center">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Título da Notificação</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowTitleEmojiPicker(!showTitleEmojiPicker);
-                            setShowBodyEmojiPicker(false);
-                          }}
-                          className="text-slate-500 hover:text-amber-500 transition-colors p-1"
-                          title="Inserir Emoji"
-                        >
-                          <Smile className="w-4.5 h-4.5" />
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <input 
-                          type="text" 
-                          placeholder="Ex: ⚠️ Atualização de Assinatura" 
-                          value={newPushTitle}
-                          onChange={(e) => setNewPushTitle(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500"
-                          required
-                        />
-                        {showTitleEmojiPicker && (
-                          <div className="absolute z-50 right-0 top-14 shadow-2xl border border-white/10 rounded-2xl overflow-hidden scale-90 origin-top-right">
-                            <EmojiPicker 
-                              theme={Theme.DARK}
-                              emojiStyle={EmojiStyle.NATIVE}
-                              onEmojiClick={(emojiData) => {
-                                setNewPushTitle(prev => prev + emojiData.emoji);
-                                setShowTitleEmojiPicker(false);
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2 relative">
-                      <div className="flex justify-between items-center">
-                        <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Mensagem da Notificação</label>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setShowBodyEmojiPicker(!showBodyEmojiPicker);
-                            setShowTitleEmojiPicker(false);
-                          }}
-                          className="text-slate-500 hover:text-amber-500 transition-colors p-1"
-                          title="Inserir Emoji"
-                        >
-                          <Smile className="w-4.5 h-4.5" />
-                        </button>
-                      </div>
-                      <div className="relative">
-                        <textarea 
-                          rows={3}
-                          placeholder="Ex: Sua assinatura Pro está prestes a expirar amanhã. Renove já no menu de faturamento." 
-                          value={newPushBody}
-                          onChange={(e) => setNewPushBody(e.target.value)}
-                          className="w-full bg-slate-900 border border-slate-850 rounded-2xl px-5 py-4 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500 resize-none"
-                          required
-                        />
-                        {showBodyEmojiPicker && (
-                          <div className="absolute z-50 right-0 top-14 shadow-2xl border border-white/10 rounded-2xl overflow-hidden scale-90 origin-top-right">
-                            <EmojiPicker 
-                              theme={Theme.DARK}
-                              emojiStyle={EmojiStyle.NATIVE}
-                              onEmojiClick={(emojiData) => {
-                                setNewPushBody(prev => prev + emojiData.emoji);
-                                setShowBodyEmojiPicker(false);
-                              }}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Filtro de Audiência</label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { id: 'all', label: 'Todos' },
-                          { id: 'free', label: 'Grátis' },
-                          { id: 'premium', label: 'Pro' }
-                        ].map((aud) => (
-                          <button
-                            key={aud.id}
-                            type="button"
-                            onClick={() => setNewPushAudience(aud.id as any)}
-                            className={`py-3 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all border ${newPushAudience === aud.id ? 'bg-blue-600 border-blue-500 text-white shadow-lg' : 'bg-slate-900 border-slate-850 text-slate-400 hover:text-white'}`}
-                          >
-                            {aud.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Opção de Agendamento */}
-                    <div className="space-y-4 border-t border-white/5 pt-4">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2 font-sans">
-                          <Calendar className="w-3.5 h-3.5 text-blue-400" />
-                          Agendar Envio para o futuro?
-                        </label>
-                        <input 
-                          type="checkbox" 
-                          checked={isScheduled}
-                          onChange={(e) => {
-                            setIsScheduled(e.target.checked);
-                            if (e.target.checked) {
-                              const futureDate = new Date();
-                              futureDate.setMinutes(futureDate.getMinutes() + 30);
-                              setScheduledDate(futureDate.toISOString().split('T')[0]);
-                              setScheduledTime(futureDate.toTimeString().split(' ')[0].substring(0, 5));
-                            }
-                          }}
-                          className="w-4 h-4 rounded border-slate-800 bg-slate-900 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                        />
-                      </div>
-
-                      {isScheduled && (
-                        <div className="grid grid-cols-2 gap-4 animate-[fadeIn_0.3s_ease-out]">
-                          <div className="space-y-1">
-                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest font-sans">Data de Envio</label>
-                            <input 
-                              type="date" 
-                              value={scheduledDate}
-                              onChange={(e) => setScheduledDate(e.target.value)}
-                              className="w-full bg-slate-900 border border-slate-850 rounded-xl px-4 py-2.5 text-white text-[11px] outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                              required={isScheduled}
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest font-sans">Hora de Envio</label>
-                            <input 
-                              type="time" 
-                              value={scheduledTime}
-                              onChange={(e) => setScheduledTime(e.target.value)}
-                              className="w-full bg-slate-900 border border-slate-850 rounded-xl px-4 py-2.5 text-white text-[11px] outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-                              required={isScheduled}
-                            />
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={isSendingPush}
-                      className={`w-full py-4 bg-gradient-to-r ${isScheduled ? 'from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500' : 'from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500'} text-white font-black rounded-2xl text-[9px] uppercase tracking-[0.2em] shadow-lg shadow-indigo-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center justify-center gap-2`}
-                    >
-                      {isSendingPush ? (
-                        <>
-                          <Loader2 className="w-3.5 h-3.5 animate-spin" /> {isScheduled ? 'A Agendar...' : 'Transmitindo...'}
-                        </>
-                      ) : (
-                        <>
-                          {isScheduled ? 'Confirmar Agendamento de Push' : 'Transmitir Notificação Push'}
-                        </>
-                      )}
-                    </button>
-                  </form>
-
-                  {/* Histórico e Agendamentos de Notificações */}
-                  <div className="bg-slate-950/70 p-8 rounded-[2.5rem] border border-white/5 space-y-6 flex flex-col h-[480px]">
-                    <div className="flex items-center justify-between border-b border-white/5 pb-4 shrink-0 font-sans">
-                      <div className="flex gap-4">
-                        <button
-                          type="button"
-                          onClick={() => setPushHistoryTab('sent')}
-                          className={`text-xs font-black uppercase tracking-widest pb-1 transition-all ${pushHistoryTab === 'sent' ? 'text-blue-400 border-b-2 border-blue-500' : 'text-slate-500 hover:text-slate-300'}`}
-                        >
-                          Enviados
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setPushHistoryTab('scheduled')}
-                          className={`text-xs font-black uppercase tracking-widest pb-1 transition-all ${pushHistoryTab === 'scheduled' ? 'text-amber-400 border-b-2 border-amber-500' : 'text-slate-500 hover:text-slate-300'}`}
-                        >
-                          Agendados
-                        </button>
-                      </div>
-                      
-                      {pushHistoryTab === 'sent' ? (
-                        <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">
-                          {banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length} Enviadas
-                        </span>
-                      ) : (
-                        <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-amber-500/80 uppercase tracking-wider font-mono">
-                          {banners.filter(p => (p.user_type as string) === 'push_scheduled').length} Agendados
-                        </span>
-                      )}
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto pr-2 space-y-3 custom-scrollbar">
-                      {pushHistoryTab === 'sent' ? (
-                        banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length === 0 ? (
-                          <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
-                            <BellRing className="w-10 h-10 text-slate-750 animate-pulse" />
-                            <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhuma Notificação Transmitida</p>
-                          </div>
-                        ) : (
-                          banners
-                            .filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification')
-                            .map((push) => {
-                              const displayTitle = push.title.replace('[PUSH]', '').replace('[push]', '').trim();
-                              const displayAudience = (push.user_type as string) === 'push_notification' || push.user_type === 'all' ? 'TODOS' : 
-                                                      (push.user_type === 'premium' ? 'PRO' : 'GRÁTIS');
-                              
-                              return (
-                                <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
-                                  <div className="space-y-1 min-w-0 flex-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
-                                        displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                                        displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                        'bg-slate-800 text-slate-400'
-                                      }`}>
-                                        {displayAudience}
-                                      </span>
-                                      <span className="text-[8px] font-mono text-slate-600 font-bold">
-                                        {push.created_at ? new Date(push.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                                      </span>
-                                    </div>
-                                    <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
-                                    <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight || push.subtitle}</p>
-                                  </div>
-                                  
-                                  <button
-                                    type="button"
-                                    onClick={() => setItemToDelete({ id: push.id, name: displayTitle, type: 'banner' })}
-                                    className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                    title="Remover Notificação"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              );
-                            })
-                        )
-                      ) : (
-                        banners.filter(p => (p.user_type as string) === 'push_scheduled').length === 0 ? (
-                          <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
-                            <Calendar className="w-10 h-10 text-slate-750 animate-pulse" />
-                            <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhum Agendamento Ativo</p>
-                          </div>
-                        ) : (
-                          banners
-                            .filter(p => (p.user_type as string) === 'push_scheduled')
-                            .map((push) => {
-                              const displayTitle = push.title.replace('[SCHEDULED]', '').trim();
-                              const displayAudience = push.subtitle === 'all' ? 'TODOS' : (push.subtitle === 'premium' ? 'PRO' : 'GRÁTIS');
-                              
-                              let schedDateStr = '---';
-                              try {
-                                schedDateStr = new Date(push.cta_link).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                              } catch (e) {}
-
-                              return (
-                                <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
-                                  <div className="space-y-1 min-w-0 flex-1">
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                        AGENDADO: {schedDateStr}
-                                      </span>
-                                      <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
-                                        displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                                        displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                        'bg-slate-800 text-slate-400'
-                                      }`}>
-                                        {displayAudience}
-                                      </span>
-                                    </div>
-                                    <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
-                                    <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight}</p>
-                                  </div>
-                                  
-                                  <button
-                                    type="button"
-                                    onClick={() => setItemToDelete({ id: push.id, name: `Agendamento: ${displayTitle}`, type: 'banner' })}
-                                    className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                    title="Remover Agendamento"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              );
-                            })
-                        )
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Ajuda/Avisos de Webhooks legados preservados */}
-                <div className="pt-4 border-t border-slate-850 grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <div className="p-6 bg-slate-900/60 rounded-3xl border border-white/5 space-y-2">
-                     <div className="flex items-center gap-3">
-                        <Mail className="w-4 h-4 text-blue-400" />
-                        <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-300 font-sans">Notificações por E-mail</h5>
+               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
+                  <div className="bg-slate-950/60 p-8 rounded-[2rem] border border-white/5 space-y-6">
+                     <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-blue-600/20 rounded-2xl flex items-center justify-center text-blue-400"><Mail className="w-6 h-6" /></div>
+                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Notificações por E-mail</h4>
                      </div>
-                     <p className="text-[10px] text-slate-500 leading-relaxed">
-                       Para encaminhar novos tickets de suporte para <strong>software.atrios@gmail.com</strong>, utilize o Webhook do Supabase apontado para um serviço do SendGrid/Resend.
-                     </p>
+                     <p className="text-[11px] text-slate-500 font-medium leading-relaxed">Para encaminhar novos tickets para <strong>software.atrios@gmail.com</strong>, utilize um Webhook no Supabase Dashboard (Database &rarr; Webhooks) apontando para um serviço como Resend ou SendGrid.</p>
+                     <button onClick={() => window.open('https://supabase.com/docs/guides/database/webhooks', '_blank')} className="flex items-center gap-2 text-blue-400 text-[10px] font-black uppercase hover:underline"><ExternalLink className="w-3 h-3" /> Abrir Guia de Configuração</button>
                   </div>
-                  
-                  <div className="p-6 bg-slate-900/60 rounded-3xl border border-white/5 space-y-2">
-                     <div className="flex items-center gap-3">
-                        <Smartphone className="w-4 h-4 text-emerald-400" />
-                        <h5 className="text-[10px] font-black uppercase tracking-widest text-slate-300 font-sans">Canal Push Nativo Activo</h5>
+
+                  <div className="bg-slate-950/60 p-8 rounded-[2rem] border border-white/5 space-y-6">
+                     <div className="flex items-center gap-4">
+                        <div className="w-12 h-12 bg-emerald-600/20 rounded-2xl flex items-center justify-center text-emerald-400"><Smartphone className="w-6 h-6" /></div>
+                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Push Notifications</h4>
                      </div>
-                     <p className="text-[10px] text-slate-500 leading-relaxed italic">
-                       As notificações Push nativas dependem do consentimento do utilizador. Incentive-os a clicar em "Autorizar Push" no popup de início de sessão.
-                     </p>
+                     <p className="text-[11px] text-slate-500 font-medium leading-relaxed">As notificações via browser estão ativas no painel de suporte. Garanta que o pessoal do Staff autorizou as notificações no cadeado da barra de endereços.</p>
+                     <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20 w-fit">
+                        <CheckCircle className="w-3 h-3 text-emerald-500" />
+                        <span className="text-[9px] font-black text-emerald-500 uppercase">Sistema Ativo no Hub</span>
+                     </div>
                   </div>
-                </div>
-          </div>
-          </div>
-        ) : (
-         <div className="bg-slate-800/20 border border-slate-800 rounded-[2.5rem] overflow-hidden backdrop-blur-md shadow-2xl relative">
+               </div>
+               
+               <div className="p-8 bg-slate-950 border border-slate-800 rounded-3xl space-y-4">
+                  <div className="flex items-center gap-3 text-amber-500">
+                     <ShieldAlert className="w-5 h-5" />
+                     <p className="text-[10px] font-black uppercase tracking-widest">Dica de Automação</p>
+                  </div>
+                  <p className="text-xs text-slate-500 italic">"Pode utilizar o Make.com ou Zapier para ligar o Webhook do Supabase ao Telegram ou WhatsApp da equipa, garantindo resposta em menos de 5 minutos."</p>
+               </div>
+            </div>
+         </div>
+       ) : (
+        <div className="bg-slate-800/20 border border-slate-800 rounded-[2.5rem] overflow-hidden backdrop-blur-md shadow-2xl relative">
           <div className="p-8 border-b border-slate-800 flex flex-col md:flex-row gap-6 justify-between items-center bg-slate-900/40">
             <div className="relative w-full md:max-w-md">
               <Search className="absolute left-6 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />

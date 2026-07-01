@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles } from 'lucide-react';
+import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins } from 'lucide-react';
 import { UserProfile, Language, Currency } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -332,31 +332,6 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.security.confirmPassword')}</label><input type="password" value={passwords.confirm} onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
             </div>
             <button onClick={handleUpdatePassword} disabled={isUpdatingPass} className="w-full py-4 rounded-xl bg-slate-950 border border-slate-800 text-purple-400 font-black uppercase text-[10px] tracking-widest hover:bg-purple-600 hover:text-white transition-all">{isUpdatingPass ? 'PROCESSANDO...' : 'ATUALIZAR SEGURANÇA'}</button>
-          </div>
-
-          {/* SECÇÃO DESCARREGAR APP NATIVA (PWA) */}
-          <div className="bg-gradient-to-r from-purple-900/10 to-indigo-900/10 border border-purple-500/20 p-8 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl relative overflow-hidden">
-            <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-purple-500/5 rounded-full blur-2xl pointer-events-none" />
-            <div className="flex items-center gap-4">
-              <div className="w-12 h-12 bg-purple-500/10 text-purple-400 rounded-2xl flex items-center justify-center shrink-0 border border-purple-500/20 shadow-inner">
-                <Smartphone className="w-6 h-6 animate-pulse" />
-              </div>
-              <div className="text-left">
-                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
-                  AtriosWork App Móvel / Desktop <Sparkles className="w-4 h-4 text-amber-400 fill-amber-400" />
-                </h4>
-                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 leading-normal max-w-lg">
-                  Instale a aplicação nativa diretamente no seu ecrã inicial para receber notificações push integradas e desfrutar de toda a velocidade com acesso off-line completo.
-                </p>
-              </div>
-            </div>
-            <button 
-              id="btn-settings-pwa-trigger"
-              onClick={() => window.dispatchEvent(new CustomEvent('open-pwa-install-modal'))}
-              className="w-full md:w-auto px-8 py-4 bg-purple-600 hover:bg-purple-500 text-white font-black rounded-2xl text-[10px] tracking-widest uppercase shrink-0 shadow-lg shadow-purple-500/10 transition-all hover:scale-[1.02] active:scale-95 duration-150 text-center"
-            >
-              Baixar Agora
-            </button>
           </div>
         </div>
       </div>
