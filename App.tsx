@@ -182,6 +182,9 @@ const App: React.FC = () => {
     
     if (isMaster || isAdmin) return true;
     
+    // Se a conta estiver suspensa, remove todos os bloqueios/privilégios PRO
+    if (sub?.isActive === false) return false;
+    
     // Se a promoção ou subscrição estiver ativa (data de expiração no futuro), remove todos os bloqueios!
     if (sub?.expiryDate) {
       return new Date(sub.expiryDate) > now;
@@ -192,7 +195,7 @@ const App: React.FC = () => {
     return !!isPaid;
   }, [user, now]);
 
-  // Canal de tempo real para escutar atualizações do perfil do utilizador (Ex: Promoções do Admin)
+  // Canal de tempo real para escutar atualizações do perfil do utilizador (Ex: Promoções, Bloqueios, Exclusões)
   useEffect(() => {
     if (!user.id) return;
     
@@ -201,12 +204,51 @@ const App: React.FC = () => {
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
-        table: 'profiles',
-        filter: `id=eq.${user.id}`
+        table: 'profiles'
+      }, async (payload: any) => {
+        if (payload.new && payload.new.id === user.id) {
+          console.log('[App] Profile updated in real-time. Fetching fresh profile...');
+          const { data: freshProfile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .maybeSingle();
+
+          if (!freshProfile) return;
+
+          const sub = typeof freshProfile.subscription === 'string' ? JSON.parse(freshProfile.subscription) : freshProfile.subscription;
+          const isMaster = freshProfile.email?.toLowerCase()?.includes('master@atrioswork.com') || freshProfile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || freshProfile.email?.toLowerCase()?.includes('master@digitalnexus.com');
+          
+          if (sub?.isActive === false && !isMaster) {
+            // Conta suspensa/bloqueada
+            supabase.auth.signOut().then(() => {
+              setUser(DEFAULT_USER);
+              setAuthError({ 
+                title: 'ACESSO BLOQUEADO', 
+                text: 'A sua conta foi suspensa ou desativada pelo administrador.' 
+              });
+              setAppState('login');
+            });
+          } else {
+            setUser(freshProfile);
+          }
+        }
+      })
+      .on('postgres_changes', {
+        event: 'DELETE',
+        schema: 'public',
+        table: 'profiles'
       }, (payload: any) => {
-        console.log('[App] Profile updated in real-time:', payload.new);
-        if (payload.new) {
-          setUser(payload.new);
+        if (payload.old && payload.old.id === user.id) {
+          console.log('[App] Profile deleted in real-time:', payload.old);
+          supabase.auth.signOut().then(() => {
+            setUser(DEFAULT_USER);
+            setAuthError({ 
+              title: 'CONTA ELIMINADA', 
+              text: 'A sua conta foi excluída pelo administrador.' 
+            });
+            setAppState('login');
+          });
         }
       })
       .subscribe();
@@ -319,7 +361,8 @@ const App: React.FC = () => {
         const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
         if (parsedSub.isActive === false && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
-          setAuthError({ title: 'BEM-VINDO', text: 'Faça o login para aceder sua conta.' });
+          setUser(DEFAULT_USER);
+          setAuthError({ title: 'ACESSO BLOQUEADO', text: 'A sua conta foi suspensa ou desativada pelo administrador.' });
           setAppState('login');
           setAuthInitialized(true);
           return;
@@ -336,7 +379,13 @@ const App: React.FC = () => {
           dbRecords.forEach((r: any) => { if (r.data) formatted[r.date] = r.data; });
           setRecords(formatted);
         }
-      } else setAppState('landing');
+      } else {
+        // Se após retentativas o perfil não existir, significa que foi excluído pelo administrador
+        await supabase.auth.signOut();
+        setUser(DEFAULT_USER);
+        setAuthError({ title: 'CONTA ELIMINADA', text: 'A sua conta foi excluída pelo administrador.' });
+        setAppState('login');
+      }
     } catch (e) { setAppState('landing'); }
     finally { setTimeout(() => setAuthInitialized(true), 100); }
   }, []);
