@@ -177,19 +177,44 @@ const App: React.FC = () => {
 
   const isPro = useMemo(() => {
     const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
-    const isPaid = sub?.status === 'ACTIVE_PAID';
     const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
     const isAdmin = user.role === 'admin';
     
     if (isMaster || isAdmin) return true;
-    if (!isPaid) return false;
     
+    // Se a promoção ou subscrição estiver ativa (data de expiração no futuro), remove todos os bloqueios!
     if (sub?.expiryDate) {
       return new Date(sub.expiryDate) > now;
     }
     
-    return true;
+    // Caso contrário, verifica o status de pagamento normal
+    const isPaid = sub?.status === 'ACTIVE_PAID';
+    return !!isPaid;
   }, [user, now]);
+
+  // Canal de tempo real para escutar atualizações do perfil do utilizador (Ex: Promoções do Admin)
+  useEffect(() => {
+    if (!user.id) return;
+    
+    const profileChannel = supabase
+      .channel(`profile-changes-${user.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'profiles',
+        filter: `id=eq.${user.id}`
+      }, (payload: any) => {
+        console.log('[App] Profile updated in real-time:', payload.new);
+        if (payload.new) {
+          setUser(payload.new);
+        }
+      })
+      .subscribe();
+      
+    return () => {
+      supabase.removeChannel(profileChannel);
+    };
+  }, [user.id]);
 
   // Se a subscrição/promoção expirar e o utilizador estiver numa aba premium, redireciona e bloqueia imediatamente
   useEffect(() => {
