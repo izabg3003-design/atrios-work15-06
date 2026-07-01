@@ -191,6 +191,14 @@ const App: React.FC = () => {
     return true;
   }, [user, now]);
 
+  // Se a subscrição/promoção expirar e o utilizador estiver numa aba premium, redireciona e bloqueia imediatamente
+  useEffect(() => {
+    if (!isPro && ['reports', 'accountant'].includes(appState)) {
+      setAppState('dashboard');
+      setIsPremiumModalOpen(true);
+    }
+  }, [isPro, appState]);
+
   const totalHours = useMemo(() => {
     return Object.values(records).reduce((acc, r) => {
       if (r.isAbsent) return acc;
