@@ -47,38 +47,6 @@ try {
 
     self.messagingInstance.onBackgroundMessage(self.handleBackgroundMessage);
     console.log('[SW Background FCM] Inicialização síncrona inicial com sucesso!');
-
-    // Tentar ler uma configuração customizada do cache dinâmico se houver e re-inicializar
-    caches.match('/fcm-config.json')
-      .then((cachedResponse) => {
-        if (cachedResponse) {
-          return cachedResponse.json().catch(() => null);
-        }
-        return null;
-      })
-      .then((customConfig) => {
-        if (customConfig && customConfig.apiKey && customConfig.projectId) {
-          console.log('[SW Background FCM] Configuração customizada detetada no cache. Re-inicializando...', customConfig.projectId);
-          if (firebase.apps.length > 0) {
-            Promise.all(firebase.apps.map(app => app.delete()))
-              .then(() => {
-                firebase.initializeApp(customConfig);
-                self.messagingInstance = firebase.messaging();
-                self.messagingInstance.onBackgroundMessage(self.handleBackgroundMessage);
-                console.log('[SW Background FCM] Re-inicializado com sucesso com configuração customizada do cache!');
-              })
-              .catch((e) => console.warn('[SW Background FCM] Erro ao re-inicializar com customConfig:', e));
-          } else {
-            firebase.initializeApp(customConfig);
-            self.messagingInstance = firebase.messaging();
-            self.messagingInstance.onBackgroundMessage(self.handleBackgroundMessage);
-            console.log('[SW Background FCM] Re-inicializado com sucesso com configuração customizada do cache (sem apps anteriores)!');
-          }
-        }
-      })
-      .catch((err) => {
-        console.warn('[SW Background FCM] Erro ao tentar ler configuração customizada do cache:', err);
-      });
   }
 } catch (fcmErr) {
   console.warn('[SW Background FCM] Erro de carregamento do Firebase SDK (VAPID nativo ativo):', fcmErr);
