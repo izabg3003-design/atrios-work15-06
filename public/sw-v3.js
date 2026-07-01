@@ -1,3 +1,89 @@
+// ============================================================================
+// 🔵 INICIALIZAÇÃO IMEDIATA E SÍNCRONA DO FIREBASE CLOUD MESSAGING SDK
+// ============================================================================
+try {
+  // Importar o SDK Compatível com Service Workers do Firebase v10
+  importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js');
+
+  const defaultFirebaseConfig = {
+    apiKey: "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo",
+    authDomain: "push-atrios-work.firebaseapp.com",
+    projectId: "push-atrios-work",
+    storageBucket: "push-atrios-work.firebasestorage.app",
+    messagingSenderId: "409947740098",
+    appId: "1:409947740098:web:ed16cb847b12182eab685b"
+  };
+
+  if (typeof firebase !== 'undefined') {
+    // Inicialização imediata com configuração padrão
+    firebase.initializeApp(defaultFirebaseConfig);
+    self.messagingInstance = firebase.messaging();
+
+    // Handler síncrono registrado no topo para responder instantaneamente a notificações push em background
+    self.handleBackgroundMessage = function(payload) {
+      console.log('[SW Background FCM] Notificação recebida em segundo plano (app fechado):', payload);
+      
+      const title = payload.notification?.title || payload.data?.title || 'AtriosWork';
+      const body = payload.notification?.body || payload.data?.body || 'Nova notificação do sistema!';
+      const targetUrl = payload.data?.url || payload.notification?.data?.url || '/';
+      
+      const origin = self.location.origin;
+      const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
+
+      const options = {
+        body: body,
+        icon: iconUrl,
+        badge: iconUrl,
+        vibrate: [200, 100, 200],
+        data: targetUrl,
+        actions: [
+          { action: 'open', title: 'Ver App' }
+        ]
+      };
+
+      return self.registration.showNotification(title, options);
+    };
+
+    self.messagingInstance.onBackgroundMessage(self.handleBackgroundMessage);
+    console.log('[SW Background FCM] Inicialização síncrona inicial com sucesso!');
+
+    // Tentar ler uma configuração customizada do cache dinâmico se houver e re-inicializar
+    caches.match('/fcm-config.json')
+      .then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse.json().catch(() => null);
+        }
+        return null;
+      })
+      .then((customConfig) => {
+        if (customConfig && customConfig.apiKey && customConfig.projectId) {
+          console.log('[SW Background FCM] Configuração customizada detetada no cache. Re-inicializando...', customConfig.projectId);
+          if (firebase.apps.length > 0) {
+            Promise.all(firebase.apps.map(app => app.delete()))
+              .then(() => {
+                firebase.initializeApp(customConfig);
+                self.messagingInstance = firebase.messaging();
+                self.messagingInstance.onBackgroundMessage(self.handleBackgroundMessage);
+                console.log('[SW Background FCM] Re-inicializado com sucesso com configuração customizada do cache!');
+              })
+              .catch((e) => console.warn('[SW Background FCM] Erro ao re-inicializar com customConfig:', e));
+          } else {
+            firebase.initializeApp(customConfig);
+            self.messagingInstance = firebase.messaging();
+            self.messagingInstance.onBackgroundMessage(self.handleBackgroundMessage);
+            console.log('[SW Background FCM] Re-inicializado com sucesso com configuração customizada do cache (sem apps anteriores)!');
+          }
+        }
+      })
+      .catch((err) => {
+        console.warn('[SW Background FCM] Erro ao tentar ler configuração customizada do cache:', err);
+      });
+  }
+} catch (fcmErr) {
+  console.warn('[SW Background FCM] Erro de carregamento do Firebase SDK (VAPID nativo ativo):', fcmErr);
+}
+
 const CACHE_NAME = 'atrioswork-v6.0';
 const ASSETS_TO_CACHE = [
   '/',
@@ -178,70 +264,4 @@ self.addEventListener('notificationclick', (event) => {
   );
 });
 
-// ============================================================================
-// 🔵 INTEGRACAO DO FIREBASE CLOUD MESSAGING SDK EM SEGUNDO PLANO (APP FECHADO)
-// ============================================================================
-try {
-  // Importar o SDK Compatível com Service Workers do Firebase v9
-  importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js');
-  importScripts('https://www.gstatic.com/firebasejs/9.23.0/firebase-messaging-compat.js');
-
-  const defaultFirebaseConfig = {
-    apiKey: "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo",
-    authDomain: "push-atrios-work.firebaseapp.com",
-    projectId: "push-atrios-work",
-    storageBucket: "push-atrios-work.firebasestorage.app",
-    messagingSenderId: "409947740098",
-    appId: "1:409947740098:web:ed16cb847b12182eab685b"
-  };
-
-  if (typeof firebase !== 'undefined') {
-    // 1. Tentar ler uma configuração customizada do cache dinâmico se houver
-    caches.match('/fcm-config.json')
-      .then((cachedResponse) => {
-        if (cachedResponse) {
-          return cachedResponse.json().catch(() => null);
-        }
-        return null;
-      })
-      .then((customConfig) => {
-        const configToUse = (customConfig && customConfig.apiKey) ? customConfig : defaultFirebaseConfig;
-        
-        // Inicializar App do Firebase
-        firebase.initializeApp(configToUse);
-        const messaging = firebase.messaging();
-
-        // Registrar o manipulador de background do FCM
-        messaging.onBackgroundMessage((payload) => {
-          console.log('[SW Background FCM] Notificação recebida em segundo plano (app fechado):', payload);
-          
-          const title = payload.notification?.title || payload.data?.title || 'AtriosWork';
-          const body = payload.notification?.body || payload.data?.body || 'Nova notificação do sistema!';
-          const targetUrl = payload.data?.url || payload.notification?.data?.url || '/';
-          
-          const origin = self.location.origin;
-          const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
-
-          const options = {
-            body: body,
-            icon: iconUrl,
-            badge: iconUrl,
-            vibrate: [200, 100, 200],
-            data: targetUrl,
-            actions: [
-              { action: 'open', title: 'Ver App' }
-            ]
-          };
-
-          return self.registration.showNotification(title, options);
-        });
-
-        console.log('[SW Background FCM] Firebase Inicializado e onBackgroundMessage ativo com sucesso!');
-      })
-      .catch((err) => {
-        console.error('[SW Background FCM] Erro ao ler configuração ou inicializar:', err);
-      });
-  }
-} catch (fcmErr) {
-  console.warn('[SW Background FCM] SDK do Firebase indisponível ou erro de carregamento (VAPID nativo ativo):', fcmErr);
-}
+// FCM Integrado ao topo síncrono.
