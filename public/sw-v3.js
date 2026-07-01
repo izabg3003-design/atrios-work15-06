@@ -177,9 +177,10 @@ self.addEventListener('push', (event) => {
 
           // Se for uma mensagem do FCM (Firebase) e o SDK oficial estiver carregado, 
           // evitamos tratar aqui no listener nativo para que não haja duplicações (o SDK do Firebase cuidará de onBackgroundMessage).
-          const isFromFcm = rawData.from || rawData['gcm.message_id'] || rawData.data?.['gcm.message_id'] || rawData.notification;
+          // Usamos propriedades exclusivas de cabeçalho do FCM para evitar falsos positivos com payloads VAPID padrão.
+          const isFromFcm = !!(rawData.from || rawData['gcm.message_id'] || rawData.data?.['gcm.message_id'] || rawData['gcm.n.e'] || rawData.data?.['gcm.n.e']);
           if (isFromFcm && typeof firebase !== 'undefined') {
-            console.log('[Service Worker] Mensagem FCM detectada. Delegando tratamento ao SDK do Firebase...');
+            console.log('[Service Worker] Mensagem FCM genuína detectada. Delegando tratamento ao SDK do Firebase...');
             return;
           }
         } catch (e) {

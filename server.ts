@@ -504,45 +504,26 @@ async function startServer() {
         const token = p.fcm_token;
         if (!token || !token.trim()) return;
 
-        const isMaster = isMasterEmail(p.email);
-
-        // Se for Master, removemos o uso de VAPID completamente.
-        if (isMaster) {
-          if (token.trim().startsWith("{")) {
-            try {
-              const sub = JSON.parse(token);
-              if (sub && sub.fcmToken) {
-                fcmTokens.push(sub.fcmToken);
-              }
-            } catch (e) {
-              // Se falhar o parse, trata como token normal
-              fcmTokens.push(token);
+        // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID + FCM
+        if (token.trim().startsWith("{")) {
+          try {
+            const sub = JSON.parse(token);
+            if (sub && sub.endpoint) {
+              webPushSubscriptions.push({
+                subscription: sub,
+                userId: p.id,
+              });
             }
-          } else {
+            // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
+            if (sub && sub.fcmToken) {
+              fcmTokens.push(sub.fcmToken);
+            }
+          } catch (e) {
+            // Se falhar o parse, trata como token normal
             fcmTokens.push(token);
           }
         } else {
-          // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID para usuários comuns
-          if (token.trim().startsWith("{")) {
-            try {
-              const sub = JSON.parse(token);
-              if (sub && sub.endpoint) {
-                webPushSubscriptions.push({
-                  subscription: sub,
-                  userId: p.id,
-                });
-                // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
-                if (sub.fcmToken) {
-                  fcmTokens.push(sub.fcmToken);
-                }
-              }
-            } catch (e) {
-              // Se falhar o parse, trata como token normal
-              fcmTokens.push(token);
-            }
-          } else {
-            fcmTokens.push(token);
-          }
+          fcmTokens.push(token);
         }
       });
 
@@ -561,14 +542,13 @@ async function startServer() {
         // 3. Verificar se o e-mail ou dados correspondem a um Master
         const isMaster = isMasterEmail(userEmail);
 
-        // Se for Master, ignore a subscrição VAPID completamente e use FCM se disponível
+        // Se for Master, extraímos o token FCM mas não removemos o VAPID para redundância
         if (isMaster) {
           if (ls.subscription && ls.subscription.fcmToken) {
             if (!fcmTokens.includes(ls.subscription.fcmToken)) {
               fcmTokens.push(ls.subscription.fcmToken);
             }
           }
-          return;
         }
 
         // Evitar duplicados pelo endpoint
