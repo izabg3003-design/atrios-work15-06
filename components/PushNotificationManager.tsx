@@ -31,6 +31,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [newPushAlert, setNewPushAlert] = useState<{ id: string; title: string; subtitle: string } | null>(null);
   const [customVapidKey, setCustomVapidKey] = useState<string>('');
+  const [permissionErrorMsg, setPermissionErrorMsg] = useState<string | null>(null);
   
   // 1. Detectar suporte a PWA e evento de instalação
   useEffect(() => {
@@ -510,17 +511,24 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
   // Pedir Permissão de Notificações
   const requestPermission = async () => {
+    setPermissionErrorMsg(null);
     if (!('Notification' in window)) {
-      alert('As notificações não são suportadas por este navegador.');
+      setPermissionErrorMsg('As notificações não são suportadas por este navegador.');
       return;
     }
 
     try {
+      // Detetar se está dentro de um iframe
+      if (window.self !== window.top) {
+        setPermissionErrorMsg('Por favor, abra o app fora do editor (num novo separador) para poder autorizar as notificações push.');
+        return;
+      }
+
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
-      setShowPermissionBanner(false);
       
       if (permission === 'granted') {
+        setShowPermissionBanner(false);
         triggerNativePush(
           '🔔 Notificações Ativas!',
           'Excelente! Agora receberá alertas de assinatura, novos comunicados e atualizações das suas horas trabalhadas.'
@@ -528,9 +536,12 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         if (user.id) {
           registerUnifiedPush();
         }
+      } else if (permission === 'denied') {
+        setPermissionErrorMsg('Permissão negada. Ative as notificações manualmente nas definições do seu navegador para este site.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Erro ao pedir permissão de notificações:', err);
+      setPermissionErrorMsg('Restrição de iframe ou segurança detetada. Por favor, aceda diretamente à App fora do editor para autorizar.');
     }
   };
 
@@ -606,9 +617,15 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               <h4 className="text-xs font-black text-white uppercase tracking-widest">
                 Alertas Activos
               </h4>
-              <p className="text-[10px] text-slate-400 leading-normal font-bold uppercase">
-                Ative as notificações push para ser avisado sobre expiração de assinatura, aprovações, e relatórios mensais.
-              </p>
+              {permissionErrorMsg ? (
+                <p className="text-[10px] text-amber-400 font-bold leading-normal uppercase">
+                  {permissionErrorMsg}
+                </p>
+              ) : (
+                <p className="text-[10px] text-slate-400 leading-normal font-bold uppercase">
+                  Ative as notificações push para ser avisado sobre expiração de assinatura, aprovações, e relatórios mensais.
+                </p>
+              )}
             </div>
           </div>
           
@@ -623,7 +640,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               onClick={requestPermission}
               className="flex-1 py-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] uppercase tracking-wider rounded-2xl shadow-lg shadow-blue-500/10 hover:scale-[1.02] active:scale-95 transition-all"
             >
-              Autorizar Push
+              {permissionErrorMsg?.includes('separador') ? 'Tentar de Novo' : 'Autorizar Push'}
             </button>
           </div>
         </div>
