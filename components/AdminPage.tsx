@@ -921,8 +921,19 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const nextStatus = sub.isActive === false;
       const updatedSub = { ...sub, isActive: nextStatus };
       
-      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', inputUser.id);
-      if (error) throw error;
+      const response = await fetch('/api/admin/update-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminUserId: currentUser?.id,
+          targetUserId: inputUser.id,
+          updateFields: { subscription: updatedSub }
+        })
+      });
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || 'Falha ao atualizar status');
+      }
       await fetchData();
     } catch (e: any) {
       alert(`Erro ao mudar status: ${e.message}`);
@@ -950,8 +961,19 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         promotionDays: days
       };
 
-      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', userId);
-      if (error) throw error;
+      const response = await fetch('/api/admin/update-profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminUserId: currentUser?.id,
+          targetUserId: userId,
+          updateFields: { subscription: updatedSub }
+        })
+      });
+      const resData = await response.json();
+      if (!response.ok || !resData.success) {
+        throw new Error(resData.error || 'Falha ao promover utilizador');
+      }
       
       setPromotingUser(null);
       await fetchData();
@@ -973,7 +995,20 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         if (typeof profileData.subscription === 'string') { try { sub = JSON.parse(profileData.subscription); } catch(e) { sub = {}; } }
         else { sub = profileData.subscription || {}; }
         const updatedSub = { ...sub, custom_commission: newCommRate, custom_discount: newDiscRate };
-        await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', editingCommissionVendor.id);
+        
+        const response = await fetch('/api/admin/update-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminUserId: currentUser?.id,
+            targetUserId: editingCommissionVendor.id,
+            updateFields: { subscription: updatedSub }
+          })
+        });
+        const resData = await response.json();
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.error || 'Falha ao atualizar comissão');
+        }
       }
       setEditingCommissionVendor(null);
       await fetchData();
@@ -991,7 +1026,19 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       if (itemToDelete.type === 'banner') await supabase.from('app_banners').delete().eq('id', itemToDelete.id);
       else {
         if (itemToDelete.type === 'vendor') await supabase.from('vendors').delete().eq('id', itemToDelete.id);
-        await supabase.from('profiles').delete().eq('id', itemToDelete.id);
+        
+        const response = await fetch('/api/admin/delete-profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            adminUserId: currentUser?.id,
+            targetUserId: itemToDelete.id
+          })
+        });
+        const resData = await response.json();
+        if (!response.ok || !resData.success) {
+          throw new Error(resData.error || 'Falha ao eliminar perfil');
+        }
       }
       fetchData();
       setItemToDelete(null);

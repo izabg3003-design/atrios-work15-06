@@ -300,6 +300,9 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
     );
   };
 
+  const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
+  const isAdmin = user.role === 'admin';
+
   return (
     <div className="space-y-6 animate-[fadeIn_0.5s_ease-out]">
       <PostLoginBannerOverlay />
@@ -319,7 +322,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
          <p className={`text-[9px] font-black ${isPro ? 'text-emerald-500/60' : 'text-amber-500/60'} uppercase tracking-[0.2em] font-mono`}>v16.0.4-{isPro ? 'PRO' : 'FREE'}</p>
       </div>
 
-      {daysRemaining !== null && daysRemaining <= 0 && (
+      {!isPro && daysRemaining !== null && daysRemaining <= 0 && (
         <div className="bg-gradient-to-r from-red-600 to-rose-500 p-4 md:p-6 rounded-[2.5rem] border border-red-400/30 shadow-[0_0_30px_rgba(239,68,68,0.2)] flex flex-col md:flex-row items-center justify-between gap-4 animate-soft">
           <div className="flex items-center gap-4 text-white">
              <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0 border border-white/30">
@@ -339,7 +342,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
         </div>
       )}
 
-      {daysRemaining !== null && daysRemaining > 0 && daysRemaining <= 30 && (
+      {!isMaster && !isAdmin && daysRemaining !== null && daysRemaining > 0 && daysRemaining <= 30 && (
         <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-4 md:p-6 rounded-[2.5rem] border border-amber-400/30 shadow-[0_0_30px_rgba(245,158,11,0.2)] flex flex-col md:flex-row items-center justify-between gap-4 animate-soft">
           <div className="flex items-center gap-4 text-white">
              <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0 border border-white/30">

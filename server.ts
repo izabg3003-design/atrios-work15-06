@@ -372,6 +372,128 @@ async function startServer() {
     return res.status(201).json({ success: true });
   });
 
+  // ROTA: Atualização de Perfil de Utilizador por Administrador/Master (Bypassa barreiras de RLS do Supabase)
+  app.post("/api/admin/update-profile", async (req, res) => {
+    try {
+      const { adminUserId, targetUserId, updateFields } = req.body;
+
+      if (!adminUserId || !targetUserId || !updateFields) {
+        return res.status(400).json({ success: false, error: "Parâmetros obrigatórios ausentes." });
+      }
+
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseServiceKey) {
+        return res.status(500).json({ success: false, error: "Serviço Supabase não configurado." });
+      }
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      // Verificar se o adminUserId solicitante é de facto um Admin/Master
+      const { data: adminProfile, error: adminErr } = await supabase
+        .from("profiles")
+        .select("role, email")
+        .eq("id", adminUserId)
+        .maybeSingle();
+
+      if (adminErr || !adminProfile) {
+        return res.status(403).json({ success: false, error: "Acesso negado. Administrador não encontrado." });
+      }
+
+      const isMasterEmail = (email?: string) => {
+        const e = (email || "").toLowerCase();
+        return e.includes("master@atrioswork.com") || 
+               e.includes("izarellebraga@gmail.com") || 
+               e.includes("master@digitalnexus.com");
+      };
+
+      const isAdmin = adminProfile.role === "admin" || isMasterEmail(adminProfile.email);
+
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: "Acesso negado. Apenas administradores e masters podem realizar esta ação." });
+      }
+
+      // Executar a atualização usando o cliente administrativo (bypassa RLS)
+      const { data, error } = await supabase
+        .from("profiles")
+        .update(updateFields)
+        .eq("id", targetUserId)
+        .select();
+
+      if (error) {
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      console.log(`[Admin API] Perfil ${targetUserId} atualizado com sucesso pelo Admin ${adminUserId}.`);
+      return res.json({ success: true, data });
+    } catch (err: any) {
+      console.error("[Admin API] Erro ao atualizar perfil:", err);
+      return res.status(500).json({ success: false, error: err.message || String(err) });
+    }
+  });
+
+  // ROTA: Exclusão de Perfil de Utilizador por Administrador/Master (Bypassa barreiras de RLS do Supabase)
+  app.post("/api/admin/delete-profile", async (req, res) => {
+    try {
+      const { adminUserId, targetUserId } = req.body;
+
+      if (!adminUserId || !targetUserId) {
+        return res.status(400).json({ success: false, error: "Parâmetros obrigatórios ausentes." });
+      }
+
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseServiceKey) {
+        return res.status(500).json({ success: false, error: "Serviço Supabase não configurado." });
+      }
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      // Verificar se o adminUserId solicitante é de facto um Admin/Master
+      const { data: adminProfile, error: adminErr } = await supabase
+        .from("profiles")
+        .select("role, email")
+        .eq("id", adminUserId)
+        .maybeSingle();
+
+      if (adminErr || !adminProfile) {
+        return res.status(403).json({ success: false, error: "Acesso negado. Administrador não encontrado." });
+      }
+
+      const isMasterEmail = (email?: string) => {
+        const e = (email || "").toLowerCase();
+        return e.includes("master@atrioswork.com") || 
+               e.includes("izarellebraga@gmail.com") || 
+               e.includes("master@digitalnexus.com");
+      };
+
+      const isAdmin = adminProfile.role === "admin" || isMasterEmail(adminProfile.email);
+
+      if (!isAdmin) {
+        return res.status(403).json({ success: false, error: "Acesso negado. Apenas administradores e masters podem realizar esta ação." });
+      }
+
+      // Executar a eliminação usando o cliente administrativo (bypassa RLS)
+      const { data, error } = await supabase
+        .from("profiles")
+        .delete()
+        .eq("id", targetUserId)
+        .select();
+
+      if (error) {
+        return res.status(400).json({ success: false, error: error.message });
+      }
+
+      console.log(`[Admin API] Perfil ${targetUserId} eliminado com sucesso pelo Admin ${adminUserId}.`);
+      return res.json({ success: true, data });
+    } catch (err: any) {
+      console.error("[Admin API] Erro ao eliminar perfil:", err);
+      return res.status(500).json({ success: false, error: err.message || String(err) });
+    }
+  });
+
   // ROTA: Envio de Push Inteligente (Suporta FCM de forma nativa/v1 + Web Push VAPID + Fallbacks)
   app.post("/api/send-fcm-push", async (req, res) => {
     try {
