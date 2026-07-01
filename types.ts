@@ -51,6 +51,7 @@ export interface UserProfile {
   isFreelancer: boolean;
   vat: { value: number; type: 'percentage' | 'fixed' };
   role: 'admin' | 'user' | 'vendor' | 'support';
+  status?: string;
   overtimeRates: {
     h1: number;
     h2: number;

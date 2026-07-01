@@ -102,6 +102,7 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
           email: regData.email,
           phone: regData.phone,
           role: 'user',
+          status: 'FREE',
           hourlyRate: 10,
           isFreelancer: false,
           subscription: {

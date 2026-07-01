@@ -135,12 +135,15 @@ const App: React.FC = () => {
   }, []);
 
   const isPro = useMemo(() => {
-    const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
-    const isPaid = sub?.status === 'ACTIVE_PAID';
     const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
     const isAdmin = user.role === 'admin';
     
     if (isMaster || isAdmin) return true;
+    if (user.status === 'PRO' || user.status === 'pro') return true;
+    if (user.status === 'FREE' || user.status === 'free') return false;
+
+    const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
+    const isPaid = sub?.status === 'ACTIVE_PAID';
     if (!isPaid) return false;
     
     if (sub?.expiryDate) {
@@ -243,7 +246,8 @@ const App: React.FC = () => {
       if (profile) {
         const sub = profile.subscription;
         const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-        if (parsedSub.isActive === false && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
+        const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
+        if (isSuspended && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
           setAuthError({ title: 'BEM-VINDO', text: 'Faça o login para aceder sua conta.' });
           setAppState('login');
@@ -380,12 +384,6 @@ const App: React.FC = () => {
                 return true;
               }} onAddRecord={async (r) => {
                 if (!user.id) return false;
-                
-                // Limite de 165 horas para free
-                if (!isPro && totalHours >= 165 && !records[r.date]) {
-                  alert("Limite de 165 horas atingido na versão gratuita. Ative a sua licença PRO para continuar a registar.");
-                  return false;
-                }
 
                 // Limite de 4 vales (adiantamentos) por mês para free
                 if (!isPro && r.advance > 0) {

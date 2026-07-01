@@ -166,6 +166,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           phone: newUser.phone,
           vendor_code: newUser.vendorCode.trim().toUpperCase() || null,
           role: 'user',
+          status: 'FREE',
           hourlyRate: 10,
           isFreelancer: false,
           subscription: {
@@ -221,6 +222,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           phone: newVendor.phone,
           vendor_code: generatedCode,
           role: 'vendor',
+          status: 'VENDOR',
           hourlyRate: 10,
           isFreelancer: false,
           subscription: {
@@ -316,7 +318,14 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const nextStatus = sub.isActive === false;
       const updatedSub = { ...sub, isActive: nextStatus };
       
-      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', inputUser.id);
+      const isProUser = updatedSub.status === 'ACTIVE_PAID';
+      const dbStatus = nextStatus ? (isProUser ? 'PRO' : 'FREE') : 'SUSPENDED';
+      
+      const { error } = await supabase.from('profiles').update({ 
+        subscription: updatedSub,
+        status: dbStatus
+      }).eq('id', inputUser.id);
+      
       if (error) throw error;
       await fetchData();
     } catch (e: any) {
@@ -329,10 +338,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const handlePromoteUser = async (userId: string, days: number) => {
     setUpdatingId(userId);
     try {
-      const { data: profile } = await supabase.from('profiles').select('subscription').eq('id', userId).single();
+      const { data: profile } = await supabase.from('profiles').select('subscription, status').eq('id', userId).single();
       let sub: any = {};
-      if (typeof profile?.subscription === 'string') sub = JSON.parse(profile.subscription);
-      else sub = profile?.subscription || {};
+      const subField = (profile as any)?.subscription;
+      if (typeof subField === 'string') sub = JSON.parse(subField);
+      else sub = subField || {};
 
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + days);
@@ -345,7 +355,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         promotionDays: days
       };
 
-      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', userId);
+      const { error } = await supabase.from('profiles').update({ 
+        subscription: updatedSub,
+        status: 'PRO'
+      }).eq('id', userId);
+      
       if (error) throw error;
       
       setPromotingUser(null);
@@ -591,7 +605,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                      const rawSub = v.profile?.subscription;
                      let sub: any = {};
                      if (typeof rawSub === 'string') { try { sub = JSON.parse(rawSub); } catch(e) {} } else { sub = rawSub || {}; }
-                     const isSuspended = sub.isActive === false;
+                     const isSuspended = v.profile?.status === 'SUSPENDED' || v.profile?.status === 'suspended' || sub.isActive === false;
                      return (
                       <tr key={v.id} className="transition-all hover:bg-slate-800/40 group print:text-black">
                         <td className="px-10 py-6">
@@ -647,7 +661,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     const rawSub = u.subscription;
                     let sub: any = {};
                     if (typeof rawSub === 'string') { try { sub = JSON.parse(rawSub); } catch(e) {} } else { sub = rawSub || {}; }
-                    const isSuspended = sub.isActive === false;
+                    const isSuspended = u.status === 'SUSPENDED' || u.status === 'suspended' || sub.isActive === false;
                     return (
                       <tr key={u.id} className="transition-all hover:bg-slate-800/40">
                         <td className="px-10 py-6">
