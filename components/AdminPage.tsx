@@ -187,66 +187,77 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const targetUserId = pushTarget === 'user' ? selectedTargetUserId : 'all';
       const targetRole = pushTarget === 'premium' ? 'premium' : 'all';
 
-      const pushChannel = supabase.channel('atrioswork_push_broadcast');
-      
-      // Envia usando uma Promessa com timeout para evitar travamentos na UI
-      await new Promise<void>((resolve) => {
-        let finished = false;
-        const done = () => {
-          if (!finished) {
-            finished = true;
-            resolve();
-          }
-        };
-
-        // Se demorar mais de 1.2 segundos, tenta enviar diretamente e finaliza
-        const timer = setTimeout(async () => {
-          try {
-            await pushChannel.send({
-              type: 'broadcast',
-              event: 'admin_push',
-              payload: {
-                title: pushTitle.trim(),
-                body: pushBody.trim(),
-                target_user_id: targetUserId,
-                target_role: targetRole,
-                url: pushUrl.trim(),
-                sender: currentUser?.name || 'Administrador'
-              }
-            });
-          } catch (err) {
-            console.error("Erro no envio em fallback do push:", err);
-          }
-          done();
-        }, 1200);
-
-        // Se o canal já estiver inscrito ou se inscrever agora, envia imediatamente
-        pushChannel.subscribe(async (status) => {
-          if (status === 'SUBSCRIBED') {
-            clearTimeout(timer);
-            try {
-              await pushChannel.send({
-                type: 'broadcast',
-                event: 'admin_push',
-                payload: {
-                  title: pushTitle.trim(),
-                  body: pushBody.trim(),
-                  target_user_id: targetUserId,
-                  target_role: targetRole,
-                  url: pushUrl.trim(),
-                  sender: currentUser?.name || 'Administrador'
-                }
-              });
-            } catch (err) {
-              console.error("Erro ao enviar push via canal inscrito:", err);
-            }
-            done();
-          } else if (status === 'CHANNEL_ERROR') {
-            clearTimeout(timer);
-            done();
-          }
-        });
+      // Criar/obter o canal de push com suporte a receber a própria transmissão (self: true)
+      const pushChannel = supabase.channel('atrioswork_push_broadcast', {
+        config: {
+          broadcast: { self: true }
+        }
       });
+
+      const payload = {
+        title: pushTitle.trim(),
+        body: pushBody.trim(),
+        target_user_id: targetUserId,
+        target_role: targetRole,
+        url: pushUrl.trim(),
+        sender: currentUser?.name || 'Administrador'
+      };
+
+      // Se o canal já estiver subscrito (joined), enviamos diretamente de forma instantânea
+      if (pushChannel.state === 'joined') {
+        console.log("Canal de push já está ativo (joined). Enviando de forma instantânea...");
+        await pushChannel.send({
+          type: 'broadcast',
+          event: 'admin_push',
+          payload
+        });
+      } else {
+        // Caso contrário, subscrevemos e enviamos assim que conectar
+        console.log("Canal de push não está conectado. Estado:", pushChannel.state, ". Inscrevendo e enviando...");
+        await new Promise<void>((resolve) => {
+          let finished = false;
+          const done = () => {
+            if (!finished) {
+              finished = true;
+              resolve();
+            }
+          };
+
+          const timeoutId = setTimeout(async () => {
+            if (!finished) {
+              try {
+                await pushChannel.send({
+                  type: 'broadcast',
+                  event: 'admin_push',
+                  payload
+                });
+              } catch (err) {
+                console.error("Erro no envio em fallback:", err);
+              }
+              done();
+            }
+          }, 1000);
+
+          pushChannel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED' && !finished) {
+              clearTimeout(timeoutId);
+              try {
+                await pushChannel.send({
+                  type: 'broadcast',
+                  event: 'admin_push',
+                  payload
+                });
+              } catch (err) {
+                console.error("Erro ao enviar via canal recém-inscrito:", err);
+              }
+              done();
+            } else if (status === 'CHANNEL_ERROR') {
+              clearTimeout(timeoutId);
+              done();
+            }
+          });
+        });
+      }
 
       const newPushLog = {
         id: Math.random().toString(36).substr(2, 9).toUpperCase(),

@@ -123,6 +123,11 @@ const App: React.FC = () => {
   
   const [now, setNow] = useState(new Date());
 
+  const userRef = useRef<UserProfile>(user);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
+
   useEffect(() => {
     if (activeNotification) {
       const timer = setTimeout(() => {
@@ -133,49 +138,79 @@ const App: React.FC = () => {
   }, [activeNotification]);
 
   useEffect(() => {
-    // Escuta global de push notifications
-    const pushChannel = supabase.channel('atrioswork_push_broadcast')
-      .on('broadcast', { event: 'admin_push' }, (payload: any) => {
-        const data = payload.payload;
-        if (!data) return;
+    let pushChannel: any = null;
+    try {
+      if (!supabase || typeof supabase.channel !== 'function') return;
 
-        // Verificar se a notificação é destinada a este utilizador específico ou a todos
-        const matchAll = data.target_user_id === 'all' && data.target_role === 'all';
-        const matchUser = data.target_user_id === user.id;
-        
-        const sub = user.subscription;
-        const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-        const isUserPremium = user.status === 'PRO' || parsedSub.status === 'ACTIVE_PAID';
-        const matchPremium = data.target_role === 'premium' && isUserPremium;
-
-        if (matchAll || matchUser || matchPremium) {
-          // 1. Mostrar toast no viewport
-          setActiveNotification({
-            id: Math.random().toString(36).substr(2, 9).toUpperCase(),
-            title: data.title,
-            body: data.body,
-            url: data.url
-          });
-
-          // 2. Disparar notificação nativa do browser se houver permissão
-          if ('Notification' in window && Notification.permission === 'granted') {
-            try {
-              new Notification(data.title, {
-                body: data.body,
-                icon: '/icons/icon-192.png'
-              });
-            } catch (err) {
-              console.error("Erro ao exibir notificação nativa:", err);
-            }
-          }
+      // Escuta global de push notifications com configuração para receber as próprias transmissões (self: true)
+      pushChannel = supabase.channel('atrioswork_push_broadcast', {
+        config: {
+          broadcast: { self: true }
         }
-      })
-      .subscribe();
+      });
+
+      if (pushChannel && typeof pushChannel.on === 'function') {
+        pushChannel
+          .on('broadcast', { event: 'admin_push' }, (payload: any) => {
+            try {
+              const data = payload.payload;
+              if (!data) return;
+
+              const currentUserObj = userRef.current;
+              if (!currentUserObj) return;
+              
+              // Verificar se a notificação é destinada a este utilizador específico ou a todos
+              const matchAll = data.target_user_id === 'all' && data.target_role === 'all';
+              const matchUser = currentUserObj.id && data.target_user_id === currentUserObj.id;
+              
+              const sub = currentUserObj.subscription;
+              const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+              const isUserPremium = currentUserObj.status === 'PRO' || parsedSub?.status === 'ACTIVE_PAID' || parsedSub?.isActive === true;
+              const matchPremium = data.target_role === 'premium' && isUserPremium;
+
+              if (matchAll || matchUser || matchPremium) {
+                // 1. Mostrar toast no viewport
+                setActiveNotification({
+                  id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+                  title: data.title,
+                  body: data.body,
+                  url: data.url
+                });
+
+                // 2. Disparar notificação nativa do browser se houver permissão
+                if ('Notification' in window && Notification.permission === 'granted') {
+                  try {
+                    new Notification(data.title, {
+                      body: data.body,
+                      icon: '/icons/icon-192.png'
+                    });
+                  } catch (err) {
+                    console.error("Erro ao exibir notificação nativa:", err);
+                  }
+                }
+              }
+            } catch (err) {
+              console.error("Erro ao processar broadcast de push recebido:", err);
+            }
+          })
+          .subscribe((status: any) => {
+            console.log('Canal de Push global:', status);
+          });
+      }
+    } catch (err) {
+      console.error("Erro ao inicializar canal de push global:", err);
+    }
 
     return () => {
-      supabase.removeChannel(pushChannel);
+      try {
+        if (pushChannel && supabase && typeof supabase.removeChannel === 'function') {
+          supabase.removeChannel(pushChannel);
+        }
+      } catch (err) {
+        console.error("Erro ao remover canal de push global:", err);
+      }
     };
-  }, [user]);
+  }, []);
   const isInitialLoad = useRef(true);
 
   useEffect(() => {

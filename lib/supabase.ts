@@ -21,7 +21,22 @@ export const supabase = isConfigured
       }
     })
   : (new Proxy({}, {
-      get: () => {
+      get: (target, prop) => {
+        if (prop === 'channel') {
+          const channelMock: any = {
+            on: () => channelMock,
+            subscribe: (cb?: (status: string) => void) => {
+              if (cb) setTimeout(() => cb('SUBSCRIBED'), 0);
+              return { unsubscribe: () => {} };
+            },
+            state: 'joined',
+            send: async () => ({})
+          };
+          return () => channelMock;
+        }
+        if (prop === 'removeChannel') {
+          return () => {};
+        }
         return () => ({
           then: () => ({ catch: () => {} }),
           select: () => ({ eq: () => ({ single: () => ({ data: null }), select: () => ({ eq: () => ({}) }), eq: () => ({}) }) }),
