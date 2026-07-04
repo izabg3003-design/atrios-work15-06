@@ -132,14 +132,17 @@
           font-size: 16px !important;
         }
 
-        /* Regras JivoChat */
-        body:not(.jivo-visible) jdiv, 
-        body:not(.jivo-visible) .jivo-iframe-container,
-        body:not(.jivo-visible) [id^="jivo_container"],
-        body:not(.jivo-visible) [class^="jivo-"] {
+        /* Regras JivoChat - Ocultado Temporariamente */
+        jdiv, 
+        .jivo-iframe-container,
+        [id^="jivo_container"],
+        [class^="jivo-"],
+        #jivo-iframe-container,
+        iframe[src*="jivosite"] {
             display: none !important;
             visibility: hidden !important;
             pointer-events: none !important;
+            opacity: 0 !important;
         }
 
         .jivo-iframe-container, 
@@ -227,7 +230,7 @@
 <body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
-    <script src="//code.jivosite.com/widget/wfDiRuDrnE" async></script>
+    <!-- <script src="//code.jivosite.com/widget/wfDiRuDrnE" async></script> -->
     
     <!-- Service Worker Registration Fixed for TWA/Store -->
     <script>

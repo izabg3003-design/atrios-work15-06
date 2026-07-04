@@ -142,7 +142,12 @@ const App: React.FC = () => {
     if (user.status === 'PRO' || user.status === 'pro') return true;
     if (user.status === 'FREE' || user.status === 'free') return false;
 
-    const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
+    let sub: any = null;
+    try {
+      sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
+    } catch (e) {
+      sub = null;
+    }
     const isPaid = sub?.status === 'ACTIVE_PAID';
     if (!isPaid) return false;
     
@@ -245,7 +250,12 @@ const App: React.FC = () => {
       if (!profile && retryCount < 3) { setTimeout(() => loadUserData(userId, retryCount + 1), 1000); return; }
       if (profile) {
         const sub = profile.subscription;
-        const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+        let parsedSub: any = {};
+        try {
+          parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+        } catch (e) {
+          parsedSub = {};
+        }
         const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
         if (isSuspended && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
@@ -336,8 +346,11 @@ const App: React.FC = () => {
           const updatedProfile = payload.new;
           if (updatedProfile) {
             const sub = updatedProfile.subscription;
-            const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-            const isSuspended = updatedProfile.status === 'SUSPENDED' || updatedProfile.status === 'suspended' || parsedSub.isActive === false;
+            let parsedSub: any = {};
+            try {
+              parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+            } catch (e) {}
+            const isSuspended = updatedProfile.status === 'SUSPENDED' || updatedProfile.status === 'suspended' || parsedSub?.isActive === false;
             if (isSuspended) {
               await supabase.auth.signOut();
               setUser(DEFAULT_USER);
@@ -363,8 +376,11 @@ const App: React.FC = () => {
           
         if (profile && !error) {
           const sub = profile.subscription;
-          const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-          const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
+          let parsedSub: any = {};
+          try {
+            parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+          } catch (e) {}
+          const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub?.isActive === false;
           if (isSuspended) {
             await supabase.auth.signOut();
             setUser(DEFAULT_USER);
