@@ -69,6 +69,17 @@ const PublicSupportChat: React.FC = () => {
         const uid = session.user.id;
         setVisitorId(uid);
         
+        // Carregar dados de perfil se já estiver logado
+        const { data: prof } = await supabase
+          .from('profiles')
+          .select('name, email')
+          .eq('id', uid)
+          .single();
+        
+        if (prof) {
+          setUserData({ name: prof.name || '', email: prof.email || '' });
+        }
+        
         const { data: history } = await supabase
           .from('chat_messages')
           .select('sender_role, text')
@@ -87,6 +98,13 @@ const PublicSupportChat: React.FC = () => {
             setIsHumanModeActive(true);
             setShowHumanSupportStatus(true);
           }
+        } else if (prof?.name) {
+          // Se o utilizador já está autenticado, salta direto para o chat com a mensagem de boas-vindas
+          setStep('chat');
+          setMessages([{ 
+            role: 'ai', 
+            text: `Olá ${prof.name.split(' ')[0]}! Sou a assistente virtual da AtriosWork. Em que posso ajudar hoje?` 
+          }]);
         }
       }
     };
@@ -125,31 +143,75 @@ const PublicSupportChat: React.FC = () => {
 
   const handleStartChat = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!userData.name.trim() || !userData.email.trim()) return;
+    const cleanName = userData.name.trim();
+    const cleanEmail = userData.email.trim().toLowerCase();
+    if (!cleanName || !cleanEmail) return;
     
-    setStep('chat');
-    if (messages.length === 0) {
-      setMessages([{ 
-        role: 'ai', 
-        text: `Olá ${userData.name.split(' ')[0]}! Sou a assistente virtual da AtriosWork. Em que posso ajudar hoje?` 
-      }]);
+    setIsSending(true);
+    try {
+      let targetId = visitorId;
+      if (!targetId) {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          targetId = session.user.id;
+        } else {
+          const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
+          if (anonError) throw anonError;
+          targetId = anonData.user?.id || null;
+        }
+        setVisitorId(targetId);
+      }
+
+      if (targetId) {
+        // Upsert do perfil do visitante de imediato para garantir que o Master veja os dados no painel
+        await supabase.from('profiles').upsert({
+          id: targetId,
+          name: cleanName,
+          email: cleanEmail,
+          role: 'user',
+          hourlyRate: 0,
+          isFreelancer: false,
+          subscription: { status: 'GUEST_VISITOR', isActive: true, startDate: new Date().toISOString() }
+        }, { onConflict: 'id' });
+      }
+
+      setStep('chat');
+      if (messages.length === 0) {
+        setMessages([{ 
+          role: 'ai', 
+          text: `Olá ${cleanName.split(' ')[0]}! Sou a assistente virtual da AtriosWork. Em que posso ajudar hoje?` 
+        }]);
+      }
+    } catch (err: any) {
+      console.error("Error setting up support session:", err.message);
+      // Fallback para não travar o cliente
+      setStep('chat');
+      if (messages.length === 0) {
+        setMessages([{ 
+          role: 'ai', 
+          text: `Olá ${cleanName.split(' ')[0]}! Sou a assistente virtual da AtriosWork. Em que posso ajudar hoje?` 
+        }]);
+      }
+    } finally {
+      setIsSending(false);
+      scrollToBottom();
     }
-    scrollToBottom();
   };
 
-  const syncToSupport = async (text: string) => {
+  const syncToSupport = async (text: string, isAiResponse = false) => {
     try {
       const cleanEmail = userData.email.trim().toLowerCase();
       let targetId = visitorId;
       if (!targetId) {
         const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
         if (anonError) throw anonError;
-        targetId = anonData.user?.id;
+        targetId = anonData.user?.id || null;
         setVisitorId(targetId);
       }
 
       if (!targetId) return false;
 
+      // Garantir dados de perfil no Supabase
       await supabase.from('profiles').upsert({
         id: targetId,
         name: userData.name.trim(),
@@ -160,6 +222,7 @@ const PublicSupportChat: React.FC = () => {
         subscription: { status: 'GUEST_VISITOR', isActive: true, startDate: new Date().toISOString() }
       }, { onConflict: 'id' });
 
+      // Garantir que existe ou atualiza o ticket de suporte com status 'open' para alarmar o Master
       await supabase.from('support_tickets').upsert({
         user_id: targetId,
         status: 'open',
@@ -167,10 +230,11 @@ const PublicSupportChat: React.FC = () => {
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id' });
 
+      // Inserir a mensagem na tabela de mensagens de chat
       await supabase.from('chat_messages').insert({
         user_id: targetId,
         text: text,
-        sender_role: 'user'
+        sender_role: isAiResponse ? 'ai' : 'user'
       });
       
       return true;
@@ -187,17 +251,17 @@ const PublicSupportChat: React.FC = () => {
 
     setInputText('');
     setIsSending(true);
+    // Adiciona a mensagem localmente de imediato para feedback visual instantâneo
     setMessages(prev => [...prev, { role: 'user', text: currentText }]);
     scrollToBottom();
 
+    // Sincroniza a mensagem do utilizador imediatamente com o Supabase (isto gera o alerta sonoro e notificação ao Master)
+    const success = await syncToSupport(currentText, false);
+    if (!success) {
+      console.warn("Could not sync message to Supabase database");
+    }
+
     if (isHumanModeActive) {
-      const success = await syncToSupport(currentText);
-      if (!success) {
-        setMessages(prev => [...prev, { 
-          role: 'ai', 
-          text: "Erro ao conectar. Por favor, envie um e-mail para software.atrios@gmail.com." 
-        }]);
-      }
       setIsSending(false);
       return;
     }
@@ -222,6 +286,10 @@ const PublicSupportChat: React.FC = () => {
 
       const aiText = response.text || "Pode repetir?";
       setMessages(prev => [...prev, { role: 'ai', text: aiText }]);
+      
+      // Sincroniza também a resposta da IA na base de dados para que o Master tenha o histórico completo e não repita respostas
+      await syncToSupport(aiText, true);
+
     } catch (err) {
       setMessages(prev => [...prev, { role: 'ai', text: "IA ocupada. Deseja suporte humano?" }]);
     } finally {
