@@ -319,6 +319,19 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
         });
       }
 
+      // Broadcast de Atendimento Humano para a Central de Alertas do Master
+      const alertChannel = supabase.channel('atrioswork_admin_realtime_events_feed');
+      alertChannel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await alertChannel.send({
+            type: 'broadcast',
+            event: 'support_request',
+            payload: { name: user.name || 'Membro AtriosWork', text: triggerText }
+          });
+          supabase.removeChannel(alertChannel);
+        }
+      });
+
       setIsHumanSupportActive(true);
       setConnectionStatus(isOnline ? 'online' : 'offline');
       

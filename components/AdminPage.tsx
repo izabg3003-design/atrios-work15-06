@@ -102,6 +102,144 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     title: '', highlight: '', subtitle: '', cta_text: 'Ver Oferta', theme_color: 'emerald', is_active: true, image_url: '', user_type: 'all'
   });
 
+  // --- ESTADO PARA DISPARO DE PUSH NOTIFICATIONS ---
+  const [allProfiles, setAllProfiles] = useState<UserProfile[]>([]);
+  const [loadingProfiles, setLoadingProfiles] = useState(false);
+  const [pushTitle, setPushTitle] = useState('');
+  const [pushBody, setPushBody] = useState('');
+  const [pushTarget, setPushTarget] = useState<'all' | 'premium' | 'user'>('all');
+  const [selectedTargetUserId, setSelectedTargetUserId] = useState('');
+  const [pushUrl, setPushUrl] = useState('/');
+  const [isSendingPush, setIsSendingPush] = useState(false);
+  const [pushSuccessMsg, setPushSuccessMsg] = useState('');
+  const [recentPushes, setRecentPushes] = useState<Array<{ id: string; title: string; body: string; target: string; date: string }>>([]);
+  const [liveEvents, setLiveEvents] = useState<Array<{ id: string; type: 'cadastro' | 'suporte'; title: string; desc: string; date: string }>>([]);
+
+  // Carregar perfis ao entrar na aba de alertas/notificações
+  useEffect(() => {
+    if (activeSubTab === 'notifications') {
+      const fetchProfilesForPush = async () => {
+        setLoadingProfiles(true);
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .order('name', { ascending: true });
+          if (!error && data) {
+            setAllProfiles(data);
+          }
+        } catch (err) {
+          console.error("Erro ao carregar perfis para notificações:", err);
+        } finally {
+          setLoadingProfiles(false);
+        }
+      };
+      fetchProfilesForPush();
+
+      // Monitor de eventos em tempo real para alimentar o feed do painel de notificações
+      const eventChannel = supabase.channel('atrioswork_admin_realtime_events_feed')
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'profiles' }, (payload) => {
+          const p = payload.new;
+          if (p) {
+            setLiveEvents(prev => [
+              {
+                id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+                type: 'cadastro',
+                title: 'Novo Registo!',
+                desc: `${p.name || 'Sem nome'} (${p.email || 'Sem e-mail'}) cadastrou-se no sistema.`,
+                date: new Date().toLocaleTimeString()
+              },
+              ...prev
+            ]);
+          }
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_tickets' }, (payload) => {
+          const t = payload.new;
+          if (t && t.status === 'open') {
+            setLiveEvents(prev => [
+              {
+                id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+                type: 'suporte',
+                title: 'Suporte Humano Solicitado!',
+                desc: `Mensagem: "${t.last_message || 'Iniciou chat'}"`,
+                date: new Date().toLocaleTimeString()
+              },
+              ...prev
+            ]);
+          }
+        })
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(eventChannel);
+      };
+    }
+  }, [activeSubTab]);
+
+  const handleDispatchPush = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!pushTitle.trim() || !pushBody.trim()) return;
+
+    setIsSendingPush(true);
+    setPushSuccessMsg('');
+
+    try {
+      const targetUserId = pushTarget === 'user' ? selectedTargetUserId : 'all';
+      const targetRole = pushTarget === 'premium' ? 'premium' : 'all';
+
+      const pushChannel = supabase.channel('atrioswork_push_broadcast');
+      
+      await new Promise<void>((resolve, reject) => {
+        pushChannel.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            try {
+              await pushChannel.send({
+                type: 'broadcast',
+                event: 'admin_push',
+                payload: {
+                  title: pushTitle.trim(),
+                  body: pushBody.trim(),
+                  target_user_id: targetUserId,
+                  target_role: targetRole,
+                  url: pushUrl.trim(),
+                  sender: currentUser?.name || 'Administrador'
+                }
+              });
+              resolve();
+            } catch (err) {
+              reject(err);
+            }
+          } else if (status === 'CHANNEL_ERROR') {
+            reject(new Error("Erro de conexão com o canal do Supabase."));
+          }
+        });
+      });
+
+      const newPushLog = {
+        id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+        title: pushTitle.trim(),
+        body: pushBody.trim(),
+        target: pushTarget === 'all' ? 'Todos os Membros' : pushTarget === 'premium' ? 'Membros Premium' : (allProfiles.find(p => p.id === selectedTargetUserId)?.name || 'Utilizador Individual'),
+        date: new Date().toLocaleTimeString()
+      };
+      setRecentPushes(prev => [newPushLog, ...prev]);
+
+      setPushTitle('');
+      setPushBody('');
+      setPushUrl('/');
+      setPushSuccessMsg('Notificação Push Real-Time disparada com sucesso!');
+      
+      setTimeout(() => setPushSuccessMsg(''), 5000);
+      supabase.removeChannel(pushChannel);
+
+    } catch (err: any) {
+      console.error("Falha ao disparar push:", err);
+      alert("Erro ao disparar transmissão: " + err.message);
+    } finally {
+      setIsSendingPush(false);
+    }
+  };
+
   const fetchData = async () => {
     setLoading(true);
     try {
@@ -483,47 +621,296 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
        activeSubTab === 'reports' ? <AdminPartnerReports f={f} /> : 
        activeSubTab === 'profile' ? <SettingsPage user={currentUser!} setUser={onUpdateProfile} t={t} hideValues={hideValues} /> : 
        activeSubTab === 'notifications' ? (
-         <div className="space-y-8 animate-[fadeIn_0.5s_ease-out]">
-            <div className="bg-slate-800/20 border border-blue-500/20 p-10 rounded-[3rem] space-y-8 shadow-2xl relative overflow-hidden">
-               <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none"><Webhook className="w-64 h-64 text-blue-500" /></div>
-               <div className="space-y-2 relative z-10">
-                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Protocolo de <span className="text-blue-400">Alertas AtriosWork</span></h3>
-                  <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">Configure como a equipa de suporte é notificada sobre novos tickets. Recomendamos a utilização de Webhooks para integração direta com E-mail ou Push via Smartphone.</p>
-               </div>
-
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-8 relative z-10">
-                  <div className="bg-slate-950/60 p-8 rounded-[2rem] border border-white/5 space-y-6">
-                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-blue-600/20 rounded-2xl flex items-center justify-center text-blue-400"><Mail className="w-6 h-6" /></div>
-                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Notificações por E-mail</h4>
-                     </div>
-                     <p className="text-[11px] text-slate-500 font-medium leading-relaxed">Para encaminhar novos tickets para <strong>software.atrios@gmail.com</strong>, utilize um Webhook no Supabase Dashboard (Database &rarr; Webhooks) apontando para um serviço como Resend ou SendGrid.</p>
-                     <button onClick={() => window.open('https://supabase.com/docs/guides/database/webhooks', '_blank')} className="flex items-center gap-2 text-blue-400 text-[10px] font-black uppercase hover:underline"><ExternalLink className="w-3 h-3" /> Abrir Guia de Configuração</button>
-                  </div>
-
-                  <div className="bg-slate-950/60 p-8 rounded-[2rem] border border-white/5 space-y-6">
-                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-emerald-600/20 rounded-2xl flex items-center justify-center text-emerald-400"><Smartphone className="w-6 h-6" /></div>
-                        <h4 className="text-sm font-black text-white uppercase tracking-widest">Push Notifications</h4>
-                     </div>
-                     <p className="text-[11px] text-slate-500 font-medium leading-relaxed">As notificações via browser estão ativas no painel de suporte. Garanta que o pessoal do Staff autorizou as notificações no cadeado da barra de endereços.</p>
-                     <div className="flex items-center gap-2 px-4 py-2 bg-emerald-500/10 rounded-xl border border-emerald-500/20 w-fit">
-                        <CheckCircle className="w-3 h-3 text-emerald-500" />
-                        <span className="text-[9px] font-black text-emerald-500 uppercase">Sistema Ativo no Hub</span>
-                     </div>
-                  </div>
-               </div>
-               
-               <div className="p-8 bg-slate-950 border border-slate-800 rounded-3xl space-y-4">
-                  <div className="flex items-center gap-3 text-amber-500">
-                     <ShieldAlert className="w-5 h-5" />
-                     <p className="text-[10px] font-black uppercase tracking-widest">Dica de Automação</p>
-                  </div>
-                  <p className="text-xs text-slate-500 italic">"Pode utilizar o Make.com ou Zapier para ligar o Webhook do Supabase ao Telegram ou WhatsApp da equipa, garantindo resposta em menos de 5 minutos."</p>
-               </div>
+          <div className="space-y-8 animate-[fadeIn_0.5s_ease-out]">
+            {/* Header principal */}
+            <div className="bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-blue-500/30 p-10 rounded-[3rem] shadow-2xl relative overflow-hidden">
+              <div className="absolute top-0 right-0 p-10 opacity-5 pointer-events-none">
+                <Webhook className="w-64 h-64 text-blue-500" />
+              </div>
+              <div className="space-y-3 relative z-10">
+                <div className="inline-flex items-center gap-2 px-3 py-1 bg-blue-500/10 rounded-full border border-blue-500/20">
+                  <span className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></span>
+                  <span className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Sistema de Transmissão Ativo</span>
+                </div>
+                <h3 className="text-3xl font-black text-white italic uppercase tracking-tighter">
+                  Central de <span className="text-blue-400">Push Notifications & Alertas</span>
+                </h3>
+                <p className="text-sm text-slate-400 max-w-2xl leading-relaxed">
+                  Envie avisos, atualizações e alertas instantâneos diretamente para os dispositivos dos utilizadores, mesmo que o aplicativo esteja minimizado ou em segundo plano. Receba também notificações em tempo real sobre a atividade da plataforma.
+                </p>
+              </div>
             </div>
-         </div>
-       ) : (
+
+            {/* Grid Principal */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+              
+              {/* Painel Esquerdo: Formulário de Envio (7 colunas) */}
+              <div className="lg:col-span-7 bg-slate-900/60 border border-slate-800 p-8 rounded-[2.5rem] space-y-6 backdrop-blur-md shadow-xl">
+                <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+                  <div className="w-10 h-10 bg-blue-600/20 rounded-xl flex items-center justify-center text-blue-400">
+                    <Megaphone className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-black text-white uppercase tracking-wider">Disparar Alerta Push Real-Time</h4>
+                    <p className="text-[10px] text-slate-500 font-bold">TRANSMISSÃO INSTANTÂNEA VIA SUPABASE CHANNELS</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleDispatchPush} className="space-y-5">
+                  {/* Destinatário */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-400 uppercase font-black tracking-widest block">Enviar para:</label>
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setPushTarget('all')}
+                        className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between h-24 ${
+                          pushTarget === 'all'
+                            ? 'bg-blue-600/10 border-blue-500 text-white shadow-lg'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <span className="text-[9px] font-black uppercase tracking-widest block">Todos os Membros</span>
+                        <span className="text-xs font-bold block mt-2">Free, PRO & Visitantes</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPushTarget('premium')}
+                        className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between h-24 ${
+                          pushTarget === 'premium'
+                            ? 'bg-purple-600/10 border-purple-500 text-white shadow-lg'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <span className="text-[9px] font-black uppercase tracking-widest block">Apenas PRO</span>
+                        <span className="text-xs font-bold block mt-2">Membros Premium Ativos</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setPushTarget('user')}
+                        className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between h-24 ${
+                          pushTarget === 'user'
+                            ? 'bg-amber-600/10 border-amber-500 text-white shadow-lg'
+                            : 'bg-slate-950/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                        }`}
+                      >
+                        <span className="text-[9px] font-black uppercase tracking-widest block">Membro Específico</span>
+                        <span className="text-xs font-bold block mt-2">Selecionar Individualmente</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Selector de Usuário Individual */}
+                  {pushTarget === 'user' && (
+                    <div className="space-y-2 animate-[fadeIn_0.3s_ease-out]">
+                      <label className="text-[10px] text-slate-400 uppercase font-black tracking-widest block">Selecione o Membro:</label>
+                      {loadingProfiles ? (
+                        <div className="flex items-center gap-2 p-4 bg-slate-950 rounded-2xl border border-slate-800">
+                          <Loader2 className="w-4 h-4 text-white animate-spin" />
+                          <span className="text-xs text-slate-500 font-bold uppercase">Carregando utilizadores...</span>
+                        </div>
+                      ) : (
+                        <select
+                          required
+                          value={selectedTargetUserId}
+                          onChange={(e) => setSelectedTargetUserId(e.target.value)}
+                          className="w-full bg-slate-950 border border-slate-800 rounded-2xl p-4 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">-- Selecione um membro da AtriosWork --</option>
+                          {allProfiles.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.name || 'Sem Nome'} ({p.email || 'Sem e-mail'}) - [{p.role?.toUpperCase() || 'USER'}]
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Título da Notificação */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-400 uppercase font-black tracking-widest block">Título do Alerta:</label>
+                    <input
+                      required
+                      type="text"
+                      placeholder="Ex: Manutenção Programada ⚙️"
+                      value={pushTitle}
+                      onChange={(e) => setPushTitle(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Mensagem da Notificação */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-400 uppercase font-black tracking-widest block">Mensagem (Corpo):</label>
+                    <textarea
+                      required
+                      rows={3}
+                      placeholder="Ex: Olá! O sistema passará por uma atualização de servidores hoje às 23:00. O tempo estimado é de 5 minutos."
+                      value={pushBody}
+                      onChange={(e) => setPushBody(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                    />
+                  </div>
+
+                  {/* Link / URL */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] text-slate-400 uppercase font-black tracking-widest block">Link de Redirecionamento (Opcional):</label>
+                    <input
+                      type="text"
+                      placeholder="Ex: /suporte (Padrão: /)"
+                      value={pushUrl}
+                      onChange={(e) => setPushUrl(e.target.value)}
+                      className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  {/* Mensagem de sucesso */}
+                  {pushSuccessMsg && (
+                    <div className="p-4 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-400 font-bold text-xs flex items-center gap-2 animate-bounce">
+                      <CheckCircle className="w-4 h-4 text-emerald-400" />
+                      {pushSuccessMsg}
+                    </div>
+                  )}
+
+                  {/* Botão de Disparo */}
+                  <button
+                    type="submit"
+                    disabled={isSendingPush || (pushTarget === 'user' && !selectedTargetUserId)}
+                    className="w-full py-5 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black rounded-2xl flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-95 disabled:opacity-50 disabled:pointer-events-none text-xs uppercase tracking-widest shadow-lg shadow-blue-600/20"
+                  >
+                    {isSendingPush ? (
+                      <>
+                        <Loader2 className="w-4 h-4 text-white animate-spin" />
+                        Disparando Transmissão...
+                      </>
+                    ) : (
+                      <>
+                        <Zap className="w-4 h-4 text-white animate-pulse" />
+                        Disparar Alerta Real-Time
+                      </>
+                    )}
+                  </button>
+                </form>
+              </div>
+
+              {/* Painel Direito: Feed de Eventos & Alertas em Tempo Real (5 colunas) */}
+              <div className="lg:col-span-5 bg-slate-900/60 border border-slate-800 p-8 rounded-[2.5rem] flex flex-col justify-between backdrop-blur-md shadow-xl min-h-[500px]">
+                <div className="space-y-6">
+                  <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+                    <div className="w-10 h-10 bg-rose-600/20 rounded-xl flex items-center justify-center text-rose-400">
+                      <Activity className="w-5 h-5 animate-pulse" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black text-white uppercase tracking-wider">Monitor de Atividade Live</h4>
+                      <p className="text-[10px] text-slate-500 font-bold">CADASTROS & SUPORTE EM TEMPO REAL</p>
+                    </div>
+                  </div>
+
+                  {/* Feed de Eventos */}
+                  <div className="space-y-4 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                    {liveEvents.length === 0 ? (
+                      <div className="p-8 text-center bg-slate-950/40 border border-slate-800/50 rounded-2xl text-slate-500 flex flex-col items-center justify-center gap-3">
+                        <div className="w-8 h-8 bg-slate-900 rounded-full flex items-center justify-center text-slate-600 animate-pulse">
+                          <RefreshCw className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-wider">Radar Ativo</p>
+                          <p className="text-[10px] text-slate-600 mt-1">Aguardando novos cadastros ou solicitações de suporte humano...</p>
+                        </div>
+                      </div>
+                    ) : (
+                      liveEvents.map((ev) => (
+                        <div
+                          key={ev.id}
+                          className={`p-4 border rounded-2xl space-y-1 transition-all animate-[fadeIn_0.4s_ease-out] ${
+                            ev.type === 'cadastro'
+                              ? 'bg-blue-500/5 border-blue-500/20'
+                              : 'bg-rose-500/5 border-rose-500/20'
+                          }`}
+                        >
+                          <div className="flex justify-between items-start">
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
+                              ev.type === 'cadastro' ? 'bg-blue-500/10 text-blue-400' : 'bg-rose-500/10 text-rose-400'
+                            }`}>
+                              {ev.title}
+                            </span>
+                            <span className="text-[8px] font-mono text-slate-600">{ev.date}</span>
+                          </div>
+                          <p className="text-[11px] text-slate-300 font-medium leading-relaxed">{ev.desc}</p>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Notificações recentes enviadas */}
+                  <div className="space-y-3">
+                    <h5 className="text-[10px] text-slate-400 font-black uppercase tracking-widest border-t border-slate-800/80 pt-4">Envios desta Sessão:</h5>
+                    {recentPushes.length === 0 ? (
+                      <p className="text-[10px] text-slate-600 italic">Nenhuma notificação enviada recentemente.</p>
+                    ) : (
+                      <div className="space-y-2 max-h-[160px] overflow-y-auto pr-1">
+                        {recentPushes.map((p) => (
+                          <div key={p.id} className="p-3 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center justify-between">
+                            <div className="overflow-hidden mr-2">
+                              <p className="text-xs text-white font-bold truncate">{p.title}</p>
+                              <p className="text-[8px] text-slate-500 font-medium">Alvo: {p.target}</p>
+                            </div>
+                            <span className="text-[8px] font-mono text-slate-600 shrink-0">{p.date}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Status das permissões */}
+                <div className="p-4 bg-slate-950 border border-slate-800 rounded-2xl flex items-center justify-between mt-6">
+                  <div className="flex items-center gap-2">
+                    <Smartphone className="w-4 h-4 text-emerald-400" />
+                    <div>
+                      <span className="text-[9px] text-slate-400 font-black uppercase block leading-none">Notificações no Navegador</span>
+                      <span className="text-[8px] text-slate-600 font-medium">Estado do cadeado do browser</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if ('Notification' in window) {
+                        const perm = await Notification.requestPermission();
+                        alert("Estado das notificações: " + perm);
+                      } else {
+                        alert("Seu navegador não oferece suporte a notificações.");
+                      }
+                    }}
+                    className="px-3 py-1 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 font-black text-[9px] uppercase tracking-widest rounded-lg transition-all"
+                  >
+                    Testar Permissão
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+            {/* Secção de Integrações de Terceiros */}
+            <div className="bg-slate-950/40 border border-slate-800 p-8 rounded-[2rem] space-y-6">
+              <div className="flex items-center gap-3">
+                <Database className="w-5 h-5 text-slate-400" />
+                <h4 className="text-xs font-black text-white uppercase tracking-wider">Integrações de Infraestrutura (Webhooks & E-mail)</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs text-slate-500">
+                <p className="leading-relaxed">
+                  Para integrar com softwares externos ou enviar cópias dos tickets e notificações push diretamente para e-mails (ex: <strong>software.atrios@gmail.com</strong>), utilize a funcionalidade de Webhooks no painel de administração do Supabase, roteando para Resend, SendGrid ou Make.com.
+                </p>
+                <p className="leading-relaxed">
+                  Utilize canais como Telegram ou WhatsApp conectando o Zapier ao webhook. Isso garante que a equipa de apoio seja alertada em menos de 5 minutos, mesmo fora da aplicação.
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : (
         <div className="bg-slate-800/20 border border-slate-800 rounded-[2.5rem] overflow-hidden backdrop-blur-md shadow-2xl relative">
           <div className="p-8 border-b border-slate-800 flex flex-col md:flex-row gap-6 justify-between items-center bg-slate-900/40">
             <div className="relative w-full md:max-w-md">

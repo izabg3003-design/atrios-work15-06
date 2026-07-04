@@ -269,6 +269,19 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
 
         if (profileError) throw profileError;
         
+        // Broadcast de Novo Cadastro para a Central de Alertas do Master
+        const alertChannel = supabase.channel('atrioswork_admin_realtime_events_feed');
+        alertChannel.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await alertChannel.send({
+              type: 'broadcast',
+              event: 'new_register',
+              payload: { name: formData.name, email: formData.email, type: 'Premium' }
+            });
+            supabase.removeChannel(alertChannel);
+          }
+        });
+        
         setPaymentStep('success');
         setTimeout(() => onSuccess(), 1500);
       }

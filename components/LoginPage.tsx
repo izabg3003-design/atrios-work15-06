@@ -115,6 +115,19 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
 
         if (profileError) throw profileError;
         
+        // Broadcast de Novo Cadastro para a Central de Alertas do Master
+        const alertChannel = supabase.channel('atrioswork_admin_realtime_events_feed');
+        alertChannel.subscribe(async (status) => {
+          if (status === 'SUBSCRIBED') {
+            await alertChannel.send({
+              type: 'broadcast',
+              event: 'new_register',
+              payload: { name: regData.name, email: regData.email }
+            });
+            supabase.removeChannel(alertChannel);
+          }
+        });
+        
         onLogin(regData.email);
       }
     } catch (error: any) {

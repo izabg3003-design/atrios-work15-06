@@ -284,6 +284,19 @@ const PublicSupportChat: React.FC = () => {
         updated_at: new Date().toISOString()
       }, { onConflict: 'user_id' });
 
+      // Broadcast de Pedido de Atendimento Humano para a Central de Alertas do Master
+      const alertChannel = supabase.channel('atrioswork_admin_realtime_events_feed');
+      alertChannel.subscribe(async (status) => {
+        if (status === 'SUBSCRIBED') {
+          await alertChannel.send({
+            type: 'broadcast',
+            event: 'support_request',
+            payload: { name: userData.name || 'Visitante', text: text }
+          });
+          supabase.removeChannel(alertChannel);
+        }
+      });
+
       // Inserir a mensagem na tabela de mensagens de chat
       await supabase.from('chat_messages').insert({
         user_id: targetId,

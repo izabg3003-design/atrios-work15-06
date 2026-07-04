@@ -119,8 +119,63 @@ const App: React.FC = () => {
   const [hideValues, setHideValues] = useState(false);
   const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
   const [loginInRegisterMode, setLoginInRegisterMode] = useState(false);
+  const [activeNotification, setActiveNotification] = useState<{ id: string; title: string; body: string; url?: string } | null>(null);
   
   const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    if (activeNotification) {
+      const timer = setTimeout(() => {
+        setActiveNotification(null);
+      }, 8000);
+      return () => clearTimeout(timer);
+    }
+  }, [activeNotification]);
+
+  useEffect(() => {
+    // Escuta global de push notifications
+    const pushChannel = supabase.channel('atrioswork_push_broadcast')
+      .on('broadcast', { event: 'admin_push' }, (payload: any) => {
+        const data = payload.payload;
+        if (!data) return;
+
+        // Verificar se a notificação é destinada a este utilizador específico ou a todos
+        const matchAll = data.target_user_id === 'all' && data.target_role === 'all';
+        const matchUser = data.target_user_id === user.id;
+        
+        const sub = user.subscription;
+        const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+        const isUserPremium = user.status === 'PRO' || parsedSub.status === 'ACTIVE_PAID';
+        const matchPremium = data.target_role === 'premium' && isUserPremium;
+
+        if (matchAll || matchUser || matchPremium) {
+          // 1. Mostrar toast no viewport
+          setActiveNotification({
+            id: Math.random().toString(36).substr(2, 9).toUpperCase(),
+            title: data.title,
+            body: data.body,
+            url: data.url
+          });
+
+          // 2. Disparar notificação nativa do browser se houver permissão
+          if ('Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification(data.title, {
+                body: data.body,
+                icon: '/icons/icon-192.png'
+              });
+            } catch (err) {
+              console.error("Erro ao exibir notificação nativa:", err);
+            }
+          }
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(pushChannel);
+    };
+  }, [user]);
   const isInitialLoad = useRef(true);
 
   useEffect(() => {
@@ -531,6 +586,46 @@ const App: React.FC = () => {
               {appState === 'user-support' && <UserSupportPage user={user} t={t} />}
             </div>
           </main>
+        </div>
+      )}
+
+      {/* Alerta Push Real-Time Overlay Toast */}
+      {activeNotification && (
+        <div className="fixed top-6 right-6 z-[9999] max-w-sm w-full bg-slate-900/95 border border-blue-500/30 p-5 rounded-2xl shadow-2xl backdrop-blur-lg animate-[slideIn_0.3s_ease-out] flex flex-col gap-3">
+          <div className="flex items-start justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-ping shrink-0"></span>
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Alerta AtriosWork</p>
+            </div>
+            <button 
+              onClick={() => setActiveNotification(null)}
+              className="text-slate-500 hover:text-white transition-all"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-1">
+            <h4 className="text-sm font-black text-white uppercase tracking-tight">{activeNotification.title}</h4>
+            <p className="text-xs text-slate-400 leading-relaxed font-medium">{activeNotification.body}</p>
+          </div>
+          {activeNotification.url && activeNotification.url !== '/' && (
+            <button
+              onClick={() => {
+                const targetUrl = activeNotification.url!;
+                if (targetUrl === '/suporte' || targetUrl.includes('suporte')) {
+                  setAppState(user.role === 'support' ? 'support' : 'user-support');
+                } else if (targetUrl.startsWith('http')) {
+                  window.open(targetUrl, '_blank');
+                } else {
+                  setAppState('dashboard');
+                }
+                setActiveNotification(null);
+              }}
+              className="mt-1 w-full py-2.5 bg-blue-600/20 border border-blue-500/20 text-blue-400 font-bold hover:bg-blue-600 hover:text-white transition-all text-[10px] uppercase tracking-widest rounded-xl flex items-center justify-center gap-1"
+            >
+              Aceder <ArrowRight className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       )}
     </div>
