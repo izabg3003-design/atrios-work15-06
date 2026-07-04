@@ -76,3 +76,62 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// --- LISTENER PARA NOTIFICAÇÕES PUSH EM SEGUNDO PLANO (APP FECHADO) ---
+// Quando um servidor de Push de terceiros (FCM, OneSignal ou próprio servidor VAPID) 
+// envia um payload, o browser acorda este Service Worker mesmo com o app fechado.
+self.addEventListener('push', (event) => {
+  console.log('[Service Worker] Evento de Push recebido.');
+  
+  let data = {};
+  if (event.data) {
+    try {
+      data = event.data.json();
+    } catch (e) {
+      // Se não for JSON, trata como texto simples
+      data = { title: 'AtriosWork', body: event.data.text() };
+    }
+  }
+
+  const title = data.title || 'AtriosWork';
+  const options = {
+    body: data.body || 'Nova notificação recebida!',
+    icon: data.icon || '/logo_atualizado.jpg',
+    badge: data.badge || '/logo_atualizado.jpg',
+    vibrate: [100, 50, 100],
+    data: {
+      url: data.url || '/'
+    }
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+// --- LISTENER PARA CLIQUE NA NOTIFICAÇÃO ---
+// Quando o utilizador clica na notificação em segundo plano, abre o app ou foca na tab existente
+self.addEventListener('notificationclick', (event) => {
+  console.log('[Service Worker] Notificação clicada. Target URL:', event.notification.data.url);
+  
+  event.notification.close(); // Fecha o balão da notificação
+
+  const targetUrl = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        // Se houver uma aba aberta do site, foca nela e navega para a URL destino
+        for (const client of clientList) {
+          if ('focus' in client) {
+            client.navigate(targetUrl);
+            return client.focus();
+          }
+        }
+        // Se não houver abas abertas, abre uma nova janela
+        if (self.clients.openWindow) {
+          return self.clients.openWindow(targetUrl);
+        }
+      })
+  );
+});
