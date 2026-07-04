@@ -274,8 +274,14 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             url: pushUrl.trim()
           })
         });
-        const fcmData = await fcmResponse.json();
-        console.log("Resultado do envio FCM em segundo plano:", fcmData);
+        const responseText = await fcmResponse.text();
+        console.log("FCM Raw Response Status:", fcmResponse.status, "Body:", responseText);
+        try {
+          const fcmData = JSON.parse(responseText);
+          console.log("Resultado do envio FCM em segundo plano:", fcmData);
+        } catch (jsonErr) {
+          console.error("FCM Response is not valid JSON:", responseText, jsonErr);
+        }
       } catch (fcmErr) {
         console.error("Falha ao enviar push em segundo plano via FCM:", fcmErr);
       }

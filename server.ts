@@ -2,7 +2,8 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import admin from "firebase-admin";
+import { initializeApp, cert } from "firebase-admin/app";
+import { getMessaging } from "firebase-admin/messaging";
 
 const PORT = 3000;
 const TOKENS_FILE = path.join(process.cwd(), "fcm_tokens.json");
@@ -31,8 +32,8 @@ function saveTokens(tokens: Record<string, { token: string; role?: string; updat
 // Inicializar Firebase Admin de forma preguiçosa e segura
 let firebaseAdminApp: any = null;
 
-function getFirebaseAdmin(): any {
-  if (firebaseAdminApp) return admin;
+function getFirebaseAdminApp(): any {
+  if (firebaseAdminApp) return firebaseAdminApp;
 
   try {
     let serviceAccount: any = null;
@@ -58,11 +59,11 @@ function getFirebaseAdmin(): any {
     }
 
     if (serviceAccount) {
-      firebaseAdminApp = (admin as any).initializeApp({
-        credential: (admin as any).credential.cert(serviceAccount)
+      firebaseAdminApp = initializeApp({
+        credential: cert(serviceAccount)
       });
       console.log("Firebase Admin SDK inicializado com sucesso.");
-      return admin;
+      return firebaseAdminApp;
     }
   } catch (err) {
     console.error("Falha ao inicializar o Firebase Admin SDK:", err);
@@ -76,7 +77,7 @@ async function startServer() {
 
   // Rotas da API FIRST
   app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", firebaseInitialized: !!getFirebaseAdmin() });
+    res.json({ status: "ok", firebaseInitialized: !!getFirebaseAdminApp() });
   });
 
   // Registrar Token FCM de um utilizador
@@ -118,8 +119,8 @@ async function startServer() {
       return res.status(400).json({ error: "Título e corpo são obrigatórios." });
     }
 
-    const firebaseInstance = getFirebaseAdmin();
-    if (!firebaseInstance) {
+    const firebaseAppInstance = getFirebaseAdminApp();
+    if (!firebaseAppInstance) {
       return res.status(500).json({ error: "Firebase Admin SDK não pôde ser inicializado." });
     }
 
@@ -175,7 +176,8 @@ async function startServer() {
     let failCount = 0;
 
     try {
-      const response = await firebaseInstance.messaging().sendEach(messages);
+      const messagingInstance = getMessaging(firebaseAppInstance);
+      const response = await messagingInstance.sendEach(messages);
       successCount = response.successCount;
       failCount = response.failureCount;
       
@@ -226,7 +228,7 @@ async function startServer() {
   } else {
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (req, res) => {
+    app.get("*all", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }
