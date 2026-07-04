@@ -106,7 +106,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     setLoading(true);
     try {
       if (activeSubTab === 'users') {
-        const { data } = await supabase.from('profiles').select('*').neq('role', 'vendor').neq('role', 'support').not('email', 'ilike', '%master@atrioswork.com%').not('email', 'ilike', '%izarellebraga@gmail.com%').not('email', 'ilike', '%master@digitalnexus.com%');
+        const { data } = await supabase.from('profiles').select('*').neq('role', 'vendor').neq('role', 'support').neq('role', 'guest_visitor').not('email', 'ilike', '%master@atrioswork.com%').not('email', 'ilike', '%izarellebraga@gmail.com%').not('email', 'ilike', '%master@digitalnexus.com%');
         setUsers(data || []);
       } else if (activeSubTab === 'vendors') {
         const { data: vData } = await supabase.from('vendors').select('*');

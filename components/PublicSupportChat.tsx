@@ -58,18 +58,35 @@ const PublicSupportChat: React.FC = () => {
   }, []);
 
   // 2. Setup de Realtime e Recuperação de Sessão
+  const generateUUID = () => {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  };
+
   useEffect(() => {
     if (!isOpen) return;
     checkAgents();
     setShowNudge(false);
 
     const setupSession = async () => {
+      let uid: string | null = null;
+      
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
-        const uid = session.user.id;
+        uid = session.user.id;
+      } else {
+        uid = localStorage.getItem('atrioswork_guest_id');
+      }
+
+      if (uid) {
         setVisitorId(uid);
         
-        // Carregar dados de perfil se já estiver logado
+        // Carregar dados de perfil se já existir (seja logado ou guest_visitor)
         const { data: prof } = await supabase
           .from('profiles')
           .select('name, email')
@@ -99,7 +116,7 @@ const PublicSupportChat: React.FC = () => {
             setShowHumanSupportStatus(true);
           }
         } else if (prof?.name) {
-          // Se o utilizador já está autenticado, salta direto para o chat com a mensagem de boas-vindas
+          // Se o utilizador já está autenticado/cadastrado, salta direto para o chat com a mensagem de boas-vindas
           setStep('chat');
           setMessages([{ 
             role: 'ai', 
@@ -155,20 +172,37 @@ const PublicSupportChat: React.FC = () => {
         if (session?.user) {
           targetId = session.user.id;
         } else {
-          const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
-          if (anonError) throw anonError;
-          targetId = anonData.user?.id || null;
+          try {
+            const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
+            if (!anonError && anonData.user?.id) {
+              targetId = anonData.user.id;
+            }
+          } catch (ae) {
+            console.warn("signInAnonymously failed/disabled, using guest UUID fallback");
+          }
+          
+          if (!targetId) {
+            let savedId = localStorage.getItem('atrioswork_guest_id');
+            if (!savedId) {
+              savedId = generateUUID();
+              localStorage.setItem('atrioswork_guest_id', savedId);
+            }
+            targetId = savedId;
+          }
         }
         setVisitorId(targetId);
       }
 
       if (targetId) {
-        // Upsert do perfil do visitante de imediato para garantir que o Master veja os dados no painel
+        // Garantir o ID gravado localmente
+        localStorage.setItem('atrioswork_guest_id', targetId);
+
+        // Upsert do perfil do visitante com role 'guest_visitor' de imediato para garantir que o Master veja os dados no painel
         await supabase.from('profiles').upsert({
           id: targetId,
           name: cleanName,
           email: cleanEmail,
-          role: 'user',
+          role: 'guest_visitor',
           hourlyRate: 0,
           isFreelancer: false,
           subscription: { status: 'GUEST_VISITOR', isActive: true, startDate: new Date().toISOString() }
@@ -203,20 +237,40 @@ const PublicSupportChat: React.FC = () => {
       const cleanEmail = userData.email.trim().toLowerCase();
       let targetId = visitorId;
       if (!targetId) {
-        const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
-        if (anonError) throw anonError;
-        targetId = anonData.user?.id || null;
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          targetId = session.user.id;
+        } else {
+          try {
+            const { data: anonData, error: anonError } = await supabase.auth.signInAnonymously();
+            if (!anonError && anonData.user?.id) {
+              targetId = anonData.user.id;
+            }
+          } catch (ae) {}
+          
+          if (!targetId) {
+            let savedId = localStorage.getItem('atrioswork_guest_id');
+            if (!savedId) {
+              savedId = generateUUID();
+              localStorage.setItem('atrioswork_guest_id', savedId);
+            }
+            targetId = savedId;
+          }
+        }
         setVisitorId(targetId);
       }
 
       if (!targetId) return false;
 
-      // Garantir dados de perfil no Supabase
+      // Gravar localmente
+      localStorage.setItem('atrioswork_guest_id', targetId);
+
+      // Garantir dados de perfil no Supabase como guest_visitor
       await supabase.from('profiles').upsert({
         id: targetId,
         name: userData.name.trim(),
         email: cleanEmail,
-        role: 'user',
+        role: 'guest_visitor',
         hourlyRate: 0,
         isFreelancer: false,
         subscription: { status: 'GUEST_VISITOR', isActive: true, startDate: new Date().toISOString() }
