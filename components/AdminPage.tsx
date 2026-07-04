@@ -189,9 +189,41 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
       const pushChannel = supabase.channel('atrioswork_push_broadcast');
       
-      await new Promise<void>((resolve, reject) => {
+      // Envia usando uma Promessa com timeout para evitar travamentos na UI
+      await new Promise<void>((resolve) => {
+        let finished = false;
+        const done = () => {
+          if (!finished) {
+            finished = true;
+            resolve();
+          }
+        };
+
+        // Se demorar mais de 1.2 segundos, tenta enviar diretamente e finaliza
+        const timer = setTimeout(async () => {
+          try {
+            await pushChannel.send({
+              type: 'broadcast',
+              event: 'admin_push',
+              payload: {
+                title: pushTitle.trim(),
+                body: pushBody.trim(),
+                target_user_id: targetUserId,
+                target_role: targetRole,
+                url: pushUrl.trim(),
+                sender: currentUser?.name || 'Administrador'
+              }
+            });
+          } catch (err) {
+            console.error("Erro no envio em fallback do push:", err);
+          }
+          done();
+        }, 1200);
+
+        // Se o canal já estiver inscrito ou se inscrever agora, envia imediatamente
         pushChannel.subscribe(async (status) => {
           if (status === 'SUBSCRIBED') {
+            clearTimeout(timer);
             try {
               await pushChannel.send({
                 type: 'broadcast',
@@ -205,12 +237,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                   sender: currentUser?.name || 'Administrador'
                 }
               });
-              resolve();
             } catch (err) {
-              reject(err);
+              console.error("Erro ao enviar push via canal inscrito:", err);
             }
+            done();
           } else if (status === 'CHANNEL_ERROR') {
-            reject(new Error("Erro de conexão com o canal do Supabase."));
+            clearTimeout(timer);
+            done();
           }
         });
       });
@@ -230,7 +263,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       setPushSuccessMsg('Notificação Push Real-Time disparada com sucesso!');
       
       setTimeout(() => setPushSuccessMsg(''), 5000);
-      supabase.removeChannel(pushChannel);
 
     } catch (err: any) {
       console.error("Falha ao disparar push:", err);
