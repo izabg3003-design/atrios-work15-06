@@ -249,7 +249,7 @@ const App: React.FC = () => {
         const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
         if (isSuspended && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
-          setAuthError({ title: 'BEM-VINDO', text: 'Faça o login para aceder sua conta.' });
+          setAuthError({ title: 'CONTA BLOQUEADA', text: 'Conta bloqueada pelo Administrador! Entre em contacto e solicite o desbloqueio!' });
           setAppState('login');
           setAuthInitialized(true);
           return;
@@ -311,6 +311,80 @@ const App: React.FC = () => {
   useEffect(() => {
     if (appState === 'splash' && authInitialized) setAppState('language-gate');
   }, [appState, authInitialized]);
+
+  useEffect(() => {
+    if (!user.id) return;
+    
+    const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || 
+                     user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
+                     user.email?.toLowerCase()?.includes('master@digitalnexus.com');
+                     
+    if (isMaster) return;
+
+    // 1. Realtime updates channel
+    const channel = supabase
+      .channel(`user-status-monitor-${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${user.id}`,
+        },
+        async (payload: any) => {
+          const updatedProfile = payload.new;
+          if (updatedProfile) {
+            const sub = updatedProfile.subscription;
+            const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+            const isSuspended = updatedProfile.status === 'SUSPENDED' || updatedProfile.status === 'suspended' || parsedSub.isActive === false;
+            if (isSuspended) {
+              await supabase.auth.signOut();
+              setUser(DEFAULT_USER);
+              setAuthError({ 
+                title: 'CONTA BLOQUEADA', 
+                text: 'Conta bloqueada pelo Administrador! Entre em contacto e solicite o desbloqueio!' 
+              });
+              setAppState('login');
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    // 2. Periodic polling fallback (every 5 seconds for rapid detection)
+    const interval = setInterval(async () => {
+      try {
+        const { data: profile, error } = await supabase
+          .from('profiles')
+          .select('status, subscription')
+          .eq('id', user.id)
+          .maybeSingle();
+          
+        if (profile && !error) {
+          const sub = profile.subscription;
+          const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+          const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
+          if (isSuspended) {
+            await supabase.auth.signOut();
+            setUser(DEFAULT_USER);
+            setAuthError({ 
+              title: 'CONTA BLOQUEADA', 
+              text: 'Conta bloqueada pelo Administrador! Entre em contacto e solicite o desbloqueio!' 
+            });
+            setAppState('login');
+          }
+        }
+      } catch (e) {
+        console.error("Error checking suspension fallback:", e);
+      }
+    }, 5000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [user.id]);
 
   const handleTabChange = (tab: AppState) => {
     if (['reports', 'accountant'].includes(tab) && !isPro) {
