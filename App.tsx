@@ -22,6 +22,7 @@ import AboutAtriosWorkPage from './components/AboutAtriosWorkPage';
 import PublicSupportChat from './components/PublicSupportChat';
 import { AppState, UserProfile, WorkRecord, Language, Currency } from './types';
 import { supabase, isConfigured } from './lib/supabase';
+import { requestAndRegisterFCM } from './lib/firebase';
 import { translations } from './translations';
 import { X, Crown, CheckCircle2, ArrowRight, Sparkles } from 'lucide-react';
 
@@ -219,12 +220,12 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    if (user.id && 'Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission().then((permission) => {
-        console.log('Permissão de notificação concedida:', permission);
+    if (user.id) {
+      requestAndRegisterFCM(user.id, user.role).catch((err) => {
+        console.error("Erro ao registar FCM push no app:", err);
       });
     }
-  }, [user.id]);
+  }, [user.id, user.role]);
 
   const isPro = useMemo(() => {
     const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');

@@ -259,6 +259,27 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         });
       }
 
+      // Disparar push em segundo plano via FCM (Firebase Cloud Messaging)
+      try {
+        const fcmResponse = await fetch('/api/send-fcm-push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            title: pushTitle.trim(),
+            body: pushBody.trim(),
+            targetUserId: targetUserId,
+            targetRole: targetRole,
+            url: pushUrl.trim()
+          })
+        });
+        const fcmData = await fcmResponse.json();
+        console.log("Resultado do envio FCM em segundo plano:", fcmData);
+      } catch (fcmErr) {
+        console.error("Falha ao enviar push em segundo plano via FCM:", fcmErr);
+      }
+
       const newPushLog = {
         id: Math.random().toString(36).substr(2, 9).toUpperCase(),
         title: pushTitle.trim(),

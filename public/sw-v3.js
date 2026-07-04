@@ -93,14 +93,17 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const title = data.title || 'AtriosWork';
+  const title = data.title || (data.notification && data.notification.title) || (data.data && data.data.title) || 'AtriosWork';
+  const body = data.body || (data.notification && data.notification.body) || (data.data && data.data.body) || 'Nova notificação recebida!';
+  const url = data.url || (data.data && data.data.url) || '/';
+  
   const options = {
-    body: data.body || 'Nova notificação recebida!',
-    icon: data.icon || '/logo_atualizado.jpg',
-    badge: data.badge || '/logo_atualizado.jpg',
+    body: body,
+    icon: data.icon || (data.data && data.data.icon) || '/logo_atualizado.jpg',
+    badge: data.badge || (data.data && data.data.badge) || '/logo_atualizado.jpg',
     vibrate: [100, 50, 100],
     data: {
-      url: data.url || '/'
+      url: url
     }
   };
 
