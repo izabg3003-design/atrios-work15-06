@@ -132,38 +132,9 @@
           font-size: 16px !important;
         }
 
-        /* Regras JivoChat - Ocultado Temporariamente */
-        jdiv, 
-        .jivo-iframe-container,
-        [id^="jivo_container"],
-        [class^="jivo-"],
-        #jivo-iframe-container,
-        iframe[src*="jivosite"] {
-            display: none !important;
-            visibility: hidden !important;
-            pointer-events: none !important;
-            opacity: 0 !important;
-        }
-
-        .jivo-iframe-container, 
-        [id^="jivo_container"], 
-        .jivo-iframe-container-bottom, 
-        [class^="jivo-"],
-        #jivo-iframe-container {
-            z-index: 2147483647 !important;
-        }
-
-        @media screen and (max-width: 480px) {
-            jdiv[class^="label_"], [id^="jivo_label"] {
-                bottom: 20px !important;
-                right: 20px !important;
-                z-index: 2147483647 !important;
-            }
-        }
-
         @media print {
             @page { size: A4 portrait; margin: 0; }
-            .no-print, aside, nav, iframe, jdiv, [id*="jivo"], [class*="jivo"], #jivo-iframe-container, .jivo-iframe-container { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
+            .no-print, aside, nav, iframe { display: none !important; visibility: hidden !important; opacity: 0 !important; pointer-events: none !important; }
             * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; overflow: visible !important; }
             html, body, #root, #root > div, main, .min-h-screen, .flex.h-screen { 
                 background: white !important; 
@@ -230,7 +201,6 @@
 <body>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
-    <!-- <script src="//code.jivosite.com/widget/wfDiRuDrnE" async></script> -->
     
     <!-- Service Worker Registration Fixed for TWA/Store -->
     <script>

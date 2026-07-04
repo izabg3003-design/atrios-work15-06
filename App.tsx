@@ -28,12 +28,6 @@ import { X, Crown, CheckCircle2, ArrowRight, Sparkles } from 'lucide-react';
 declare global {
   interface window {
     gtag: (...args: any[]) => void;
-    jivo_api: {
-      showWidget: () => void;
-      hideWidget: () => void;
-      open: () => void;
-      close: () => void;
-    };
   }
 }
 
@@ -142,12 +136,7 @@ const App: React.FC = () => {
     if (user.status === 'PRO' || user.status === 'pro') return true;
     if (user.status === 'FREE' || user.status === 'free') return false;
 
-    let sub: any = null;
-    try {
-      sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
-    } catch (e) {
-      sub = null;
-    }
+    const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
     const isPaid = sub?.status === 'ACTIVE_PAID';
     if (!isPaid) return false;
     
@@ -171,31 +160,7 @@ const App: React.FC = () => {
     }, 0);
   }, [records]);
 
-  // Lista de estados considerados "Públicos" (Antes do Login)
-  const PUBLIC_STATES: AppState[] = ['landing', 'privacy', 'terms', 'subscription', 'login', 'about-atrioswork', 'splash', 'language-gate'];
 
-  useEffect(() => {
-    const isPublicPage = PUBLIC_STATES.includes(appState);
-    document.body.classList.toggle('jivo-visible', isPublicPage);
-
-    const updateJivo = () => {
-      try {
-        const api = (window as any).jivo_api;
-        if (api && typeof api.showWidget === 'function') {
-          if (isPublicPage) api.showWidget();
-          else { api.hideWidget(); if (typeof api.close === 'function') api.close(); }
-        }
-      } catch (e) {}
-    };
-
-    updateJivo();
-    const interval = setInterval(() => {
-      if (isPublicPage && !document.body.classList.contains('jivo-visible')) document.body.classList.add('jivo-visible');
-      updateJivo();
-    }, 300);
-    const timeout = setTimeout(() => clearInterval(interval), 5000);
-    return () => { clearInterval(interval); clearTimeout(timeout); };
-  }, [appState]);
 
   useEffect(() => {
     if (typeof (window as any).gtag === 'function' && appState !== 'splash') {
@@ -250,12 +215,7 @@ const App: React.FC = () => {
       if (!profile && retryCount < 3) { setTimeout(() => loadUserData(userId, retryCount + 1), 1000); return; }
       if (profile) {
         const sub = profile.subscription;
-        let parsedSub: any = {};
-        try {
-          parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-        } catch (e) {
-          parsedSub = {};
-        }
+        const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
         const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
         if (isSuspended && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
@@ -346,11 +306,8 @@ const App: React.FC = () => {
           const updatedProfile = payload.new;
           if (updatedProfile) {
             const sub = updatedProfile.subscription;
-            let parsedSub: any = {};
-            try {
-              parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-            } catch (e) {}
-            const isSuspended = updatedProfile.status === 'SUSPENDED' || updatedProfile.status === 'suspended' || parsedSub?.isActive === false;
+            const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+            const isSuspended = updatedProfile.status === 'SUSPENDED' || updatedProfile.status === 'suspended' || parsedSub.isActive === false;
             if (isSuspended) {
               await supabase.auth.signOut();
               setUser(DEFAULT_USER);
@@ -376,11 +333,8 @@ const App: React.FC = () => {
           
         if (profile && !error) {
           const sub = profile.subscription;
-          let parsedSub: any = {};
-          try {
-            parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-          } catch (e) {}
-          const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub?.isActive === false;
+          const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
+          const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
           if (isSuspended) {
             await supabase.auth.signOut();
             setUser(DEFAULT_USER);
@@ -455,7 +409,7 @@ const App: React.FC = () => {
       )}
       {appState === 'about-atrioswork' && <AboutAtriosWorkPage onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} />}
       
-      {user.id && <PublicSupportChat />}
+      {appState !== 'splash' && <PublicSupportChat />}
 
       {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">
