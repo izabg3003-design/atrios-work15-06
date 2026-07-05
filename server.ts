@@ -361,7 +361,14 @@ async function startServer() {
       const currentOrigin = `${protocol}://${host}`;
       const iconUrl = `${currentOrigin}/logo_atualizado.jpg?v=20260314_v1`;
 
-      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'})`);
+      // Garantir que a URL de destino seja absoluta para que o SO/Navegador consiga abrir o app quando fechado
+      let absoluteTargetUrl = url;
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        const cleanPath = url.startsWith("/") ? url.substring(1) : url;
+        absoluteTargetUrl = `${currentOrigin}/${cleanPath}`;
+      }
+
+      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'}) - URL Destino: ${absoluteTargetUrl}`);
 
       // 1. Obter credenciais do Supabase
       const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
@@ -558,7 +565,7 @@ async function startServer() {
             icon: iconUrl,
             badge: iconUrl,
             vibrate: [100, 50, 100],
-            data: { url },
+            data: { url: absoluteTargetUrl },
           },
         });
 
@@ -617,13 +624,15 @@ async function startServer() {
                   body,
                   icon: iconUrl,
                   badge: iconUrl,
+                  clickAction: absoluteTargetUrl,
                 },
                 fcmOptions: {
-                  link: url,
+                  link: absoluteTargetUrl,
                 },
               },
               data: {
-                url,
+                url: absoluteTargetUrl,
+                click_action: absoluteTargetUrl,
               },
             });
             totalSent++;
@@ -667,10 +676,15 @@ async function startServer() {
                         body,
                         icon: iconUrl,
                         badge: iconUrl,
+                        click_action: absoluteTargetUrl,
+                        clickAction: absoluteTargetUrl,
                       },
-                      fcm_options: { link: url },
+                      fcm_options: { link: absoluteTargetUrl },
                     },
-                    data: { url },
+                    data: { 
+                      url: absoluteTargetUrl,
+                      click_action: absoluteTargetUrl,
+                    },
                   },
                 }),
               }

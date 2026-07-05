@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v6.0';
+const CACHE_NAME = 'atrioswork-v6.1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -174,7 +174,14 @@ self.addEventListener('notificationclick', (event) => {
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true })
       .then((clientList) => {
-        // Tentar focar em qualquer aba aberta na mesma origem
+        // 1. Procurar por uma aba que já esteja na URL exata e focar nela
+        for (const client of clientList) {
+          if (client.url === absoluteUrl && 'focus' in client) {
+            return client.focus();
+          }
+        }
+
+        // 2. Tentar focar em qualquer aba aberta na mesma origem e navegar para a URL de destino
         for (const client of clientList) {
           if ('focus' in client) {
             if ('navigate' in client && client.url !== absoluteUrl) {
@@ -188,7 +195,7 @@ self.addEventListener('notificationclick', (event) => {
           }
         }
         
-        // Se nenhuma aba estiver aberta, abrir uma nova janela
+        // 3. Se nenhuma aba do app estiver aberta, abrir uma nova janela
         if (clients.openWindow) {
           return clients.openWindow(absoluteUrl);
         }
