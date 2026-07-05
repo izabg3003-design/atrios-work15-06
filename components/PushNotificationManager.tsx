@@ -469,6 +469,28 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       return;
     }
 
+    const inIframe = () => {
+      try {
+        return window.self !== window.top;
+      } catch (e) {
+        return true;
+      }
+    };
+
+    const isIOS = () => {
+      return /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    };
+
+    if (inIframe()) {
+      alert('⚠️ ATENÇÃO: Está a visualizar o AtriosWork dentro de um ecrã limitado (iframe). Para conseguir autorizar e receber notificações push, clique no botão para abrir numa Nova Aba/Guia na barra superior e tente novamente.');
+      return;
+    }
+
+    if (isIOS() && !('serviceWorker' in navigator && 'PushManager' in window)) {
+      alert('📱 No iPhone/iOS, as notificações push exigem que instale primeiro o PWA no seu ecrã principal (clique em Partilhar > Adicionar ao Ecrã Principal) e abra a aplicação a partir daí.');
+      return;
+    }
+
     try {
       const permission = await Notification.requestPermission();
       setNotificationPermission(permission);
@@ -482,11 +504,24 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         if (user.id) {
           registerUnifiedPush();
         }
+      } else if (permission === 'denied') {
+        alert('⚠️ Permissão negada. Ative manualmente as notificações nas configurações do seu navegador ou clique no ícone de cadeado na barra de endereços para desbloquear.');
       }
     } catch (err) {
       console.error('Erro ao pedir permissão de notificações:', err);
     }
   };
+
+  // Escutar eventos globais para forçar o pedido de permissão a partir de outros ecrãs (como Definições)
+  useEffect(() => {
+    const handleTrigger = () => {
+      requestPermission();
+    };
+    window.addEventListener('trigger-push-permission-request', handleTrigger);
+    return () => {
+      window.removeEventListener('trigger-push-permission-request', handleTrigger);
+    };
+  }, [user.id, customVapidKey]);
 
   // Executar Instalação do PWA
   const installApp = async () => {

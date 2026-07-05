@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles } from 'lucide-react';
+import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles, Bell, BellRing, BellOff } from 'lucide-react';
 import { UserProfile, Language, Currency } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -25,6 +25,28 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
   const [passwords, setPasswords] = useState({ new: '', confirm: '' });
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
   const [passUpdateSuccess, setPassUpdateSuccess] = useState(false);
+
+  // Estado de permissão de notificações push
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setPushPermission(Notification.permission);
+    }
+  }, []);
+
+  const requestPushPermission = () => {
+    window.dispatchEvent(new CustomEvent('trigger-push-permission-request'));
+    // Verificar a cada segundo nas próximas 6 segundos para capturar a resposta do utilizador
+    let count = 0;
+    const interval = setInterval(() => {
+      if ('Notification' in window) {
+        setPushPermission(Notification.permission);
+      }
+      count++;
+      if (count > 6) clearInterval(interval);
+    }, 1000);
+  };
 
   useEffect(() => { 
     setFormUser({
@@ -357,6 +379,46 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
             >
               Baixar Agora
             </button>
+          </div>
+
+          {/* SECÇÃO NOTIFICAÇÕES PUSH */}
+          <div className="bg-gradient-to-r from-blue-900/10 to-indigo-900/10 border border-blue-500/20 p-8 rounded-[2.5rem] flex flex-col md:flex-row items-center justify-between gap-6 shadow-xl relative overflow-hidden">
+            <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl pointer-events-none" />
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-blue-500/10 text-blue-400 rounded-2xl flex items-center justify-center shrink-0 border border-blue-500/20 shadow-inner">
+                {pushPermission === 'granted' ? (
+                  <BellRing className="w-6 h-6 text-emerald-400 animate-pulse" />
+                ) : pushPermission === 'denied' ? (
+                  <BellOff className="w-6 h-6 text-rose-400" />
+                ) : (
+                  <Bell className="w-6 h-6 text-blue-400 animate-bounce" />
+                )}
+              </div>
+              <div className="text-left">
+                <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-2">
+                  Notificações Push do Sistema {pushPermission === 'granted' && <CheckCircle className="w-4 h-4 text-emerald-400" />}
+                </h4>
+                <p className="text-[10px] text-slate-400 font-bold uppercase mt-1 leading-normal max-w-lg">
+                  {pushPermission === 'granted' 
+                    ? "As notificações push estão ATIVAS neste dispositivo. Receberá alertas de faturas, expiração de assinaturas e comunicados mesmo com a aplicação fechada!" 
+                    : pushPermission === 'denied'
+                    ? "As notificações estão BLOQUEADAS no seu navegador. Ative as permissões nas definições de privacidade (clicando no cadeado ao lado do link do site) para poder receber alertas."
+                    : "Ative as notificações push neste navegador para receber alertas automáticos de expiração de assinaturas, registos pendentes e mensagens em tempo real."}
+                </p>
+              </div>
+            </div>
+            {pushPermission !== 'granted' ? (
+              <button 
+                onClick={requestPushPermission}
+                className="w-full md:w-auto px-8 py-4 bg-blue-600 hover:bg-blue-500 text-white font-black rounded-2xl text-[10px] tracking-widest uppercase shrink-0 shadow-lg shadow-blue-500/10 transition-all hover:scale-[1.02] active:scale-95 duration-150 text-center"
+              >
+                Ativar Notificações
+              </button>
+            ) : (
+              <div className="w-full md:w-auto px-8 py-4 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-black rounded-2xl text-[10px] tracking-widest uppercase shrink-0 text-center">
+                Ativo e Configurado
+              </div>
+            )}
           </div>
         </div>
       </div>
