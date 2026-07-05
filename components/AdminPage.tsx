@@ -112,8 +112,26 @@ async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string):
 }
 
 async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string): Promise<{ successCount: number; errors: string[] }> {
-  // Filtra tokens que na verdade são JSONs de Web Push VAPID para evitar envio incorreto e remoção indevida do banco
-  const actualTokens = tokens.filter((t) => !t.trim().startsWith("{"));
+  const actualTokensMap = new Map<string, string>(); // FCM token -> Original raw database string
+  
+  tokens.forEach((t) => {
+    if (!t || !t.trim()) return;
+    const trimmed = t.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && parsed.fcmToken) {
+          actualTokensMap.set(parsed.fcmToken, trimmed);
+        }
+      } catch (e) {
+        // Se falhar o parse, tenta usar a string inteira como token se não parecer JSON
+      }
+    } else {
+      actualTokensMap.set(trimmed, trimmed);
+    }
+  });
+
+  const actualTokens = Array.from(actualTokensMap.keys());
   if (actualTokens.length === 0) {
     return { successCount: 0, errors: [] };
   }
@@ -123,6 +141,7 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
   const errors: string[] = [];
 
   const sendPromises = actualTokens.map(async (token) => {
+    const dbValue = actualTokensMap.get(token) || token;
     try {
       const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
         method: "POST",
@@ -136,6 +155,8 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
             notification: {
               title: title,
               body: body,
+              icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+              badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
             },
             android: {
               priority: "high"
@@ -189,7 +210,7 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
             await supabase
               .from('profiles')
               .update({ fcm_token: null })
-              .eq('fcm_token', token);
+              .eq('fcm_token', dbValue);
           } catch (dbCleanErr) {
             console.error("Erro ao remover token FCM obsoleto do Supabase:", dbCleanErr);
           }
@@ -386,7 +407,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
                   const validTokens = filteredProfiles
                     .map(p => p.fcm_token)
-                    .filter((t): t is string => !!t && t.trim().length > 0 && !t.trim().startsWith('{'));
+                    .filter((t): t is string => !!t && t.trim().length > 0);
 
                   if (validTokens.length > 0) {
                     const { successCount } = await sendClientSideFCM(
@@ -771,7 +792,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
           const validTokens = filteredProfiles
             .map(p => p.fcm_token)
-            .filter((t): t is string => !!t && t.trim().length > 0 && !t.trim().startsWith('{'));
+            .filter((t): t is string => !!t && t.trim().length > 0);
 
           if (validTokens.length > 0) {
             const { successCount, errors } = await sendClientSideFCM(
