@@ -233,7 +233,7 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw-v3.js?v=6.0.2', { scope: '/' }).then(reg => {
+          navigator.serviceWorker.register('/sw-v3.js?v=6.0.3', { scope: '/' }).then(reg => {
             console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
           }).catch(err => {
             console.warn('Registro de SW ignorado ou falhou:', err.message);

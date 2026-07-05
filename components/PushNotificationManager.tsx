@@ -281,17 +281,38 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         const reg = await navigator.serviceWorker.ready;
         let subscription = await reg.pushManager.getSubscription();
 
-        if (!subscription) {
-          const res = await fetch('/api/push/public-key');
-          const { publicKey } = await res.json();
+        const res = await fetch('/api/push/public-key');
+        const { publicKey } = await res.json();
 
-          if (publicKey) {
-            const convertedKey = urlBase64ToUint8Array(publicKey);
-            subscription = await reg.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: convertedKey
-            });
+        if (subscription && publicKey) {
+          // Verificar se a chave pública da subscrição existente coincide com a atual do servidor
+          const currentKeyBuffer = subscription.options.applicationServerKey;
+          const serverKeyBuffer = urlBase64ToUint8Array(publicKey);
+          
+          let keysMatch = false;
+          if (currentKeyBuffer) {
+            const currentKeyArray = new Uint8Array(currentKeyBuffer);
+            keysMatch = currentKeyArray.length === serverKeyBuffer.length &&
+                        currentKeyArray.every((val, i) => val === serverKeyBuffer[i]);
           }
+
+          if (!keysMatch) {
+            console.log('[Push Manager] Chave VAPID alterada ou antiga detetada. Recriando subscrição...');
+            try {
+              await subscription.unsubscribe();
+            } catch (unsubErr) {
+              console.warn('[Push Manager] Falha ao cancelar subscrição antiga:', unsubErr);
+            }
+            subscription = null;
+          }
+        }
+
+        if (!subscription && publicKey) {
+          const convertedKey = urlBase64ToUint8Array(publicKey);
+          subscription = await reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: convertedKey
+          });
         }
 
         if (subscription) {
