@@ -281,8 +281,20 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         const reg = await navigator.serviceWorker.ready;
         let subscription = await reg.pushManager.getSubscription();
 
-        const res = await fetch('/api/push/public-key');
-        const { publicKey } = await res.json();
+        let publicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
+        try {
+          const res = await fetch('/api/push/public-key');
+          if (res.ok) {
+            const data = await res.json();
+            if (data && data.publicKey) {
+              publicKey = data.publicKey;
+            }
+          } else {
+            console.warn('[Push Manager] Rota /api/push/public-key retornou status:', res.status, '. Usando chave VAPID padrão.');
+          }
+        } catch (fetchErr) {
+          console.warn('[Push Manager] Erro ao obter chave pública VAPID do servidor, usando padrão:', fetchErr);
+        }
 
         if (subscription && publicKey) {
           // Verificar se a chave pública da subscrição existente coincide com a atual do servidor
@@ -356,16 +368,23 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
         // B) Se for VAPID, também registrar no backend local para fins de cache de arquivo local / Firestore
         if (vapidSub) {
-          await fetch('/api/push/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              subscription: combinedPayload,
-              userId: user.id,
-              email: user.email || undefined,
-              role: user.role || undefined
-            })
-          });
+          try {
+            const localRes = await fetch('/api/push/subscribe', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                subscription: combinedPayload,
+                userId: user.id,
+                email: user.email || undefined,
+                role: user.role || undefined
+              })
+            });
+            if (!localRes.ok) {
+              console.warn('[Push Manager] Registro de cache local /api/push/subscribe retornou status:', localRes.status);
+            }
+          } catch (localErr) {
+            console.warn('[Push Manager] Não foi possível persistir cópia da subscrição no backend local:', localErr);
+          }
         }
       }
     } catch (saveErr) {
