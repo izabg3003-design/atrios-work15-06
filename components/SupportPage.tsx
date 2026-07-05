@@ -134,16 +134,39 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     startAlarm();
     
     if (notificationsEnabled) {
-      const n = new Notification("AtriosWork - ALERTA URGENTE", {
-        body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
-        icon: "/logo_atualizado.jpg?v=20260314_v1",
-        requireInteraction: true, // A notificação não desaparece até o usuário clicar/fechar
-        tag: "atrioswork-alert" // Evita múltiplas notificações iguais
-      });
-      n.onclick = () => {
-        window.focus();
-        stopAlarm();
-      };
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then((reg) => {
+          reg.showNotification("AtriosWork - ALERTA URGENTE", {
+            body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
+            icon: "/logo_atualizado.jpg?v=20260314_v1",
+            requireInteraction: true,
+            tag: "atrioswork-alert"
+          });
+        }).catch((err) => {
+          console.warn("Falha ao notificar via Service Worker:", err);
+          const n = new Notification("AtriosWork - ALERTA URGENTE", {
+            body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
+            icon: "/logo_atualizado.jpg?v=20260314_v1",
+            requireInteraction: true,
+            tag: "atrioswork-alert"
+          });
+          n.onclick = () => {
+            window.focus();
+            stopAlarm();
+          };
+        });
+      } else {
+        const n = new Notification("AtriosWork - ALERTA URGENTE", {
+          body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
+          icon: "/logo_atualizado.jpg?v=20260314_v1",
+          requireInteraction: true,
+          tag: "atrioswork-alert"
+        });
+        n.onclick = () => {
+          window.focus();
+          stopAlarm();
+        };
+      }
     }
   };
 

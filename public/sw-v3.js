@@ -1,10 +1,26 @@
-const CACHE_NAME = 'atrioswork-v6.0';
+importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
+
+const CACHE_NAME = 'atrioswork-v6.1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
   '/logo_atualizado.jpg?v=20260314_v1'
 ];
+
+// Inicializa o Firebase no Service Worker para o FCM funcionar corretamente
+firebase.initializeApp({
+  apiKey: "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo",
+  authDomain: "push-atrios-work.firebaseapp.com",
+  projectId: "push-atrios-work",
+  storageBucket: "push-atrios-work.firebasestorage.app",
+  messagingSenderId: "409947740098",
+  appId: "1:409947740098:web:ed16cb847b12182eab685b"
+});
+
+const messaging = firebase.messaging();
+
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -87,6 +103,11 @@ self.addEventListener('push', (event) => {
   if (event.data) {
     try {
       data = event.data.json();
+      // Ignorar eventos do Firebase para não duplicar notificações, pois o SDK do Firebase importado no início já exibe as notificações dele automaticamente
+      if (data.from || data['firebase-messaging-msg-data'] || data.notification) {
+        console.log('[Service Worker] Ignorando evento de push do Firebase no handler customizado para evitar duplicidade.');
+        return;
+      }
     } catch (e) {
       // Se não for JSON, trata como texto simples
       data = { title: 'AtriosWork', body: event.data.text() };

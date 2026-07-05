@@ -207,13 +207,30 @@ const App: React.FC = () => {
                   url: data.url
                 });
 
-                // 2. Disparar notificação nativa do browser se houver permissão
+                // 2. Disparar notificação nativa do browser se houver permissão (compatível com Mobile/Desktop)
                 if ('Notification' in window && Notification.permission === 'granted') {
                   try {
-                    new Notification(data.title, {
-                      body: data.body,
-                      icon: '/icons/icon-192.png'
-                    });
+                    if ('serviceWorker' in navigator) {
+                      navigator.serviceWorker.ready.then((reg) => {
+                        reg.showNotification(data.title, {
+                          body: data.body,
+                          icon: '/logo_atualizado.jpg',
+                          badge: '/logo_atualizado.jpg',
+                          data: { url: data.url || '/' }
+                        });
+                      }).catch((swErr) => {
+                        console.warn("Falha ao enviar notificação via Service Worker, usando fallback:", swErr);
+                        new Notification(data.title, {
+                          body: data.body,
+                          icon: '/logo_atualizado.jpg'
+                        });
+                      });
+                    } else {
+                      new Notification(data.title, {
+                        body: data.body,
+                        icon: '/logo_atualizado.jpg'
+                      });
+                    }
                   } catch (err) {
                     console.error("Erro ao exibir notificação nativa:", err);
                   }
