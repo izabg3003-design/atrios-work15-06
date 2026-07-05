@@ -155,8 +155,6 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
             notification: {
               title: title,
               body: body,
-              icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-              badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
             },
             android: {
               priority: "high"
@@ -174,6 +172,15 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
             webpush: {
               headers: {
                 "Urgency": "high"
+              },
+              notification: {
+                title: title,
+                body: body,
+                icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+              },
+              fcmOptions: {
+                link: "/"
               }
             },
             data: {
