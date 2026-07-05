@@ -134,39 +134,16 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     startAlarm();
     
     if (notificationsEnabled) {
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.ready.then((reg) => {
-          reg.showNotification("AtriosWork - ALERTA URGENTE", {
-            body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
-            icon: "/logo_atualizado.jpg?v=20260314_v1",
-            requireInteraction: true,
-            tag: "atrioswork-alert"
-          });
-        }).catch((err) => {
-          console.warn("Falha ao notificar via Service Worker:", err);
-          const n = new Notification("AtriosWork - ALERTA URGENTE", {
-            body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
-            icon: "/logo_atualizado.jpg?v=20260314_v1",
-            requireInteraction: true,
-            tag: "atrioswork-alert"
-          });
-          n.onclick = () => {
-            window.focus();
-            stopAlarm();
-          };
-        });
-      } else {
-        const n = new Notification("AtriosWork - ALERTA URGENTE", {
-          body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
-          icon: "/logo_atualizado.jpg?v=20260314_v1",
-          requireInteraction: true,
-          tag: "atrioswork-alert"
-        });
-        n.onclick = () => {
-          window.focus();
-          stopAlarm();
-        };
-      }
+      const n = new Notification("AtriosWork - ALERTA URGENTE", {
+        body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
+        icon: "/logo_atualizado.jpg?v=20260314_v1",
+        requireInteraction: true, // A notificação não desaparece até o usuário clicar/fechar
+        tag: "atrioswork-alert" // Evita múltiplas notificações iguais
+      });
+      n.onclick = () => {
+        window.focus();
+        stopAlarm();
+      };
     }
   };
 
@@ -232,6 +209,22 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
         last_message: currentReply, 
         updated_at: new Date().toISOString() 
       }).eq('user_id', selectedUser.id);
+
+      // Disparar push fcm/vapid direcionado e exclusivo para o usuário que abriu o ticket
+      try {
+        await supabase.functions.invoke('send-fcm-push', {
+          body: {
+            title: '💬 Suporte AtriosWork',
+            body: `Nova mensagem do suporte: "${currentReply.substring(0, 60)}${currentReply.length > 60 ? '...' : ''}"`,
+            audience: 'user',
+            targetUserId: selectedUser.id,
+            targetUserEmail: selectedUser.email,
+            url: '/'
+          }
+        });
+      } catch (fcmErr) {
+        console.warn('Erro ao disparar push de resposta de suporte:', fcmErr);
+      }
     } catch (err) {
       console.error("Error sending reply:", err);
     } finally {

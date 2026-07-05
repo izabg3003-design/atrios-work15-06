@@ -20,15 +20,22 @@ import PrivacyPage from './components/PrivacyPage';
 import TermsPage from './components/TermsPage';
 import AboutAtriosWorkPage from './components/AboutAtriosWorkPage';
 import PublicSupportChat from './components/PublicSupportChat';
+import PushNotificationManager from './components/PushNotificationManager';
+import { InstallAppModal } from './components/InstallAppModal';
 import { AppState, UserProfile, WorkRecord, Language, Currency } from './types';
 import { supabase, isConfigured } from './lib/supabase';
-import { requestAndRegisterFCM } from './lib/firebase';
 import { translations } from './translations';
 import { X, Crown, CheckCircle2, ArrowRight, Sparkles } from 'lucide-react';
 
 declare global {
   interface window {
     gtag: (...args: any[]) => void;
+    jivo_api: {
+      showWidget: () => void;
+      hideWidget: () => void;
+      open: () => void;
+      close: () => void;
+    };
   }
 }
 
@@ -120,144 +127,47 @@ const App: React.FC = () => {
   const [hideValues, setHideValues] = useState(false);
   const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
   const [loginInRegisterMode, setLoginInRegisterMode] = useState(false);
-  const [activeNotification, setActiveNotification] = useState<{ id: string; title: string; body: string; url?: string } | null>(null);
-  const [showPushBanner, setShowPushBanner] = useState(false);
-
-  useEffect(() => {
-    if (user.id && 'Notification' in window) {
-      if (Notification.permission !== 'granted') {
-        setShowPushBanner(true);
-      }
-    }
-  }, [user.id]);
-
-  const handleEnablePush = async () => {
-    try {
-      const token = await requestAndRegisterFCM(user.id, user.role);
-      if (token) {
-        alert("Excelente! Notificações push ativadas com sucesso. Agora receberá alertas na barra de notificações do seu telemóvel!");
-        setShowPushBanner(false);
-      } else {
-        const currentPermission = Notification.permission;
-        if (currentPermission === 'denied') {
-          alert("Atenção: As notificações estão bloqueadas no seu navegador ou telemóvel. Por favor, aceda às definições do navegador (clique no ícone de cadeado na barra de endereços) e ative as notificações manualmente.");
-        } else {
-          alert("Não foi possível obter o token das notificações. Certifique-se de aceitar a permissão de notificações quando solicitado.");
-        }
-      }
-    } catch (err) {
-      console.error("Erro ao ativar notificações:", err);
-      alert("Erro ao ativar as notificações.");
-    }
-  };
   
-  const [now, setNow] = useState(new Date());
-
-  const userRef = useRef<UserProfile>(user);
-  useEffect(() => {
-    userRef.current = user;
-  }, [user]);
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallModalOpen, setIsInstallModalOpen] = useState(false);
 
   useEffect(() => {
-    if (activeNotification) {
-      const timer = setTimeout(() => {
-        setActiveNotification(null);
-      }, 8000);
-      return () => clearTimeout(timer);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || 
+                          (navigator as any).standalone === true;
+    
+    if (isStandalone) {
+      console.log('Running as a PWA standalone app');
+      return;
     }
-  }, [activeNotification]);
 
-  useEffect(() => {
-    let pushChannel: any = null;
-    try {
-      if (!supabase || typeof supabase.channel !== 'function') return;
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallModalOpen(true);
+    };
 
-      // Escuta global de push notifications com configuração para receber as próprias transmissões (self: true)
-      pushChannel = supabase.channel('atrioswork_push_broadcast', {
-        config: {
-          broadcast: { self: true }
-        }
-      });
+    const handleOpenPwaModal = () => {
+      setIsInstallModalOpen(true);
+    };
 
-      if (pushChannel && typeof pushChannel.on === 'function') {
-        pushChannel
-          .on('broadcast', { event: 'admin_push' }, (payload: any) => {
-            try {
-              const data = payload.payload;
-              if (!data) return;
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('open-pwa-install-modal', handleOpenPwaModal);
 
-              const currentUserObj = userRef.current;
-              if (!currentUserObj) return;
-              
-              // Verificar se a notificação é destinada a este utilizador específico ou a todos
-              const matchAll = data.target_user_id === 'all' && data.target_role === 'all';
-              const matchUser = currentUserObj.id && data.target_user_id === currentUserObj.id;
-              
-              const sub = currentUserObj.subscription;
-              const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-              const isUserPremium = currentUserObj.status === 'PRO' || parsedSub?.status === 'ACTIVE_PAID' || parsedSub?.isActive === true;
-              const matchPremium = data.target_role === 'premium' && isUserPremium;
-
-              if (matchAll || matchUser || matchPremium) {
-                // 1. Mostrar toast no viewport
-                setActiveNotification({
-                  id: Math.random().toString(36).substr(2, 9).toUpperCase(),
-                  title: data.title,
-                  body: data.body,
-                  url: data.url
-                });
-
-                // 2. Disparar notificação nativa do browser se houver permissão (compatível com Mobile/Desktop)
-                if ('Notification' in window && Notification.permission === 'granted') {
-                  try {
-                    if ('serviceWorker' in navigator) {
-                      navigator.serviceWorker.ready.then((reg) => {
-                        reg.showNotification(data.title, {
-                          body: data.body,
-                          icon: '/logo_atualizado.jpg',
-                          badge: '/logo_atualizado.jpg',
-                          data: { url: data.url || '/' }
-                        });
-                      }).catch((swErr) => {
-                        console.warn("Falha ao enviar notificação via Service Worker, usando fallback:", swErr);
-                        new Notification(data.title, {
-                          body: data.body,
-                          icon: '/logo_atualizado.jpg'
-                        });
-                      });
-                    } else {
-                      new Notification(data.title, {
-                        body: data.body,
-                        icon: '/logo_atualizado.jpg'
-                      });
-                    }
-                  } catch (err) {
-                    console.error("Erro ao exibir notificação nativa:", err);
-                  }
-                }
-              }
-            } catch (err) {
-              console.error("Erro ao processar broadcast de push recebido:", err);
-            }
-          })
-          .subscribe((status: any) => {
-            console.log('Canal de Push global:', status);
-          });
+    const timer = setTimeout(() => {
+      const alreadyDismissed = sessionStorage.getItem('pwa_install_dismissed') === 'true';
+      if (!alreadyDismissed) {
+        setIsInstallModalOpen(true);
       }
-    } catch (err) {
-      console.error("Erro ao inicializar canal de push global:", err);
-    }
+    }, 4000);
 
     return () => {
-      try {
-        if (pushChannel && supabase && typeof supabase.removeChannel === 'function') {
-          supabase.removeChannel(pushChannel);
-        }
-      } catch (err) {
-        console.error("Erro ao remover canal de push global:", err);
-      }
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('open-pwa-install-modal', handleOpenPwaModal);
+      clearTimeout(timer);
     };
   }, []);
+  
+  const [now, setNow] = useState(new Date());
   const isInitialLoad = useRef(true);
 
   useEffect(() => {
@@ -265,24 +175,13 @@ const App: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    if (user.id) {
-      requestAndRegisterFCM(user.id, user.role).catch((err) => {
-        console.error("Erro ao registar FCM push no app:", err);
-      });
-    }
-  }, [user.id, user.role]);
-
   const isPro = useMemo(() => {
+    const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
+    const isPaid = sub?.status === 'ACTIVE_PAID';
     const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
     const isAdmin = user.role === 'admin';
     
     if (isMaster || isAdmin) return true;
-    if (user.status === 'PRO' || user.status === 'pro') return true;
-    if (user.status === 'FREE' || user.status === 'free') return false;
-
-    const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
-    const isPaid = sub?.status === 'ACTIVE_PAID';
     if (!isPaid) return false;
     
     if (sub?.expiryDate) {
@@ -305,7 +204,31 @@ const App: React.FC = () => {
     }, 0);
   }, [records]);
 
+  // Lista de estados considerados "Públicos" (Antes do Login)
+  const PUBLIC_STATES: AppState[] = ['landing', 'privacy', 'terms', 'subscription', 'login', 'about-atrioswork', 'splash', 'language-gate'];
 
+  useEffect(() => {
+    const isPublicPage = PUBLIC_STATES.includes(appState);
+    document.body.classList.toggle('jivo-visible', isPublicPage);
+
+    const updateJivo = () => {
+      try {
+        const api = (window as any).jivo_api;
+        if (api && typeof api.showWidget === 'function') {
+          if (isPublicPage) api.showWidget();
+          else { api.hideWidget(); if (typeof api.close === 'function') api.close(); }
+        }
+      } catch (e) {}
+    };
+
+    updateJivo();
+    const interval = setInterval(() => {
+      if (isPublicPage && !document.body.classList.contains('jivo-visible')) document.body.classList.add('jivo-visible');
+      updateJivo();
+    }, 300);
+    const timeout = setTimeout(() => clearInterval(interval), 5000);
+    return () => { clearInterval(interval); clearTimeout(timeout); };
+  }, [appState]);
 
   useEffect(() => {
     if (typeof (window as any).gtag === 'function' && appState !== 'splash') {
@@ -361,10 +284,9 @@ const App: React.FC = () => {
       if (profile) {
         const sub = profile.subscription;
         const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-        const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
-        if (isSuspended && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
+        if (parsedSub.isActive === false && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
-          setAuthError({ title: 'CONTA BLOQUEADA', text: 'Conta bloqueada pelo Administrador! Entre em contacto e solicite o desbloqueio!' });
+          setAuthError({ title: 'BEM-VINDO', text: 'Faça o login para aceder sua conta.' });
           setAppState('login');
           setAuthInitialized(true);
           return;
@@ -397,9 +319,13 @@ const App: React.FC = () => {
           setAppState('landing');
           setAuthInitialized(true);
         }
-      } catch (err) {
+      } catch (err: any) {
         console.error("Auth initialization failed directly (Failed to Fetch):", err);
-        setAppState('landing');
+        setAuthError({
+          title: "ERRO DE LIGAÇÃO",
+          text: "Não foi possível estabelecer ligação ao banco de dados (Failed to Fetch). Verifique a sua ligação à Internet ou se o seu projeto Supabase está ativo. Se for o administrador do projeto, certifique-se de que a sua instância está ativa no painel do Supabase, ou configure as variáveis de ambiente VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY para ligar à sua própria base de dados."
+        });
+        setAppState('login');
         setAuthInitialized(true);
       }
     };
@@ -427,80 +353,6 @@ const App: React.FC = () => {
     if (appState === 'splash' && authInitialized) setAppState('language-gate');
   }, [appState, authInitialized]);
 
-  useEffect(() => {
-    if (!user.id) return;
-    
-    const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || 
-                     user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
-                     user.email?.toLowerCase()?.includes('master@digitalnexus.com');
-                     
-    if (isMaster) return;
-
-    // 1. Realtime updates channel
-    const channel = supabase
-      .channel(`user-status-monitor-${user.id}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'profiles',
-          filter: `id=eq.${user.id}`,
-        },
-        async (payload: any) => {
-          const updatedProfile = payload.new;
-          if (updatedProfile) {
-            const sub = updatedProfile.subscription;
-            const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-            const isSuspended = updatedProfile.status === 'SUSPENDED' || updatedProfile.status === 'suspended' || parsedSub.isActive === false;
-            if (isSuspended) {
-              await supabase.auth.signOut();
-              setUser(DEFAULT_USER);
-              setAuthError({ 
-                title: 'CONTA BLOQUEADA', 
-                text: 'Conta bloqueada pelo Administrador! Entre em contacto e solicite o desbloqueio!' 
-              });
-              setAppState('login');
-            }
-          }
-        }
-      )
-      .subscribe();
-
-    // 2. Periodic polling fallback (every 5 seconds for rapid detection)
-    const interval = setInterval(async () => {
-      try {
-        const { data: profile, error } = await supabase
-          .from('profiles')
-          .select('status, subscription')
-          .eq('id', user.id)
-          .maybeSingle();
-          
-        if (profile && !error) {
-          const sub = profile.subscription;
-          const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-          const isSuspended = profile.status === 'SUSPENDED' || profile.status === 'suspended' || parsedSub.isActive === false;
-          if (isSuspended) {
-            await supabase.auth.signOut();
-            setUser(DEFAULT_USER);
-            setAuthError({ 
-              title: 'CONTA BLOQUEADA', 
-              text: 'Conta bloqueada pelo Administrador! Entre em contacto e solicite o desbloqueio!' 
-            });
-            setAppState('login');
-          }
-        }
-      } catch (e) {
-        console.error("Error checking suspension fallback:", e);
-      }
-    }, 5000);
-
-    return () => {
-      supabase.removeChannel(channel);
-      clearInterval(interval);
-    };
-  }, [user.id]);
-
   const handleTabChange = (tab: AppState) => {
     if (['reports', 'accountant'].includes(tab) && !isPro) {
       setIsPremiumModalOpen(true);
@@ -518,6 +370,15 @@ const App: React.FC = () => {
           setIsPremiumModalOpen(false);
           setAppState('subscription');
         }} 
+      />
+      <InstallAppModal 
+        isOpen={isInstallModalOpen}
+        onClose={() => {
+          setIsInstallModalOpen(false);
+          sessionStorage.setItem('pwa_install_dismissed', 'true');
+        }}
+        deferredPrompt={deferredPrompt}
+        setDeferredPrompt={setDeferredPrompt}
       />
       {appState === 'splash' ? <SplashScreen t={t} /> : null}
       {appState === 'language-gate' && <LanguageGate onSelect={(lang) => { setSystemLang(lang); setAppState('landing'); }} />}
@@ -554,44 +415,14 @@ const App: React.FC = () => {
       )}
       {appState === 'about-atrioswork' && <AboutAtriosWorkPage onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} />}
       
-      {appState !== 'splash' && <PublicSupportChat />}
+      {user.id && <PublicSupportChat />}
+      {user.id && <PushNotificationManager user={user} />}
 
       {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">
           <Sidebar activeTab={appState} setActiveTab={handleTabChange} user={user} onLogout={handleLogout} t={t} hideValues={hideValues} togglePrivacy={() => setHideValues(!hideValues)} isPro={isPro} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-12 pt-6 md:pt-12 pb-40 md:pb-12 ml-0 md:ml-24 scroll-smooth">
             <div className="max-w-5xl mx-auto w-full">
-              {showPushBanner && (
-                <div className="mb-6 p-4 bg-slate-900/80 border border-blue-500/30 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-md shadow-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center animate-pulse">
-                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
-                      </svg>
-                    </div>
-                    <div>
-                      <h4 className="text-xs font-black text-white uppercase tracking-wider">🔔 Ativar Notificações no Telemóvel</h4>
-                      <p className="text-[11px] text-slate-400 leading-relaxed font-semibold mt-0.5">
-                        Receba alertas de escala, suporte e atualizações diretamente na sua barra de notificações!
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
-                    <button
-                      onClick={handleEnablePush}
-                      className="flex-1 md:flex-initial px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md shadow-blue-900/20"
-                    >
-                      Permitir Notificações
-                    </button>
-                    <button
-                      onClick={() => setShowPushBanner(false)}
-                      className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-500 hover:text-slate-300 font-bold text-[10px] uppercase rounded-xl transition-all border border-slate-800"
-                    >
-                      Ignorar
-                    </button>
-                  </div>
-                </div>
-              )}
               {appState === 'dashboard' && <Dashboard user={user} records={records} onOpenPremium={() => setIsPremiumModalOpen(true)} onDeleteRecord={async (date) => {
                 if (!user.id) return false;
                 const { error } = await supabase.from('work_records').delete().eq('user_id', user.id).eq('date', date);
@@ -604,6 +435,12 @@ const App: React.FC = () => {
                 return true;
               }} onAddRecord={async (r) => {
                 if (!user.id) return false;
+                
+                // Limite de 165 horas para free
+                if (!isPro && totalHours >= 165 && !records[r.date]) {
+                  alert("Limite de 165 horas atingido na versão gratuita. Ative a sua licença PRO para continuar a registar.");
+                  return false;
+                }
 
                 // Limite de 4 vales (adiantamentos) por mês para free
                 if (!isPro && r.advance > 0) {
@@ -625,7 +462,13 @@ const App: React.FC = () => {
                   }
                 }
 
-                const { error } = await supabase.from('work_records').upsert({ user_id: user.id, date: r.date, data: r }, { onConflict: 'user_id,date' });
+                const { error } = await supabase.from('work_records').upsert({ 
+                   user_id: user.id, 
+                   user_email: user.email,
+                   user_name: user.name,
+                   date: r.date, 
+                   data: r 
+                 }, { onConflict: 'user_id,date' });
                 if (error) return false;
                 setRecords(prev => ({ ...prev, [r.date]: r }));
                 return true;
@@ -661,7 +504,13 @@ const App: React.FC = () => {
                       return false;
                     }
 
-                    const { error } = await supabase.from('work_records').upsert({ user_id: user.id, date: r.date, data: r }, { onConflict: 'user_id,date' });
+                    const { error } = await supabase.from('work_records').upsert({ 
+                   user_id: user.id, 
+                   user_email: user.email,
+                   user_name: user.name,
+                   date: r.date, 
+                   data: r 
+                 }, { onConflict: 'user_id,date' });
                     if (error) return false;
                     setRecords(prev => ({ ...prev, [r.date]: r }));
                     return true;
@@ -707,46 +556,6 @@ const App: React.FC = () => {
               {appState === 'user-support' && <UserSupportPage user={user} t={t} />}
             </div>
           </main>
-        </div>
-      )}
-
-      {/* Alerta Push Real-Time Overlay Toast */}
-      {activeNotification && (
-        <div className="fixed top-6 right-6 z-[9999] max-w-sm w-full bg-slate-900/95 border border-blue-500/30 p-5 rounded-2xl shadow-2xl backdrop-blur-lg animate-[slideIn_0.3s_ease-out] flex flex-col gap-3">
-          <div className="flex items-start justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-ping shrink-0"></span>
-              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Alerta AtriosWork</p>
-            </div>
-            <button 
-              onClick={() => setActiveNotification(null)}
-              className="text-slate-500 hover:text-white transition-all"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="space-y-1">
-            <h4 className="text-sm font-black text-white uppercase tracking-tight">{activeNotification.title}</h4>
-            <p className="text-xs text-slate-400 leading-relaxed font-medium">{activeNotification.body}</p>
-          </div>
-          {activeNotification.url && activeNotification.url !== '/' && (
-            <button
-              onClick={() => {
-                const targetUrl = activeNotification.url!;
-                if (targetUrl === '/suporte' || targetUrl.includes('suporte')) {
-                  setAppState(user.role === 'support' ? 'support' : 'user-support');
-                } else if (targetUrl.startsWith('http')) {
-                  window.open(targetUrl, '_blank');
-                } else {
-                  setAppState('dashboard');
-                }
-                setActiveNotification(null);
-              }}
-              className="mt-1 w-full py-2.5 bg-blue-600/20 border border-blue-500/20 text-blue-400 font-bold hover:bg-blue-600 hover:text-white transition-all text-[10px] uppercase tracking-widest rounded-xl flex items-center justify-center gap-1"
-            >
-              Aceder <ArrowRight className="w-3.5 h-3.5" />
-            </button>
-          )}
         </div>
       )}
     </div>

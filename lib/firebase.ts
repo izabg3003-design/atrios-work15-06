@@ -1,89 +1,77 @@
-import { initializeApp } from "firebase/app";
-import { getMessaging, getToken, onMessage } from "firebase/messaging";
+import { initializeApp, getApp, deleteApp, getApps } from 'firebase/app';
+import { getMessaging, getToken, onMessage, Messaging } from 'firebase/messaging';
+import appletConfig from '../firebase-applet-config.json';
+
+// Configurações do Firebase obtidas do JSON gerado com bypass TS se necessário
+const metaEnv = (import.meta as any).env || {};
 
 const firebaseConfig = {
-  apiKey: "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo",
-  authDomain: "push-atrios-work.firebaseapp.com",
-  projectId: "push-atrios-work",
-  storageBucket: "push-atrios-work.firebasestorage.app",
-  messagingSenderId: "409947740098",
-  appId: "1:409947740098:web:ed16cb847b12182eab685b",
-  measurementId: "G-P98E1G082C"
+  apiKey: metaEnv.VITE_FIREBASE_API_KEY || "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo" || appletConfig.apiKey,
+  authDomain: metaEnv.VITE_FIREBASE_AUTH_DOMAIN || "push-atrios-work.firebaseapp.com" || appletConfig.authDomain,
+  projectId: metaEnv.VITE_FIREBASE_PROJECT_ID || "push-atrios-work" || appletConfig.projectId,
+  storageBucket: metaEnv.VITE_FIREBASE_STORAGE_BUCKET || "push-atrios-work.firebasestorage.app" || appletConfig.storageBucket,
+  messagingSenderId: metaEnv.VITE_FIREBASE_MESSAGING_SENDER_ID || "409947740098" || appletConfig.messagingSenderId,
+  appId: metaEnv.VITE_FIREBASE_APP_ID || "1:409947740098:web:ed16cb847b12182eab685b" || appletConfig.appId,
 };
 
-let app: any = null;
-let messaging: any = null;
+// Verifica se as variáveis mínimas de configuração do Firebase estão presentes
+export const isFirebaseConfigured = !!(
+  firebaseConfig.apiKey &&
+  firebaseConfig.projectId &&
+  firebaseConfig.messagingSenderId &&
+  firebaseConfig.appId
+);
 
-try {
-  app = initializeApp(firebaseConfig);
-  if (typeof window !== "undefined") {
+// Verifica suporte a PWA/Notificações neste navegador
+export const isPushSupported = () => {
+  return (
+    typeof window !== 'undefined' &&
+    'serviceWorker' in navigator &&
+    'PushManager' in window &&
+    'Notification' in window
+  );
+};
+
+export let app: any = null;
+export let messaging: Messaging | null = null;
+
+if (isFirebaseConfigured && isPushSupported()) {
+  try {
+    app = initializeApp(firebaseConfig);
     messaging = getMessaging(app);
+  } catch (error) {
+    console.error('Erro ao inicializar Firebase Cloud Messaging:', error);
   }
-} catch (error) {
-  console.error("Falha ao inicializar o Firebase Web SDK:", error);
 }
 
-export { app, messaging };
-
-export async function requestAndRegisterFCM(userId: string, userRole?: string) {
-  if (typeof window === "undefined" || !('serviceWorker' in navigator) || !messaging) {
+// Re-inicialização dinâmica com dados recebidos do Supabase
+export function reinitializeFirebase(customConfig: {
+  apiKey?: string;
+  authDomain?: string;
+  projectId?: string;
+  storageBucket?: string;
+  messagingSenderId?: string;
+  appId?: string;
+}) {
+  if (!customConfig || !customConfig.apiKey || !customConfig.projectId) {
     return null;
   }
-
   try {
-    // 1. Solicitar permissão de notificação se necessário
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") {
-      console.warn("Permissão de notificação não concedida.");
-      return null;
-    }
-
-    // 2. Aguardar o Service Worker estar pronto
-    const registration = await navigator.serviceWorker.ready;
-    if (!registration) {
-      console.warn("Service Worker não está pronto.");
-      return null;
-    }
-
-    // 3. Obter token FCM utilizando o Service Worker registado
-    const vapidKey = (import.meta as any).env.VITE_FIREBASE_VAPID_KEY || "BB0fDxpRNxF2-6WguAynyaUOVaNoIOoSL8WKTmQytRYiQq43tyeFFfYA7-FPWnR5UCZgqxRMooxzn-jh4eUX8Ak";
-    const tokenOptions: any = {
-      serviceWorkerRegistration: registration
-    };
-    if (vapidKey) {
-      tokenOptions.vapidKey = vapidKey;
-    }
-
-    const token = await getToken(messaging, tokenOptions).catch(err => {
-      console.warn("Falha ao obter token FCM. Certifique-se de configurar a Chave VAPID (VITE_FIREBASE_VAPID_KEY) nas definições do Firebase:", err);
-      return null;
-    });
-
-    if (token) {
-      console.log("Token FCM Obtido com Sucesso:", token);
-
-      // 4. Registar o token no servidor Express local
-      const res = await fetch("/api/register-fcm-token", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({
-          userId,
-          token,
-          role: userRole || "user"
-        })
-      });
-
-      if (res.ok) {
-        console.log("Token FCM registado no servidor com sucesso.");
-      } else {
-        console.warn("Falha ao guardar Token FCM no servidor local.");
+    const apps = getApps();
+    if (apps.length > 0) {
+      for (const existingApp of apps) {
+        deleteApp(existingApp).catch(e => console.warn('Erro ao deletar app existente:', e));
       }
-      return token;
     }
+    app = initializeApp(customConfig);
+    messaging = getMessaging(app);
+    console.log('Firebase re-inicializado com sucesso com configuração customizada:', customConfig.projectId);
+    return messaging;
   } catch (error) {
-    console.error("Erro no fluxo de registo FCM:", error);
+    console.error('Erro ao re-inicializar Firebase com configuração customizada:', error);
+    return null;
   }
-  return null;
 }
+
+export { getToken, onMessage };
+

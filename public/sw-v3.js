@@ -1,26 +1,10 @@
-importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.8.0/firebase-messaging-compat.js');
-
-const CACHE_NAME = 'atrioswork-v6.1';
+const CACHE_NAME = 'atrioswork-v6.0';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
   '/manifest.json',
   '/logo_atualizado.jpg?v=20260314_v1'
 ];
-
-// Inicializa o Firebase no Service Worker para o FCM funcionar corretamente
-firebase.initializeApp({
-  apiKey: "AIzaSyD9rSDTCmaxNIRRwZexrIyuOWHAgiIbQgo",
-  authDomain: "push-atrios-work.firebaseapp.com",
-  projectId: "push-atrios-work",
-  storageBucket: "push-atrios-work.firebasestorage.app",
-  messagingSenderId: "409947740098",
-  appId: "1:409947740098:web:ed16cb847b12182eab685b"
-});
-
-const messaging = firebase.messaging();
-
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -93,69 +77,97 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
-// --- LISTENER PARA NOTIFICAÇÕES PUSH EM SEGUNDO PLANO (APP FECHADO) ---
-// Quando um servidor de Push de terceiros (FCM, OneSignal ou próprio servidor VAPID) 
-// envia um payload, o browser acorda este Service Worker mesmo com o app fechado.
+// Suporte para Receber Notificações Push Locais ou de Servidor (compatível com FCM e padrão)
 self.addEventListener('push', (event) => {
-  console.log('[Service Worker] Evento de Push recebido.');
-  
-  let data = {};
-  if (event.data) {
+  event.waitUntil((async () => {
+    let rawData = {};
+    let title = 'AtriosWork';
+    let body = 'Nova notificação do sistema!';
+    let url = '/';
+
     try {
-      data = event.data.json();
-      // Ignorar eventos do Firebase para não duplicar notificações, pois o SDK do Firebase importado no início já exibe as notificações dele automaticamente
-      if (data.from || data['firebase-messaging-msg-data'] || data.notification) {
-        console.log('[Service Worker] Ignorando evento de push do Firebase no handler customizado para evitar duplicidade.');
-        return;
+      if (event.data) {
+        try {
+          rawData = event.data.json();
+          console.log('[Service Worker] Notificação push JSON recebida:', rawData);
+        } catch (e) {
+          console.log('[Service Worker] Notificação push de texto recebida:', event.data.text());
+          rawData = { title: 'AtriosWork', body: event.data.text() };
+        }
       }
-    } catch (e) {
-      // Se não for JSON, trata como texto simples
-      data = { title: 'AtriosWork', body: event.data.text() };
-    }
-  }
 
-  const title = data.title || (data.notification && data.notification.title) || (data.data && data.data.title) || 'AtriosWork';
-  const body = data.body || (data.notification && data.notification.body) || (data.data && data.data.body) || 'Nova notificação recebida!';
-  const url = data.url || (data.data && data.data.url) || '/';
-  
-  const options = {
-    body: body,
-    icon: data.icon || (data.data && data.data.icon) || '/logo_atualizado.jpg',
-    badge: data.badge || (data.data && data.data.badge) || '/logo_atualizado.jpg',
-    vibrate: [100, 50, 100],
-    data: {
-      url: url
+      // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
+      title = rawData.notification?.title || 
+              rawData.title || 
+              rawData.data?.title || 
+              rawData.data?.notification?.title || 
+              'AtriosWork';
+                  
+      body = rawData.notification?.body || 
+             rawData.body || 
+             rawData.data?.body || 
+             rawData.data?.notification?.body || 
+             'Nova notificação do sistema!';
+                 
+      url = rawData.notification?.data?.url ||
+            rawData.data?.url || 
+            rawData.url || 
+            rawData.data?.notification?.url || 
+            '/';
+    } catch (extractErr) {
+      console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
-  };
 
-  event.waitUntil(
-    self.registration.showNotification(title, options)
-  );
+    try {
+      // Resolver URLs relativas para absolutas usando self.location.origin para garantir que o OS consiga carregar as imagens em segundo plano com o app fechado
+      const origin = self.location.origin;
+      const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
+
+      const options = {
+        body: body,
+        icon: iconUrl,
+        badge: iconUrl,
+        vibrate: [200, 100, 200],
+        data: url,
+        actions: [
+          { action: 'open', title: 'Ver App' }
+        ]
+      };
+
+      try {
+        await self.registration.showNotification(title, options);
+      } catch (innerShowErr) {
+        console.warn('[Service Worker] Falha ao exibir com opções avançadas (ações/vibração), tentando fallback simples:', innerShowErr);
+        // Fallback simples sem ações ou vibrações complexas
+        await self.registration.showNotification(title, {
+          body: body,
+          icon: iconUrl,
+          data: url
+        });
+      }
+    } catch (showErr) {
+      console.error('[Service Worker] Erro fatal ao tentar disparar showNotification:', showErr);
+    }
+  })());
 });
 
-// --- LISTENER PARA CLIQUE NA NOTIFICAÇÃO ---
-// Quando o utilizador clica na notificação em segundo plano, abre o app ou foca na tab existente
+// Lidar com o toque ou clique na notificação push
 self.addEventListener('notificationclick', (event) => {
-  console.log('[Service Worker] Notificação clicada. Target URL:', event.notification.data.url);
-  
-  event.notification.close(); // Fecha o balão da notificação
-
-  const targetUrl = event.notification.data?.url || '/';
+  event.notification.close();
+  const targetUrl = event.notification.data || '/';
 
   event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true })
-      .then((clientList) => {
-        // Se houver uma aba aberta do site, foca nela e navega para a URL destino
-        for (const client of clientList) {
-          if ('focus' in client) {
-            client.navigate(targetUrl);
-            return client.focus();
-          }
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Se já tiver uma aba aberta, faz o focus nela
+      for (const client of clientList) {
+        if (client.url.includes(targetUrl) && 'focus' in client) {
+          return client.focus();
         }
-        // Se não houver abas abertas, abre uma nova janela
-        if (self.clients.openWindow) {
-          return self.clients.openWindow(targetUrl);
-        }
-      })
+      }
+      // Se não, abre uma nova janela
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
   );
 });

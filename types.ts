@@ -15,7 +15,7 @@ export interface AppBanner {
   image_url?: string;
   theme_color: 'emerald' | 'purple' | 'amber' | 'rose' | 'blue';
   is_active: boolean;
-  user_type: 'all' | 'free' | 'premium' | 'public';
+  user_type: 'all' | 'free' | 'premium' | 'public' | 'push_notification' | 'push_scheduled' | 'fcm_config';
   created_at?: string;
 }
 
@@ -51,7 +51,6 @@ export interface UserProfile {
   isFreelancer: boolean;
   vat: { value: number; type: 'percentage' | 'fixed' };
   role: 'admin' | 'user' | 'vendor' | 'support';
-  status?: string;
   overtimeRates: {
     h1: number;
     h2: number;

@@ -102,8 +102,6 @@ const VendorSalesPage: React.FC<Props> = ({ user, adminOverrideVendor, onBackToA
 
   const getStatus = (item: any) => {
     try {
-      if (item.status === 'SUSPENDED' || item.status === 'suspended') return false;
-      if (item.status === 'FREE' || item.status === 'free' || item.status === 'PRO' || item.status === 'pro') return true;
       const sub = typeof item.subscription === 'string' ? JSON.parse(item.subscription) : item.subscription;
       return sub?.isActive ?? true;
     } catch (e) { return true; }

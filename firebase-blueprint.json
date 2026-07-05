@@ -1,0 +1,26 @@
+{
+  "entities": {
+    "user": {
+      "title": "User",
+      "description": "User profile containing push notification configurations",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique identifier of the user matching their auth UID"
+        },
+        "fcm_token": {
+          "type": "string",
+          "description": "Firebase Cloud Messaging device token used for push notifications"
+        }
+      },
+      "required": ["id"]
+    }
+  },
+  "firestore": {
+    "users/{userId}": {
+      "schema": "user",
+      "description": "Collection storing user configurations and PWA push tokens"
+    }
+  }
+}

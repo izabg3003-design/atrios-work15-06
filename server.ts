@@ -1,224 +1,687 @@
 import express from "express";
 import path from "path";
+import crypto from "crypto";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
-import { initializeApp, cert } from "firebase-admin/app";
+import { createClient } from "@supabase/supabase-js";
+import webpush from "web-push";
+import { initializeApp, cert, getApps } from "firebase-admin/app";
+import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 
-const PORT = 3000;
-const TOKENS_FILE = path.join(process.cwd(), "fcm_tokens.json");
+// 🔵 1. DECLARAÇÃO E INICIALIZAÇÃO DE CHAVES VAPID (PERSISTÊNCIA DUPLA EM NUVEM SUPABASE + LOCAL)
+let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
+let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
+const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com";
 
-// Auxiliar para ler tokens registrados
-function getTokens(): Record<string, { token: string; role?: string; updatedAt: string }[]> {
-  try {
-    if (fs.existsSync(TOKENS_FILE)) {
-      return JSON.parse(fs.readFileSync(TOKENS_FILE, "utf-8"));
+const keysFilePath = path.join(process.cwd(), "vapid-keys.json");
+
+async function initializeVapidKeys() {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+  if (vapidPublicKey && vapidPrivateKey) {
+    console.log("[VAPID] Chaves Web Push obtidas via variáveis de ambiente.");
+    webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+    return;
+  }
+
+  // 1. Tentar obter do Supabase (Nuvem Persistente)
+  if (supabaseServiceKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data, error } = await supabase
+        .from("app_banners")
+        .select("*")
+        .eq("user_type", "system_vapid_keys")
+        .maybeSingle();
+
+      if (!error && data && data.highlight && data.cta_text) {
+        vapidPublicKey = data.highlight;
+        vapidPrivateKey = data.cta_text;
+        console.log("[VAPID] Chaves Web Push recuperadas com sucesso do Supabase (Nuvem Persistente).");
+        
+        // Sincronizar cache local
+        try {
+          fs.writeFileSync(keysFilePath, JSON.stringify({ publicKey: vapidPublicKey, privateKey: vapidPrivateKey }, null, 2), "utf8");
+        } catch (e) {
+          console.warn("[VAPID] Não foi possível salvar cache local de chaves:", e);
+        }
+        
+        webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+        return;
+      }
+    } catch (dbErr) {
+      console.warn("[VAPID] Falha ao consultar Supabase, tentando local:", dbErr);
     }
-  } catch (err) {
-    console.error("Erro ao ler arquivo de tokens FCM:", err);
   }
-  return {};
+
+  // 2. Tentar obter do cache local
+  if (fs.existsSync(keysFilePath)) {
+    try {
+      const savedKeys = JSON.parse(fs.readFileSync(keysFilePath, "utf8"));
+      vapidPublicKey = savedKeys.publicKey;
+      vapidPrivateKey = savedKeys.privateKey;
+      console.log("[VAPID] Chaves de segurança carregadas do ficheiro local 'vapid-keys.json'.");
+      webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
+      return;
+    } catch (e) {
+      console.error("[VAPID] Erro ao ler cache local de chaves:", e);
+    }
+  }
+
+  // 3. Se não houver em nenhum lado, gerar chaves novas
+  const keys = webpush.generateVAPIDKeys();
+  vapidPublicKey = keys.publicKey;
+  vapidPrivateKey = keys.privateKey;
+  console.log("[VAPID] Novas chaves Web Push geradas.");
+  
+  try {
+    fs.writeFileSync(keysFilePath, JSON.stringify(keys, null, 2), "utf8");
+  } catch (e) {
+    console.error("[VAPID] Falha ao gravar novas chaves no local:", e);
+  }
+
+  // Salvar no Supabase
+  if (supabaseServiceKey) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      await supabase.from("app_banners").insert([{
+        user_type: "system_vapid_keys",
+        title: "System VAPID Keys",
+        highlight: vapidPublicKey,
+        cta_text: vapidPrivateKey,
+        is_active: true
+      }]);
+      console.log("[VAPID] Novas chaves Web Push persistidas no Supabase com sucesso.");
+    } catch (saveErr) {
+      console.error("[VAPID] Erro ao persistir novas chaves no Supabase:", saveErr);
+    }
+  }
+
+  webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
 }
 
-// Auxiliar para salvar tokens
-function saveTokens(tokens: Record<string, { token: string; role?: string; updatedAt: string }[]>) {
+// 🔵 2. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO)
+const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+let isFirebaseAdminInitialized = false;
+
+if (serviceAccountEnv) {
   try {
-    fs.writeFileSync(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
-  } catch (err) {
-    console.error("Erro ao salvar tokens FCM:", err);
-  }
-}
-
-// Inicializar Firebase Admin de forma preguiçosa e segura
-let firebaseAdminApp: any = null;
-
-function getFirebaseAdminApp(): any {
-  if (firebaseAdminApp) return firebaseAdminApp;
-
-  try {
-    let serviceAccount: any = null;
-    
-    // 1. Tentar ler do environment variable
-    if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-      serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    const serviceAccount = JSON.parse(serviceAccountEnv);
+    const apps = getApps();
+    if (!apps.length) {
+      const isServiceAccount = serviceAccount && (serviceAccount.type === "service_account" || (serviceAccount.client_email && serviceAccount.private_key));
+      
+      if (isServiceAccount) {
+        initializeApp({
+          credential: cert(serviceAccount),
+        });
+        isFirebaseAdminInitialized = true;
+        console.log("[Firebase Admin] SDK Inicializado com sucesso via conta de serviço.");
+      } else {
+        try {
+          initializeApp();
+          isFirebaseAdminInitialized = true;
+          console.log("[Firebase Admin] SDK Inicializado com credenciais padrão do Google Cloud.");
+        } catch (initErr) {
+          console.warn("[Firebase Admin] Credenciais inválidas fornecidas e impossível carregar credenciais padrão:", initErr);
+        }
+      }
     } else {
-      // 2. Usar o fallback com a conta provida pelo utilizador
-      serviceAccount = {
-        type: "service_account",
-        project_id: "push-atrios-work",
-        private_key_id: "4e5711f0f31cc03b136828dfd0529a185120c111",
-        private_key: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQDSJEvVxvs/HUE/\nOV23f3nE5WKtL1P0a4DVWkEY5RQYWW0i1b714djosGgi8VInEzzI7n0XtRHpLKj8\nFOsmanS1MdkMi3IRx+0qiqY2tO8EK2jI0YhKwOxCgMJiqVnzDDN+Jz8498T8Zyoo\nQN0pONGX/ZbtXBDRkRa9RdHfb76caErr8iad77QfXi2Q+D+KENZPqpb11AkbEKkY\nHsLdDbj5z7MFVs08dZgnVcscei4yMiUiPd1BYDlbC5PU5SwKDXp8EwliB3THOujW\nCSvBiKj/QlGmdiwwYp+XNzNrk+0KJm7HhmpPd61vSXBh1vnThz/aORDqPz8Uv21r\nRJCyLVyXAgMBAAECggEAQGK+mZGOCZh9FVIOVNrKBHoD8ew+XPVTVAuDRo1pyswb\nlEDJcazxONpUDeDCuxY52Za43TqtcjQs0o/WPL8BY0MSrbVMDgajtBUnODvXv/9M\n67rHd6AEw5uP84rP9JgYbt63kEzaHju9vvegy7CNB3S7eZ5ryMobnYJ2+27RiDod\n4cJ4fNVX082Mp0yRdbglHc/XWW9PxfOJmIGz5OdspPxdNsu6EUZBcW70OX4eFQyb\nzgpwaajUHSqaTiuH+M47d+p8tapYO9W1kj9rryMfIdoKp2U3ElJaB9gBLH3ybEmO\ny+cHu8W9Gdd9QjGX4KLHzFwDFw6WHfneqp9RsMW0AQKBgQD1EWudqnjnXlvwpB1h\nQerKAgUx0U81n45JhZGPMWsyayhX2eyqM5Z7ZK33nmhtREZpWxpdclr6mnEai9zU\n7IAuDJEg2zQoi56c4VMdW31A3dkacUx8/PZFowuKN+qHTklw5zZ/4IE5nZ9vNSG+\nhRhdFLxF7v89wQxaxVDjPcHKIQKBgQDbhAgjYDcY7Wih1eQjz6zyhn6Sg0lZbtHu\n0di4ya4iCfMBlI5vXOiqOi9nRfGhrfABm9B/WTQwmdzgl+ZmkBylFxs+z1qQ5Y40\nMTsUiVlZycjtwU0yeHQmN0FfTV/6GpAnAupJC9vSRNtHOMH0SqAkdxvoUObmceOp\n8ni44G//twKBgCBXiTVIjyYxrL6IWhxAv8SjGZ5meiaghP2s8/XK1tPTkoJtjy8z\nGbP1KIRaUnvBG+3BiSw18E3MXgrb1GwBPjVVkT2d0DddnbQkhHyGW3RZEtLLiwWf\nuLyd9OLr2Da9HTIaQXYE4ekBpU3e3DIxjHKUTviHvwWeWYwNKEylFNMhAoGBAJ3O\n2zLjVni7I79ETxBXmhN4EMIvU6nRe2ZewZiGlIKv+FyoeYUhm7nUvoNVyxHaQ3JE\nm60Rae2OjzV+vgn5jD460EFlO8xy2ro2sixfWTatU59omaCw638Vtg9XRqo8Mml5\nNQhyWANfsOwQp46Bn4LXhd6LWpNMSMjCIXt3Dc0dAoGAXOtm8okRkBrflsAzEKRF\nJUgNvUC0IdfRAmhQjSSqDp9WV1uK+XHrcDRLNVU8icaO7cVTmqd5h5H4gPPrvCKC\nr1Rc8pTFM9MmMmWCdbJcKgzukM8CVKOG4WIHmRpIVUhoQcisMTTALbc8JZu0DRbL\nRV7pEWiiadhdKliZY4EAqiI=\n-----END PRIVATE KEY-----\n",
-        "client_email": "firebase-adminsdk-fbsvc@push-atrios-work.iam.gserviceaccount.com",
-        "client_id": "112559163626223166464",
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-        "client_x509_cert_url": "https://www.googleapis.com/robot/v1/metadata/x509/firebase-adminsdk-fbsvc%40push-atrios-work.iam.gserviceaccount.com",
-        "universe_domain": "googleapis.com"
-      };
+      isFirebaseAdminInitialized = true;
     }
-
-    if (serviceAccount) {
-      firebaseAdminApp = initializeApp({
-        credential: cert(serviceAccount)
-      });
-      console.log("Firebase Admin SDK inicializado com sucesso.");
-      return firebaseAdminApp;
-    }
-  } catch (err) {
-    console.error("Falha ao inicializar o Firebase Admin SDK:", err);
+  } catch (err: any) {
+    console.error("[Firebase Admin] Falha ao inicializar SDK via JSON da conta de serviço:", err);
   }
-  return null;
+} else {
+  console.warn("[Firebase Admin] FIREBASE_SERVICE_ACCOUNT não encontrada. Envio nativo FCM desativado.");
 }
 
+// Helper para obter token de acesso do Google OAuth2 de forma nativa e segura para fallback HTTP v1
+function getGoogleAccessToken(clientEmail: string, privateKey: string): string {
+  const header = { alg: "RS256", typ: "JWT" };
+  const now = Math.floor(Date.now() / 1000);
+  const claims = {
+    iss: clientEmail,
+    scope: "https://www.googleapis.com/auth/firebase.messaging",
+    aud: "https://oauth2.googleapis.com/token",
+    iat: now,
+    exp: now + 3600,
+  };
+
+  const b64Url = (obj: any) => {
+    const str = typeof obj === "string" ? obj : JSON.stringify(obj);
+    return Buffer.from(str).toString("base64url");
+  };
+
+  const encodedHeader = b64Url(header);
+  const encodedClaims = b64Url(claims);
+  const toSign = `${encodedHeader}.${encodedClaims}`;
+
+  const sign = crypto.createSign("RSA-SHA256");
+  sign.update(toSign);
+  const signature = sign.sign(privateKey, "base64url");
+
+  return `${toSign}.${signature}`;
+}
+
+// 🔵 3. PERSISTÊNCIA AUXILIAR LOCAL DE ASSINATURAS (WEB PUSH / VAPID)
+const subsFilePath = path.join(process.cwd(), "web-push-subscriptions.json");
+
+function loadLocalSubscriptions(): any[] {
+  if (fs.existsSync(subsFilePath)) {
+    try {
+      return JSON.parse(fs.readFileSync(subsFilePath, "utf-8"));
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function saveLocalSubscription(sub: any) {
+  const subs = loadLocalSubscriptions();
+  const endpoint = sub.subscription?.endpoint;
+  if (!endpoint) return;
+
+  const index = subs.findIndex((s) => s.subscription?.endpoint === endpoint);
+  if (index >= 0) {
+    subs[index] = { ...subs[index], ...sub, updatedAt: new Date().toISOString() };
+  } else {
+    subs.push({ ...sub, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
+  }
+
+  try {
+    fs.writeFileSync(subsFilePath, JSON.stringify(subs, null, 2), "utf-8");
+  } catch (e) {
+    console.error("[Local DB] Erro ao gravar arquivo de assinaturas:", e);
+  }
+}
+
+function removeLocalSubscription(endpoint: string) {
+  const subs = loadLocalSubscriptions();
+  const filtered = subs.filter((s) => s.subscription?.endpoint !== endpoint);
+  try {
+    fs.writeFileSync(subsFilePath, JSON.stringify(filtered, null, 2), "utf-8");
+  } catch (e) {
+    console.error("[Local DB] Erro ao remover assinatura inválida:", e);
+  }
+}
+
+// 🔵 4. SALVAR ASSINATURA COMPLETA (FIRESTORE + LOCAL + SUPABASE)
+async function saveSubscriptionToDatabase(data: { subscription: any; userId: string; companyId?: string; email?: string; role?: string }) {
+  // 1. Gravar no arquivo local (garantia de persistência local)
+  saveLocalSubscription(data);
+
+  // 2. Gravar no Firestore se o Firebase Admin estiver ativo
+  if (isFirebaseAdminInitialized) {
+    try {
+      const db = getFirestore();
+      const safeId = Buffer.from(data.subscription.endpoint).toString("base64url");
+      await db.collection("web_push_subscriptions").doc(safeId).set({
+        subscription: data.subscription,
+        userId: data.userId || "unknown",
+        companyId: data.companyId || "unknown",
+        email: data.email || null,
+        role: data.role || null,
+        updatedAt: FieldValue.serverTimestamp(),
+      }, { merge: true });
+      console.log(`[Firestore] Assinatura salva com sucesso para o usuário ${data.userId} (${data.email})`);
+    } catch (err) {
+      console.error("[Firestore] Erro ao gravar assinatura de Web Push:", err);
+    }
+  }
+
+  // 3. Espelhar no Supabase na tabela profiles sob fcm_token (como JSON string para retrocompatibilidade)
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (supabaseServiceKey && data.userId) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      await supabase
+        .from("profiles")
+        .update({ fcm_token: JSON.stringify(data.subscription) })
+        .eq("id", data.userId);
+      console.log(`[Supabase Link] Sincronizada assinatura VAPID no perfil do usuário ${data.userId}`);
+    }
+  } catch (err) {
+    console.warn("[Supabase Link] Falha não impeditiva ao salvar subscrição no perfil:", err);
+  }
+}
+
+async function deleteSubscriptionFromDatabase(endpoint: string) {
+  // Remover do local
+  removeLocalSubscription(endpoint);
+
+  // Remover do Firestore
+  if (isFirebaseAdminInitialized) {
+    try {
+      const db = getFirestore();
+      const safeId = Buffer.from(endpoint).toString("base64url");
+      await db.collection("web_push_subscriptions").doc(safeId).delete();
+      console.log("[Firestore] Assinatura inválida (410/404) removida do Firestore.");
+    } catch (err) {
+      console.error("[Firestore] Erro ao remover assinatura do Firestore:", err);
+    }
+  }
+}
+
+// 🔵 5. START DO SERVIDOR EXPRESS
 async function startServer() {
+  await initializeVapidKeys();
   const app = express();
+  const PORT = 3000;
+
   app.use(express.json());
 
-  // Rotas da API FIRST
-  app.get("/api/health", (req, res) => {
-    res.json({ status: "ok", firebaseInitialized: !!getFirebaseAdminApp() });
+  // ROTA: Obter a chave pública VAPID do servidor
+  app.get("/api/push/public-key", (req, res) => {
+    return res.json({ publicKey: vapidPublicKey });
   });
 
-  // Registrar Token FCM de um utilizador
-  app.post("/api/register-fcm-token", (req, res) => {
-    const { userId, token, role } = req.body;
-    if (!userId || !token) {
-      return res.status(400).json({ error: "userId e token são obrigatórios." });
+  // ROTA: Receber e salvar subscrições Web Push (VAPID) do cliente
+  app.post("/api/push/subscribe", async (req, res) => {
+    const { subscription, userId, companyId, email, role } = req.body;
+    if (!subscription || !subscription.endpoint) {
+      return res.status(400).json({ success: false, error: "Subscrição inválida." });
     }
-
-    const tokens = getTokens();
-    if (!tokens[userId]) {
-      tokens[userId] = [];
-    }
-
-    // Evitar duplicados
-    const exists = tokens[userId].find(t => t.token === token);
-    if (!exists) {
-      tokens[userId].push({
-        token,
-        role: role || "user",
-        updatedAt: new Date().toISOString()
-      });
-      saveTokens(tokens);
-    } else {
-      // Atualizar dados de papel e data se já existir
-      exists.role = role || exists.role;
-      exists.updatedAt = new Date().toISOString();
-      saveTokens(tokens);
-    }
-
-    res.json({ success: true, message: "Token FCM registrado com sucesso!" });
+    await saveSubscriptionToDatabase({ subscription, userId, companyId, email, role });
+    return res.status(201).json({ success: true });
   });
 
-  // Enviar push via FCM (segundo plano)
-  app.post("/api/send-fcm-push", async (req, res) => {
-    const { title, body, targetUserId, targetRole, url } = req.body;
-
-    if (!title || !body) {
-      return res.status(400).json({ error: "Título e corpo são obrigatórios." });
+  // ROTA: Receber e salvar Tokens FCM normais
+  app.post("/api/push/fcm-subscribe", async (req, res) => {
+    const { token, userId } = req.body;
+    if (!token || !userId) {
+      return res.status(400).json({ success: false, error: "Parâmetros obrigatórios ausentes." });
     }
 
-    const firebaseAppInstance = getFirebaseAdminApp();
-    if (!firebaseAppInstance) {
-      return res.status(500).json({ error: "Firebase Admin SDK não pôde ser inicializado." });
-    }
-
-    const tokensDb = getTokens();
-    const targetTokens: string[] = [];
-
-    // Filtrar tokens elegíveis com base no público-alvo
-    Object.entries(tokensDb).forEach(([userId, userTokens]) => {
-      userTokens.forEach(ut => {
-        const isTargetUser = targetUserId === "all" || targetUserId === userId;
-        const isTargetRole = targetRole === "all" || targetRole === ut.role;
-
-        if (isTargetUser && isTargetRole) {
-          targetTokens.push(ut.token);
-        }
-      });
-    });
-
-    if (targetTokens.length === 0) {
-      return res.json({ success: true, sentCount: 0, message: "Nenhum dispositivo registrado para os critérios de envio." });
-    }
-
-    // Remover duplicados
-    const uniqueTokens = Array.from(new Set(targetTokens));
-
-    console.log(`Enviando FCM push para ${uniqueTokens.length} dispositivos...`);
-
-    const messages = uniqueTokens.map(token => ({
-      token,
-      notification: {
-        title: title,
-        body: body
-      },
-      data: {
-        title: title,
-        body: body,
-        url: url || "/"
-      },
-      webpush: {
-        headers: {
-          Urgency: "high"
-        },
-        notification: {
-          body: body,
-          icon: "/logo_atualizado.jpg",
-          badge: "/logo_atualizado.jpg",
-          clickAction: url || "/"
-        }
-      }
-    }));
-
-    let successCount = 0;
-    let failCount = 0;
-
+    // Gravar no Supabase
     try {
-      const messagingInstance = getMessaging(firebaseAppInstance);
-      const response = await messagingInstance.sendEach(messages);
-      successCount = response.successCount;
-      failCount = response.failureCount;
-      
-      // Limpar tokens expirados/inválidos
-      if (response.responses) {
-        const tokensToRemove: string[] = [];
-        response.responses.forEach((resp, idx) => {
-          if (!resp.success && resp.error) {
-            const errCode = resp.error.code;
-            if (
-              errCode === "messaging/registration-token-not-registered" ||
-              errCode === "messaging/invalid-registration-token"
-            ) {
-              tokensToRemove.push(uniqueTokens[idx]);
-            }
-          }
-        });
-
-        if (tokensToRemove.length > 0) {
-          console.log(`Limpando ${tokensToRemove.length} tokens inválidos...`);
-          Object.keys(tokensDb).forEach(userId => {
-            tokensDb[userId] = tokensDb[userId].filter(ut => !tokensToRemove.includes(ut.token));
-          });
-          saveTokens(tokensDb);
-        }
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+      if (supabaseServiceKey) {
+        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        await supabase
+          .from("profiles")
+          .update({ fcm_token: token })
+          .eq("id", userId);
+        console.log(`[Supabase FCM] Token do FCM gravado para o usuário ${userId}`);
       }
     } catch (err) {
-      console.error("Erro ao enviar mensagens via FCM:", err);
-      return res.status(500).json({ error: "Erro interno ao enviar notificações via FCM." });
+      console.error("[Supabase FCM] Erro ao salvar token:", err);
     }
 
-    res.json({
-      success: true,
-      sentCount: uniqueTokens.length,
-      successCount,
-      failCount,
-      message: `Disparo concluído: ${successCount} enviados com sucesso, ${failCount} falhas.`
-    });
+    return res.status(201).json({ success: true });
   });
 
-  // Configuração do Vite Middleware para desenvolvimento, ou servir arquivos estáticos em produção
+  // ROTA: Envio de Push Inteligente (Suporta FCM de forma nativa/v1 + Web Push VAPID + Fallbacks)
+  app.post("/api/send-fcm-push", async (req, res) => {
+    try {
+      const { title, body, audience, url = "/", targetUserId, targetUserEmail } = req.body;
+
+      if (!title || !body) {
+        return res.status(400).json({
+          success: false,
+          error: "Campos 'title' e 'body' são obrigatórios.",
+        });
+      }
+
+      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'})`);
+
+      // 1. Obter credenciais do Supabase
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseServiceKey) {
+        return res.status(400).json({
+          success: false,
+          error: "Credenciais do Supabase não configuradas nas variáveis de ambiente.",
+        });
+      }
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      // 2. Obter perfis ativos do Supabase que contêm fcm_token ou subscrições de forma resiliente
+      let profiles: any[] = [];
+      try {
+        const { data, error: dbError } = await supabase
+          .from("profiles")
+          .select("id, fcm_token, role, email")
+          .not("fcm_token", "is", null);
+
+        if (dbError) {
+          console.warn("[FCM Server] Erro ao buscar perfis no Supabase (usando dados locais de subscrições como alternativa):", dbError.message);
+        } else {
+          profiles = data || [];
+        }
+      } catch (err: any) {
+        console.warn("[FCM Server] Excepção ao buscar perfis do Supabase:", err.message || err);
+      }
+
+      // 3. Regras de filtragem de público-alvo (Audience filtering)
+      const isMasterEmail = (email?: string) => {
+        const e = (email || "").toLowerCase();
+        return e.includes("master@atrioswork.com") || 
+               e.includes("izarellebraga@gmail.com") || 
+               e.includes("master@digitalnexus.com");
+      };
+
+      const isAdminUser = (profile: any) => {
+        const emailVal = (profile.email || "").toLowerCase();
+        const roleVal = (profile.role || "").toLowerCase();
+        return isMasterEmail(emailVal) || roleVal === "admin" || roleVal === "master";
+      };
+
+      // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
+      const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string, hasTargetUser?: boolean) => {
+        // Se houver destinatário específico ou for para audiência de usuários comuns, NÃO é notificação de sistema administrativo!
+        if (hasTargetUser || tAudience === "user") {
+          return false;
+        }
+
+        const titleL = (tTitle || "").toLowerCase();
+        const bodyL = (tBody || "").toLowerCase();
+        const audL = (tAudience || "").toLowerCase();
+
+        // Se a audiência explícita for de administração ou suporte técnico, considera-se sistema sensível
+        if (audL === "admin" || audL === "master" || audL === "support") {
+          return true;
+        }
+
+        // Palavras-chave estritas associadas a notificações do sistema/atendimento administrativo
+        const systemKeywords = [
+          "atendimento humano",
+          "novo utilizador",
+          "novo cadastro",
+          "novo registo",
+          "registou-se",
+          "registrado",
+          "desbloqueio",
+          "venda realizada",
+          "nova venda",
+          "solicitou atendimento",
+          "solicitação de"
+        ];
+
+        return systemKeywords.some(keyword => titleL.includes(keyword) || bodyL.includes(keyword));
+      };
+
+      const hasTargetUser = !!(targetUserId || targetUserEmail);
+      const isSys = isSystemNotification(title, body, audience, hasTargetUser);
+      if (isSys) {
+        console.log(`[Push Server] Notificação "${title}" classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA. Filtrando apenas para contas Master.`);
+      }
+
+      let filteredProfiles = profiles || [];
+
+      if (targetUserId) {
+        filteredProfiles = filteredProfiles.filter((p) => p.id === targetUserId);
+      } else if (targetUserEmail) {
+        filteredProfiles = filteredProfiles.filter((p) => (p.email || "").toLowerCase() === targetUserEmail.toLowerCase());
+      } else if (isSys) {
+        // Notificações de sistema vão UNICAMENTE para os Master accounts
+        filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
+      } else {
+        // Fluxo normal para as outras notificações (ex: expiração de licença, informativos gerais, etc.)
+        if (audience === "admin" || audience === "master") {
+          filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
+        } else if (audience === "vendors") {
+          filteredProfiles = filteredProfiles.filter((p) => p.role === "vendor");
+        } else if (audience === "support") {
+          filteredProfiles = filteredProfiles.filter((p) => p.role === "support" || isAdminUser(p));
+        } else if (audience === "user") {
+          filteredProfiles = filteredProfiles.filter((p) => p.role === "user" && !isMasterEmail(p.email));
+        }
+      }
+
+      // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON
+      const fcmTokens: string[] = [];
+      const webPushSubscriptions: any[] = [];
+
+      filteredProfiles.forEach((p) => {
+        const token = p.fcm_token;
+        if (!token || !token.trim()) return;
+
+        // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID
+        if (token.trim().startsWith("{")) {
+          try {
+            const sub = JSON.parse(token);
+            if (sub && sub.endpoint) {
+              webPushSubscriptions.push({
+                subscription: sub,
+                userId: p.id,
+              });
+              // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
+              if (sub.fcmToken) {
+                fcmTokens.push(sub.fcmToken);
+              }
+            }
+          } catch (e) {
+            // Se falhar o parse, trata como token normal
+            fcmTokens.push(token);
+          }
+        } else {
+          fcmTokens.push(token);
+        }
+      });
+
+      // Incorporar também assinaturas salvas localmente/Firestore para retrocompatibilidade
+      const localSubs = loadLocalSubscriptions();
+      localSubs.forEach((ls) => {
+        if (!ls.subscription || !ls.subscription.endpoint) return;
+        // Evitar duplicados pelo endpoint
+        const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
+        if (!jaExiste) {
+          // 1. Tentar associar usando dados de perfis se disponíveis
+          const matchingProfile = profiles?.find((p) => p.id === ls.userId);
+          
+          // 2. Determinar de forma independente as informações do utilizador (usando perfil do Supabase ou dados embutidos na assinatura)
+          const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
+          const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
+
+          // 3. Verificar se o e-mail ou dados correspondem a um Master
+          const isMaster = isMasterEmail(userEmail);
+
+          let belongsToAudience = false;
+
+          if (targetUserId) {
+            belongsToAudience = ls.userId === targetUserId;
+          } else if (targetUserEmail) {
+            belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
+          } else if (isSys) {
+            belongsToAudience = isMaster;
+          } else {
+            if (audience === "admin" || audience === "master") {
+              belongsToAudience = isMaster;
+            } else if (audience === "vendors") {
+              belongsToAudience = userRole === "vendor";
+            } else if (audience === "support") {
+              belongsToAudience = userRole === "support" || isMaster;
+            } else if (audience === "user") {
+              belongsToAudience = userRole === "user" && !isMaster;
+            } else if (!audience || audience === "geral" || audience === "all") {
+              belongsToAudience = true;
+            }
+          }
+
+          if (belongsToAudience) {
+            webPushSubscriptions.push(ls);
+          }
+        }
+      });
+
+      console.log(`[Push Server] Encontrados ${fcmTokens.length} dispositivos FCM e ${webPushSubscriptions.length} assinaturas Web Push (VAPID).`);
+
+      let totalSent = 0;
+
+      // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
+      const webPushPromises = webPushSubscriptions.map(async (ws) => {
+        const payload = JSON.stringify({
+          notification: {
+            title,
+            body,
+            icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            vibrate: [100, 50, 100],
+            data: { url },
+          },
+        });
+
+        try {
+          await webpush.sendNotification(ws.subscription, payload, {
+            headers: {
+              "Urgency": "high"
+            },
+            TTL: 86400 // 1 dia de tempo de vida
+          });
+          totalSent++;
+        } catch (err: any) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            console.log(`[VAPID] Assinatura inválida (status ${err.statusCode}). Excluindo do banco.`);
+            await deleteSubscriptionFromDatabase(ws.subscription.endpoint);
+          } else {
+            console.error("[VAPID] Erro ao enviar notificação para assinatura:", err.message || err);
+          }
+        }
+      });
+
+      // 🔵 DISPARO 2: Enviar notificações via Firebase Cloud Messaging (FCM)
+      const fcmPromises = fcmTokens.map(async (token) => {
+        // Método A: Usar Firebase Admin SDK se inicializado
+        if (isFirebaseAdminInitialized) {
+          try {
+            await getMessaging().send({
+              token,
+              notification: {
+                title,
+                body,
+              },
+              android: {
+                priority: "high",
+              },
+              apns: {
+                headers: {
+                  "apns-priority": "10",
+                },
+                payload: {
+                  aps: {
+                    alert: {
+                      title,
+                      body,
+                    },
+                    sound: "default",
+                  },
+                },
+              },
+              webpush: {
+                headers: {
+                  Urgency: "high",
+                },
+                notification: {
+                  title,
+                  body,
+                  icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                  badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                },
+                fcmOptions: {
+                  link: url,
+                },
+              },
+              data: {
+                url,
+              },
+            });
+            totalSent++;
+            return;
+          } catch (fcmAdminErr: any) {
+            console.error(`[FCM Admin] Erro de envio para o token ${token.substring(0, 15)}...:`, fcmAdminErr.message);
+            // Se o token for inválido/não registrado, podemos opcionalmente remover se suportado
+          }
+        }
+
+        // Método B: Fallback para requisição direta à API HTTP v1 se tivermos a conta de serviço carregada
+        if (serviceAccountEnv) {
+          try {
+            const serviceAccount = JSON.parse(serviceAccountEnv);
+            const accessToken = getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
+            const projectId = serviceAccount.project_id;
+
+            const fcmResponse = await fetch(
+              `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  message: {
+                    token,
+                    notification: { title, body },
+                    android: { priority: "high" },
+                    apns: {
+                      headers: { "apns-priority": "10" },
+                      payload: { aps: { sound: "default" } },
+                    },
+                    webpush: {
+                      headers: {
+                        Urgency: "high",
+                      },
+                      notification: {
+                        title,
+                        body,
+                        icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                        badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                      },
+                      fcm_options: { link: url },
+                    },
+                    data: { url },
+                  },
+                }),
+              }
+            );
+
+            if (fcmResponse.ok) {
+              totalSent++;
+            } else {
+              const fcmErrResult = await fcmResponse.json();
+              console.error(`[FCM HTTP Fallback] Erro para o token ${token.substring(0, 15)}...:`, fcmErrResult);
+            }
+          } catch (fetchErr: any) {
+            console.error(`[FCM HTTP Fallback] Falha de rede para o token ${token.substring(0, 15)}...:`, fetchErr);
+          }
+        }
+      });
+
+      // Aguarda todos os disparos terminarem
+      await Promise.all([...webPushPromises, ...fcmPromises]);
+
+      return res.json({
+        success: true,
+        sent: totalSent,
+        message: `Disparo concluído com sucesso. Notificações enviadas a ${totalSent} destinos.`,
+      });
+
+    } catch (err: any) {
+      console.error("[FCM Server] Erro catastrófico de disparo:", err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || String(err),
+      });
+    }
+  });
+
+  // 🔵 6. CONFIGURAÇÃO DO MIDDLEWARE VITE E ARQUIVOS ESTÁTICOS DO CLIENTE
+  // Servir arquivos de Service Worker com cabeçalhos anti-cache estritos para atualização instantânea no PWA/Navegador
+  app.get(/^\/(sw-v3\.js|firebase-messaging-sw\.js)/, (req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    next();
+  });
+
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
       server: { middlewareMode: true },
@@ -234,7 +697,7 @@ async function startServer() {
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`[AtriosWork Backend] Servidor híbrido (FCM + Web Push VAPID) rodando na porta ${PORT}`);
   });
 }
 

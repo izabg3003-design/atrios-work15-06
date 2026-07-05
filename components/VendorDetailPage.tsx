@@ -22,20 +22,20 @@ const VendorDetailPage: React.FC<Props> = ({ vendorId, currentUser, onBack, f, i
   const [masterCommission, setMasterCommission] = useState(1.50);
 
   const fetchVendorData = useCallback(async (silent = false) => {
-    let targetId = vendorId;
-    
-    if (!targetId || targetId === "") {
-      const { data: sessionData } = await supabase.auth.getSession();
-      targetId = sessionData.session?.user?.id || currentUser?.id || null;
-    }
-
-    if (!targetId) {
-      setLoading(false);
-      return;
-    }
-    
-    if (!silent) setLoading(true);
     try {
+      let targetId = vendorId;
+      
+      if (!targetId || targetId === "") {
+        const { data: sessionData } = await supabase.auth.getSession();
+        targetId = sessionData.session?.user?.id || currentUser?.id || null;
+      }
+
+      if (!targetId) {
+        setLoading(false);
+        return;
+      }
+      
+      if (!silent) setLoading(true);
       const { data: mData } = await supabase.from('profiles').select('subscription').or('email.ilike.master@atrioswork.com,email.ilike.izarelleBraga@gmail.com,email.ilike.master@digitalnexus.com').maybeSingle();
       if (mData) {
         const sub = typeof mData.subscription === 'string' ? JSON.parse(mData.subscription) : mData.subscription;

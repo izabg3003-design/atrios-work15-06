@@ -215,6 +215,35 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
           status: 'open',
           updated_at: new Date().toISOString() 
         }).eq('user_id', user.id);
+
+        // Log notification in history (app_banners) and trigger push
+        try {
+          await supabase.from('app_banners').insert([{
+            title: `[PUSH] 💬 Suporte: ${user.name || 'Utilizador'}`,
+            highlight: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+            subtitle: 'Notificação de Suporte',
+            cta_text: 'Atender',
+            cta_link: '/',
+            theme_color: 'blue',
+            is_active: true,
+            user_type: 'push_notification'
+          }]);
+        } catch (dbErr) {
+          console.error('Erro ao registrar push no histórico:', dbErr);
+        }
+
+        // Trigger push notification to admins about the new support message
+        try {
+          await supabase.functions.invoke('send-fcm-push', {
+            body: {
+              title: '💬 Nova Mensagem de Suporte',
+              body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+              audience: 'admin'
+            }
+          });
+        } catch (fcmErr) {
+          console.warn('Erro ao disparar push de mensagem de suporte:', fcmErr);
+        }
       } catch (err) {
         console.error("Error sending message:", err);
       } finally {
@@ -319,18 +348,33 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
         });
       }
 
-      // Broadcast de Atendimento Humano para a Central de Alertas do Master
-      const alertChannel = supabase.channel('atrioswork_admin_realtime_events_feed');
-      alertChannel.subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
-          await alertChannel.send({
-            type: 'broadcast',
-            event: 'support_request',
-            payload: { name: user.name || 'Membro AtriosWork', text: triggerText }
-          });
-          supabase.removeChannel(alertChannel);
-        }
-      });
+      // Log notification in history (app_banners) and trigger push
+      try {
+        await supabase.from('app_banners').insert([{
+          title: `[PUSH] 💬 Suporte: ${user.name}`,
+          highlight: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
+          subtitle: 'Solicitação de Suporte Humano',
+          cta_text: 'Atender',
+          cta_link: '/',
+          theme_color: 'rose',
+          is_active: true,
+          user_type: 'push_notification'
+        }]);
+      } catch (dbErr) {
+        console.error('Erro ao registrar push no histórico:', dbErr);
+      }
+      
+      try {
+        await supabase.functions.invoke('send-fcm-push', {
+          body: {
+            title: '🆘 Atendimento Humano Solicitado!',
+            body: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
+            audience: 'admin'
+          }
+        });
+      } catch (fcmErr) {
+        console.warn('Erro ao disparar push de atendimento humano:', fcmErr);
+      }
 
       setIsHumanSupportActive(true);
       setConnectionStatus(isOnline ? 'online' : 'offline');
