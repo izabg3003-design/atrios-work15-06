@@ -46,7 +46,7 @@ export async function requestAndRegisterFCM(userId: string, userRole?: string) {
     }
 
     // 3. Obter token FCM utilizando o Service Worker registado
-    const vapidKey = (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+    const vapidKey = (import.meta as any).env.VITE_FIREBASE_VAPID_KEY || "BB0fDxpRNxF2-6WguAynyaUOVaNoIOoSL8WKTmQytRYiQq43tyeFFfYA7-FPWnR5UCZgqxRMooxzn-jh4eUX8Ak";
     const tokenOptions: any = {
       serviceWorkerRegistration: registration
     };
