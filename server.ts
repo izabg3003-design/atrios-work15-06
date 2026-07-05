@@ -662,7 +662,7 @@ async function startServer() {
                   message: {
                     token,
                     notification: { title, body },
-                    android: { priority: "high" },
+                    android: { priority: "HIGH" },
                     apns: {
                       headers: { "apns-priority": "10" },
                       payload: { aps: { sound: "default" } },

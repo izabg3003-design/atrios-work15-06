@@ -82,6 +82,22 @@ serve(async (req) => {
     const { title, body, audience, targetUserId, targetUserEmail, url } = await req.json();
     const finalUrl = url || '/';
 
+    // Obter origem para montar URLs absolutas de clique, ícone e badge
+    const originHeader = req.headers.get("origin") || req.headers.get("referer") || "https://atrioswork.pt";
+    let cleanOrigin = "https://atrioswork.pt";
+    try {
+      const parsedOrigin = new URL(originHeader);
+      cleanOrigin = parsedOrigin.origin;
+    } catch (_) {}
+
+    let absoluteTargetUrl = finalUrl;
+    if (!finalUrl.startsWith("http://") && !finalUrl.startsWith("https://")) {
+      const cleanPath = finalUrl.startsWith("/") ? finalUrl.substring(1) : finalUrl;
+      absoluteTargetUrl = `${cleanOrigin}/${cleanPath}`;
+    }
+
+    const iconUrl = `${cleanOrigin}/logo_atualizado.jpg?v=20260314_v1`;
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -233,10 +249,10 @@ serve(async (req) => {
           notification: {
             title,
             body,
-            icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-            badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            icon: iconUrl,
+            badge: iconUrl,
             vibrate: [100, 50, 100],
-            data: { url: finalUrl },
+            data: { url: absoluteTargetUrl },
           },
         });
 
@@ -287,7 +303,7 @@ serve(async (req) => {
                         body,
                       },
                       android: {
-                        priority: "high",
+                        priority: "HIGH",
                       },
                       apns: {
                         headers: {
@@ -310,15 +326,18 @@ serve(async (req) => {
                         notification: {
                           title,
                           body,
-                          icon: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
-                          badge: 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1',
+                          icon: iconUrl,
+                          badge: iconUrl,
+                          click_action: absoluteTargetUrl,
+                          clickAction: absoluteTargetUrl,
                         },
                         fcm_options: {
-                          link: finalUrl,
+                          link: absoluteTargetUrl,
                         },
                       },
                       data: {
-                        url: finalUrl,
+                        url: absoluteTargetUrl,
+                        click_action: absoluteTargetUrl,
                       },
                     },
                   }),
