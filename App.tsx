@@ -121,6 +121,35 @@ const App: React.FC = () => {
   const [isPremiumModalOpen, setIsPremiumModalOpen] = useState(false);
   const [loginInRegisterMode, setLoginInRegisterMode] = useState(false);
   const [activeNotification, setActiveNotification] = useState<{ id: string; title: string; body: string; url?: string } | null>(null);
+  const [showPushBanner, setShowPushBanner] = useState(false);
+
+  useEffect(() => {
+    if (user.id && 'Notification' in window) {
+      if (Notification.permission !== 'granted') {
+        setShowPushBanner(true);
+      }
+    }
+  }, [user.id]);
+
+  const handleEnablePush = async () => {
+    try {
+      const token = await requestAndRegisterFCM(user.id, user.role);
+      if (token) {
+        alert("Excelente! Notificações push ativadas com sucesso. Agora receberá alertas na barra de notificações do seu telemóvel!");
+        setShowPushBanner(false);
+      } else {
+        const currentPermission = Notification.permission;
+        if (currentPermission === 'denied') {
+          alert("Atenção: As notificações estão bloqueadas no seu navegador ou telemóvel. Por favor, aceda às definições do navegador (clique no ícone de cadeado na barra de endereços) e ative as notificações manualmente.");
+        } else {
+          alert("Não foi possível obter o token das notificações. Certifique-se de aceitar a permissão de notificações quando solicitado.");
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao ativar notificações:", err);
+      alert("Erro ao ativar as notificações.");
+    }
+  };
   
   const [now, setNow] = useState(new Date());
 
@@ -515,6 +544,37 @@ const App: React.FC = () => {
           <Sidebar activeTab={appState} setActiveTab={handleTabChange} user={user} onLogout={handleLogout} t={t} hideValues={hideValues} togglePrivacy={() => setHideValues(!hideValues)} isPro={isPro} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-12 pt-6 md:pt-12 pb-40 md:pb-12 ml-0 md:ml-24 scroll-smooth">
             <div className="max-w-5xl mx-auto w-full">
+              {showPushBanner && (
+                <div className="mb-6 p-4 bg-slate-900/80 border border-blue-500/30 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 backdrop-blur-md shadow-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center animate-pulse">
+                      <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                        <path d="M10 2a6 6 0 00-6 6v3.586l-.707.707A1 1 0 004 14h12a1 1 0 00.707-1.707L16 11.586V8a6 6 0 00-6-6zM10 18a3 3 0 01-3-3h6a3 3 0 01-3 3z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <h4 className="text-xs font-black text-white uppercase tracking-wider">🔔 Ativar Notificações no Telemóvel</h4>
+                      <p className="text-[11px] text-slate-400 leading-relaxed font-semibold mt-0.5">
+                        Receba alertas de escala, suporte e atualizações diretamente na sua barra de notificações!
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 w-full md:w-auto shrink-0">
+                    <button
+                      onClick={handleEnablePush}
+                      className="flex-1 md:flex-initial px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] uppercase tracking-wider rounded-xl transition-all shadow-md shadow-blue-900/20"
+                    >
+                      Permitir Notificações
+                    </button>
+                    <button
+                      onClick={() => setShowPushBanner(false)}
+                      className="px-3 py-2 bg-slate-950 hover:bg-slate-800 text-slate-500 hover:text-slate-300 font-bold text-[10px] uppercase rounded-xl transition-all border border-slate-800"
+                    >
+                      Ignorar
+                    </button>
+                  </div>
+                </div>
+              )}
               {appState === 'dashboard' && <Dashboard user={user} records={records} onOpenPremium={() => setIsPremiumModalOpen(true)} onDeleteRecord={async (date) => {
                 if (!user.id) return false;
                 const { error } = await supabase.from('work_records').delete().eq('user_id', user.id).eq('date', date);

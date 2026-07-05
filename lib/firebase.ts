@@ -46,10 +46,16 @@ export async function requestAndRegisterFCM(userId: string, userRole?: string) {
     }
 
     // 3. Obter token FCM utilizando o Service Worker registado
-    const token = await getToken(messaging, {
+    const vapidKey = (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+    const tokenOptions: any = {
       serviceWorkerRegistration: registration
-    }).catch(err => {
-      console.warn("Falha ao obter token FCM. Pode ser necessário configurar VAPID no painel do Firebase:", err);
+    };
+    if (vapidKey) {
+      tokenOptions.vapidKey = vapidKey;
+    }
+
+    const token = await getToken(messaging, tokenOptions).catch(err => {
+      console.warn("Falha ao obter token FCM. Certifique-se de configurar a Chave VAPID (VITE_FIREBASE_VAPID_KEY) nas definições do Firebase:", err);
       return null;
     });
 
