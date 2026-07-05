@@ -304,24 +304,30 @@ serve(async (req) => {
                       },
                       android: {
                         priority: "HIGH",
+                        notification: {
+                          notification_priority: "PRIORITY_HIGH",
+                          visibility: "PUBLIC",
+                          sound: "default"
+                        }
                       },
                       apns: {
                         headers: {
                           "apns-priority": "10",
+                          "apns-push-type": "alert"
                         },
                         payload: {
                           aps: {
-                            alert: {
-                              title,
-                              body,
-                            },
                             sound: "default",
+                            "content-available": 1
                           },
                         },
                       },
                       webpush: {
                         headers: {
                           Urgency: "high",
+                          urgency: "high",
+                          TTL: "86400",
+                          ttl: "86400"
                         },
                         notification: {
                           title,
@@ -330,6 +336,7 @@ serve(async (req) => {
                           badge: iconUrl,
                           click_action: absoluteTargetUrl,
                           clickAction: absoluteTargetUrl,
+                          requireInteraction: true
                         },
                         fcm_options: {
                           link: absoluteTargetUrl,

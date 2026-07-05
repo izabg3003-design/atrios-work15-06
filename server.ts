@@ -604,6 +604,7 @@ async function startServer() {
               apns: {
                 headers: {
                   "apns-priority": "10",
+                  "apns-push-type": "alert"
                 },
                 payload: {
                   aps: {
@@ -612,12 +613,16 @@ async function startServer() {
                       body,
                     },
                     sound: "default",
+                    "content-available": 1
                   },
                 },
               },
               webpush: {
                 headers: {
                   Urgency: "high",
+                  urgency: "high",
+                  TTL: "86400",
+                  ttl: "86400"
                 },
                 notification: {
                   title,
@@ -625,6 +630,7 @@ async function startServer() {
                   icon: iconUrl,
                   badge: iconUrl,
                   clickAction: absoluteTargetUrl,
+                  requireInteraction: true
                 },
                 fcmOptions: {
                   link: absoluteTargetUrl,
@@ -662,14 +668,32 @@ async function startServer() {
                   message: {
                     token,
                     notification: { title, body },
-                    android: { priority: "HIGH" },
+                    android: { 
+                      priority: "HIGH",
+                      notification: {
+                        notification_priority: "PRIORITY_HIGH",
+                        visibility: "PUBLIC",
+                        sound: "default"
+                      }
+                    },
                     apns: {
-                      headers: { "apns-priority": "10" },
-                      payload: { aps: { sound: "default" } },
+                      headers: { 
+                        "apns-priority": "10",
+                        "apns-push-type": "alert"
+                      },
+                      payload: { 
+                        aps: { 
+                          sound: "default",
+                          "content-available": 1
+                        } 
+                      },
                     },
                     webpush: {
                       headers: {
                         Urgency: "high",
+                        urgency: "high",
+                        TTL: "86400",
+                        ttl: "86400"
                       },
                       notification: {
                         title,
@@ -678,6 +702,7 @@ async function startServer() {
                         badge: iconUrl,
                         click_action: absoluteTargetUrl,
                         clickAction: absoluteTargetUrl,
+                        requireInteraction: true
                       },
                       fcm_options: { link: absoluteTargetUrl },
                     },
