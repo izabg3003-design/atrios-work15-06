@@ -265,6 +265,34 @@ async function deleteSubscriptionFromDatabase(endpoint: string) {
       console.error("[Firestore] Erro ao remover assinatura do Firestore:", err);
     }
   }
+
+  // Remover do Supabase
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (supabaseServiceKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      
+      const { data: matchingProfiles, error: fetchErr } = await supabase
+        .from("profiles")
+        .select("id, fcm_token")
+        .not("fcm_token", "is", null);
+        
+      if (!fetchErr && matchingProfiles) {
+        for (const p of matchingProfiles) {
+          if (p.fcm_token && p.fcm_token.includes(endpoint)) {
+            await supabase
+              .from("profiles")
+              .update({ fcm_token: null })
+              .eq("id", p.id);
+            console.log(`[Supabase Cleanup] Removido token VAPID inválido do perfil do usuário ${p.id}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[Supabase Cleanup] Falha ao limpar token inválido do Supabase:", err);
+  }
 }
 
 // 🔵 5. START DO SERVIDOR EXPRESS

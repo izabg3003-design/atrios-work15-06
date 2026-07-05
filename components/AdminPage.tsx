@@ -112,15 +112,17 @@ async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string):
 }
 
 async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string): Promise<{ successCount: number; errors: string[] }> {
-  if (tokens.length === 0) {
-    throw new Error("Nenhum token FCM registado nesta audiência.");
+  // Filtra tokens que na verdade são JSONs de Web Push VAPID para evitar envio incorreto e remoção indevida do banco
+  const actualTokens = tokens.filter((t) => !t.trim().startsWith("{"));
+  if (actualTokens.length === 0) {
+    return { successCount: 0, errors: [] };
   }
   
   const accessToken = await getGoogleAccessToken(clientEmail, privateKey);
   let successCount = 0;
   const errors: string[] = [];
 
-  const sendPromises = tokens.map(async (token) => {
+  const sendPromises = actualTokens.map(async (token) => {
     try {
       const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
         method: "POST",
@@ -384,7 +386,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
                   const validTokens = filteredProfiles
                     .map(p => p.fcm_token)
-                    .filter((t): t is string => !!t && t.trim().length > 0);
+                    .filter((t): t is string => !!t && t.trim().length > 0 && !t.trim().startsWith('{'));
 
                   if (validTokens.length > 0) {
                     const { successCount } = await sendClientSideFCM(
@@ -769,7 +771,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
           const validTokens = filteredProfiles
             .map(p => p.fcm_token)
-            .filter((t): t is string => !!t && t.trim().length > 0);
+            .filter((t): t is string => !!t && t.trim().length > 0 && !t.trim().startsWith('{'));
 
           if (validTokens.length > 0) {
             const { successCount, errors } = await sendClientSideFCM(
