@@ -154,20 +154,47 @@ self.addEventListener('push', (event) => {
 // Lidar com o toque ou clique na notificação push
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
-  const targetUrl = event.notification.data || '/';
+  
+  let targetUrl = event.notification.data || '/';
+  if (typeof targetUrl !== 'string') {
+    targetUrl = '/';
+  }
+  
+  let absoluteUrl = targetUrl;
+  if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+    try {
+      absoluteUrl = new URL(targetUrl, self.location.origin).href;
+    } catch (e) {
+      absoluteUrl = self.location.origin + '/';
+    }
+  }
+
+  console.log('[Service Worker] Notificação clicada. Redirecionando para:', absoluteUrl);
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Se já tiver uma aba aberta, faz o focus nela
-      for (const client of clientList) {
-        if (client.url.includes(targetUrl) && 'focus' in client) {
-          return client.focus();
+    clients.matchAll({ type: 'window', includeUncontrolled: true })
+      .then((clientList) => {
+        // Tentar focar em qualquer aba aberta na mesma origem
+        for (const client of clientList) {
+          if ('focus' in client) {
+            if ('navigate' in client && client.url !== absoluteUrl) {
+              try {
+                client.navigate(absoluteUrl);
+              } catch (navErr) {
+                console.warn('[Service Worker] Falha ao navegar aba aberta para a URL de destino:', navErr);
+              }
+            }
+            return client.focus();
+          }
         }
-      }
-      // Se não, abre uma nova janela
-      if (clients.openWindow) {
-        return clients.openWindow(targetUrl);
-      }
-    })
+        
+        // Se nenhuma aba estiver aberta, abrir uma nova janela
+        if (clients.openWindow) {
+          return clients.openWindow(absoluteUrl);
+        }
+      })
+      .catch((err) => {
+        console.error('[Service Worker] Erro ao lidar com o clique da notificação:', err);
+      })
   );
 });
