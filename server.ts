@@ -70,16 +70,15 @@ async function initializeVapidKeys() {
     }
   }
 
-  // 3. Se não houver em nenhum lado, gerar chaves novas
-  const keys = webpush.generateVAPIDKeys();
-  vapidPublicKey = keys.publicKey;
-  vapidPrivateKey = keys.privateKey;
-  console.log("[VAPID] Novas chaves Web Push geradas.");
+  // 3. Se não houver em nenhum lado, usar as chaves padrão estáticas e salvá-las
+  vapidPublicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
+  vapidPrivateKey = "4WDstomeo5DaU92E7ka7bcfQPbjfs1TVN14ya2U3Q70";
+  console.log("[VAPID] Chaves Web Push padrão estáticas aplicadas.");
   
   try {
-    fs.writeFileSync(keysFilePath, JSON.stringify(keys, null, 2), "utf8");
+    fs.writeFileSync(keysFilePath, JSON.stringify({ publicKey: vapidPublicKey, privateKey: vapidPrivateKey }, null, 2), "utf8");
   } catch (e) {
-    console.error("[VAPID] Falha ao gravar novas chaves no local:", e);
+    console.error("[VAPID] Falha ao gravar chaves padrão no local:", e);
   }
 
   // Salvar no Supabase
@@ -93,9 +92,9 @@ async function initializeVapidKeys() {
         cta_text: vapidPrivateKey,
         is_active: true
       }]);
-      console.log("[VAPID] Novas chaves Web Push persistidas no Supabase com sucesso.");
+      console.log("[VAPID] Chaves Web Push padrão persistidas no Supabase com sucesso.");
     } catch (saveErr) {
-      console.error("[VAPID] Erro ao persistir novas chaves no Supabase:", saveErr);
+      console.error("[VAPID] Erro ao persistir chaves padrão no Supabase:", saveErr);
     }
   }
 
@@ -356,6 +355,12 @@ async function startServer() {
         });
       }
 
+      // Calcular dinamicamente o link do ícone do domínio ativo do request (evita chaves e imagens expiradas/CORS)
+      const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+      const host = req.get("host") || "atrioswork.pt";
+      const currentOrigin = `${protocol}://${host}`;
+      const iconUrl = `${currentOrigin}/logo_atualizado.jpg?v=20260314_v1`;
+
       console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'})`);
 
       // 1. Obter credenciais do Supabase
@@ -550,8 +555,8 @@ async function startServer() {
           notification: {
             title,
             body,
-            icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-            badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+            icon: iconUrl,
+            badge: iconUrl,
             vibrate: [100, 50, 100],
             data: { url },
           },
@@ -610,8 +615,8 @@ async function startServer() {
                 notification: {
                   title,
                   body,
-                  icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-                  badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                  icon: iconUrl,
+                  badge: iconUrl,
                 },
                 fcmOptions: {
                   link: url,
@@ -660,8 +665,8 @@ async function startServer() {
                       notification: {
                         title,
                         body,
-                        icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-                        badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                        icon: iconUrl,
+                        badge: iconUrl,
                       },
                       fcm_options: { link: url },
                     },

@@ -112,6 +112,9 @@ async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string):
 }
 
 async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string): Promise<{ successCount: number; errors: string[] }> {
+  const currentOrigin = window.location.origin;
+  const iconUrl = `${currentOrigin}/logo_atualizado.jpg?v=20260314_v1`;
+
   const actualTokensMap = new Map<string, string>(); // FCM token -> Original raw database string
   
   tokens.forEach((t) => {
@@ -176,8 +179,8 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
               notification: {
                 title: title,
                 body: body,
-                icon: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
-                badge: "https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app/logo_atualizado.jpg?v=20260314_v1",
+                icon: iconUrl,
+                badge: iconUrl,
               },
               fcmOptions: {
                 link: "/"
