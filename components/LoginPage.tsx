@@ -2,6 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, ArrowRight, ArrowLeft, ShieldAlert, Loader2, ShieldCheck, UserPlus, Phone, Mail, Sparkles } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { sendPushNotification } from '../lib/pushSender';
 
 interface Props {
   onLogin: (email: string) => void;
@@ -132,13 +133,20 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
         
         // Trigger push notification to admins about the new user registration
         try {
+          await sendPushNotification({
+            title: '🆕 Novo Cadastro no App!',
+            body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
+            audience: 'admin'
+          });
+          
+          // Redundância Supabase Edge Functions se configurado
           await supabase.functions.invoke('send-fcm-push', {
             body: {
               title: '🆕 Novo Cadastro no App!',
               body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
               audience: 'admin'
             }
-          });
+          }).catch(() => {});
         } catch (fcmErr) {
           console.warn('Erro ao disparar push de novo cadastro:', fcmErr);
         }

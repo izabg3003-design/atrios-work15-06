@@ -4,6 +4,7 @@ import { Send, Bot, User, LifeBuoy, Loader2, Sparkles, MessageSquare, Headphones
 import { GoogleGenAI } from "@google/genai";
 import { UserProfile } from '../types';
 import { supabase } from '../lib/supabase';
+import { sendPushNotification } from '../lib/pushSender';
 import { format } from 'date-fns';
 
 interface Message {
@@ -234,13 +235,20 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
 
         // Trigger push notification to admins about the new support message
         try {
+          await sendPushNotification({
+            title: '💬 Nova Mensagem de Suporte',
+            body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+            audience: 'admin'
+          });
+
+          // Redundância Supabase Edge Functions se configurado
           await supabase.functions.invoke('send-fcm-push', {
             body: {
               title: '💬 Nova Mensagem de Suporte',
               body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
               audience: 'admin'
             }
-          });
+          }).catch(() => {});
         } catch (fcmErr) {
           console.warn('Erro ao disparar push de mensagem de suporte:', fcmErr);
         }
@@ -365,13 +373,20 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
       }
       
       try {
+        await sendPushNotification({
+          title: '🆘 Atendimento Humano Solicitado!',
+          body: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
+          audience: 'admin'
+        });
+
+        // Redundância Supabase Edge Functions se configurado
         await supabase.functions.invoke('send-fcm-push', {
           body: {
             title: '🆘 Atendimento Humano Solicitado!',
             body: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
             audience: 'admin'
           }
-        });
+        }).catch(() => {});
       } catch (fcmErr) {
         console.warn('Erro ao disparar push de atendimento humano:', fcmErr);
       }

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from '../lib/supabase';
+import { sendPushNotification } from '../lib/pushSender';
 
 interface Message {
   role: 'user' | 'ai' | 'support';
@@ -198,6 +199,15 @@ const PublicSupportChat: React.FC = () => {
       
       // Trigger push notification to admins about the new guest support message
       try {
+        await sendPushNotification({
+          title: isHumanRequest ? '🆘 Atendimento Humano Solicitado!' : '💬 Novo Chat com Visitante!',
+          body: isHumanRequest 
+            ? `O visitante ${userData.name.trim()} (${cleanEmail}) solicitou atendimento humano no chat.` 
+            : `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
+          audience: 'admin'
+        });
+
+        // Redundância Supabase Edge Functions se configurado
         await supabase.functions.invoke('send-fcm-push', {
           body: {
             title: isHumanRequest ? '🆘 Atendimento Humano Solicitado!' : '💬 Novo Chat com Visitante!',
@@ -206,7 +216,7 @@ const PublicSupportChat: React.FC = () => {
               : `${userData.name.trim()} (Visitante): "${text.substring(0, 60)}${text.length > 60 ? '...' : ''}"`,
             audience: 'admin'
           }
-        });
+        }).catch(() => {});
       } catch (fcmErr) {
         console.warn('Erro ao disparar push de mensagem de visitante:', fcmErr);
       }

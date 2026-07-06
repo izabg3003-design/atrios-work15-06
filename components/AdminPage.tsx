@@ -10,6 +10,7 @@ import {
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
+import { sendPushNotification } from '../lib/pushSender';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
 import AdminGlobalAnalytics from './AdminGlobalAnalytics';
@@ -440,15 +441,21 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             }
           }
 
-          // Redundância via Edge Function do Supabase
+          // Redundância via Edge Function do Supabase e API do Servidor local
           try {
+            await sendPushNotification({
+              title: title,
+              body: body,
+              audience: audience
+            });
+
             await supabase.functions.invoke('send-fcm-push', {
               body: {
                 title: title,
                 body: body,
                 audience: audience
               }
-            });
+            }).catch(() => {});
           } catch (fcmFuncErr) {
             console.warn('[Scheduled Push] Edge Function offline:', fcmFuncErr);
           }
@@ -839,15 +846,21 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         }
       }
 
-      // Tenta chamar a Edge Function como redundância
+      // Tenta chamar a API do Servidor local e a Edge Function como redundância
       try {
+        await sendPushNotification({
+          title: newPushTitle.trim(),
+          body: newPushBody.trim(),
+          audience: newPushAudience
+        });
+
         await supabase.functions.invoke('send-fcm-push', {
           body: {
             title: newPushTitle.trim(),
             body: newPushBody.trim(),
             audience: newPushAudience
           }
-        });
+        }).catch(() => {});
       } catch (fcmErr) {
         console.warn('Função de borda do Supabase (send-fcm-push) ainda não implantada ou offline:', fcmErr);
       }
