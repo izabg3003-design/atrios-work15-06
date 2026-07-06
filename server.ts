@@ -443,17 +443,52 @@ async function startServer() {
 
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-      // 2. Obter perfis ativos do Supabase de forma resiliente (inclui fcm_token null para cruzamento de email VAPID)
+      // 2. Obter perfis ativos do Supabase de forma inteligente e resiliente para evitar limites de paginação (max 1000)
       let profiles: any[] = [];
       try {
-        const { data, error: dbError } = await supabase
-          .from("profiles")
-          .select("id, fcm_token, role, email");
+        const hasTargetUser = !!(targetUserId || targetUserEmail);
+        const titleL = (title || "").toLowerCase();
+        const bodyL = (body || "").toLowerCase();
+        const audL = (audience || "").toLowerCase();
+        const isSys = (audL === "admin" || audL === "master" || audL === "support") || 
+                      (!hasTargetUser && audL !== "user" && (
+                        titleL.includes("atendimento humano") || bodyL.includes("atendimento humano") ||
+                        titleL.includes("novo utilizador") || bodyL.includes("novo utilizador") ||
+                        titleL.includes("novo cadastro") || bodyL.includes("novo cadastro") ||
+                        titleL.includes("novo registo") || bodyL.includes("novo registo") ||
+                        titleL.includes("registou-se") || bodyL.includes("registou-se") ||
+                        titleL.includes("registrado") || bodyL.includes("registrado") ||
+                        titleL.includes("desbloqueio") || bodyL.includes("desbloqueio") ||
+                        titleL.includes("venda realizada") || bodyL.includes("venda realizada") ||
+                        titleL.includes("nova venda") || bodyL.includes("nova venda") ||
+                        titleL.includes("solicitou atendimento") || bodyL.includes("solicitou atendimento") ||
+                        titleL.includes("solicitação de") || bodyL.includes("solicitação de")
+                      ));
+
+        let query = supabase.from("profiles").select("id, fcm_token, role, email");
+
+        if (targetUserId) {
+          query = query.eq("id", targetUserId);
+        } else if (targetUserEmail) {
+          query = query.ilike("email", targetUserEmail);
+        } else if (isSys || audL === "admin" || audL === "master") {
+          // Otimização crucial: buscar apenas perfis que sejam admins, masters ou que tenham e-mails de Master
+          query = query.or("role.eq.admin,role.eq.master,email.ilike.%master@atrioswork.com%,email.ilike.%izarellebraga@gmail.com%,email.ilike.%master@digitalnexus.com%");
+        } else if (audL === "vendors") {
+          query = query.eq("role", "vendor");
+        } else if (audL === "support") {
+          query = query.or("role.eq.support,role.eq.admin,role.eq.master,email.ilike.%master@atrioswork.com%,email.ilike.%izarellebraga@gmail.com%,email.ilike.%master@digitalnexus.com%");
+        } else if (audL === "user") {
+          query = query.eq("role", "user");
+        }
+
+        const { data, error: dbError } = await query;
 
         if (dbError) {
           console.warn("[FCM Server] Erro ao buscar perfis no Supabase (usando dados locais de subscrições como alternativa):", dbError.message);
         } else {
           profiles = data || [];
+          console.log(`[FCM Server] Consulta de perfis retornou ${profiles.length} registos correspondentes.`);
         }
       } catch (err: any) {
         console.warn("[FCM Server] Excepção ao buscar perfis do Supabase:", err.message || err);
