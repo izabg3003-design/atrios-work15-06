@@ -101,15 +101,15 @@ async function initializeVapidKeys() {
   webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
 }
 
-// 🔵 2. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO)
+// 🔵 2. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO E FIRESTORE)
 const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 let isFirebaseAdminInitialized = false;
 
-if (serviceAccountEnv) {
-  try {
-    const serviceAccount = JSON.parse(serviceAccountEnv);
-    const apps = getApps();
-    if (!apps.length) {
+try {
+  const apps = getApps();
+  if (!apps.length) {
+    if (serviceAccountEnv) {
+      const serviceAccount = JSON.parse(serviceAccountEnv);
       const isServiceAccount = serviceAccount && (serviceAccount.type === "service_account" || (serviceAccount.client_email && serviceAccount.private_key));
       
       if (isServiceAccount) {
@@ -119,22 +119,34 @@ if (serviceAccountEnv) {
         isFirebaseAdminInitialized = true;
         console.log("[Firebase Admin] SDK Inicializado com sucesso via conta de serviço.");
       } else {
-        try {
-          initializeApp();
-          isFirebaseAdminInitialized = true;
-          console.log("[Firebase Admin] SDK Inicializado com credenciais padrão do Google Cloud.");
-        } catch (initErr) {
-          console.warn("[Firebase Admin] Credenciais inválidas fornecidas e impossível carregar credenciais padrão:", initErr);
-        }
+        initializeApp();
+        isFirebaseAdminInitialized = true;
+        console.log("[Firebase Admin] SDK Inicializado com credenciais padrão do Google Cloud.");
       }
     } else {
+      // Tentar ler o projectId do firebase-applet-config.json para inicialização nativa no Cloud Run
+      let configProjId = undefined;
+      try {
+        const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+        if (fs.existsSync(configPath)) {
+          const configJson = JSON.parse(fs.readFileSync(configPath, "utf8"));
+          configProjId = configJson.projectId;
+        }
+      } catch (e) {
+        // Ignorar erro silenciosamente
+      }
+
+      initializeApp({
+        projectId: configProjId || "gen-lang-client-0484473706"
+      });
       isFirebaseAdminInitialized = true;
+      console.log("[Firebase Admin] SDK Inicializado automaticamente com Project ID:", configProjId);
     }
-  } catch (err: any) {
-    console.error("[Firebase Admin] Falha ao inicializar SDK via JSON da conta de serviço:", err);
+  } else {
+    isFirebaseAdminInitialized = true;
   }
-} else {
-  console.warn("[Firebase Admin] FIREBASE_SERVICE_ACCOUNT não encontrada. Envio nativo FCM desativado.");
+} catch (err: any) {
+  console.error("[Firebase Admin] Falha ao inicializar SDK:", err.message || err);
 }
 
 // Helper para obter token de acesso do Google OAuth2 de forma nativa e segura para fallback HTTP v1
@@ -165,6 +177,27 @@ function getGoogleAccessToken(clientEmail: string, privateKey: string): string {
   return `${toSign}.${signature}`;
 }
 
+function getFirestoreDb() {
+  let databaseId: string | undefined = undefined;
+  try {
+    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+    if (fs.existsSync(configPath)) {
+      const configJson = JSON.parse(fs.readFileSync(configPath, "utf8"));
+      databaseId = configJson.firestoreDatabaseId;
+    }
+  } catch (e) {
+    // Ignorar erro silenciosamente
+  }
+
+  const apps = getApps();
+  const app = apps.length > 0 ? apps[0] : undefined;
+  
+  if (app && databaseId) {
+    return getFirestore(app, databaseId);
+  }
+  return getFirestore();
+}
+
 // 🔵 3. PERSISTÊNCIA AUXILIAR LOCAL DE ASSINATURAS (WEB PUSH / VAPID)
 const subsFilePath = path.join(process.cwd(), "web-push-subscriptions.json");
 
@@ -183,7 +216,7 @@ async function loadAllSubscriptions(): Promise<any[]> {
   const localSubs = loadLocalSubscriptions();
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestore();
+      const db = getFirestoreDb();
       const snapshot = await db.collection("web_push_subscriptions").get();
       const firestoreSubs: any[] = [];
       snapshot.forEach((doc) => {
@@ -243,7 +276,7 @@ async function saveSubscriptionToDatabase(data: { subscription: any; userId: str
   // 2. Gravar no Firestore se o Firebase Admin estiver ativo
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestore();
+      const db = getFirestoreDb();
       const safeId = Buffer.from(data.subscription.endpoint).toString("base64url");
       await db.collection("web_push_subscriptions").doc(safeId).set({
         subscription: data.subscription,
@@ -283,7 +316,7 @@ async function deleteSubscriptionFromDatabase(endpoint: string) {
   // Remover do Firestore
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestore();
+      const db = getFirestoreDb();
       const safeId = Buffer.from(endpoint).toString("base64url");
       await db.collection("web_push_subscriptions").doc(safeId).delete();
       console.log("[Firestore] Assinatura inválida (410/404) removida do Firestore.");
@@ -410,13 +443,12 @@ async function startServer() {
 
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-      // 2. Obter perfis ativos do Supabase que contêm fcm_token ou subscrições de forma resiliente
+      // 2. Obter perfis ativos do Supabase de forma resiliente (inclui fcm_token null para cruzamento de email VAPID)
       let profiles: any[] = [];
       try {
         const { data, error: dbError } = await supabase
           .from("profiles")
-          .select("id, fcm_token, role, email")
-          .not("fcm_token", "is", null);
+          .select("id, fcm_token, role, email");
 
         if (dbError) {
           console.warn("[FCM Server] Erro ao buscar perfis no Supabase (usando dados locais de subscrições como alternativa):", dbError.message);
