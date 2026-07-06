@@ -75,6 +75,7 @@ if (isConfigured && supabase) {
               headers: {
                 'Content-Type': 'application/json',
               },
+              keepalive: true,
               body: JSON.stringify(options?.body || {}),
             });
             
@@ -102,7 +103,7 @@ if (isConfigured && supabase) {
               console.log("[FCM Interceptor] Recorrendo à Edge Function real do Supabase para audiência geral...");
               return originalFunctions.invoke(functionName, options);
             }
-            return { data: null, error: new Error("Falha no envio local de push e fallback bloqueado por segurança.") };
+            return { data: null, error: new Error("Falha no envio local de push e fallback fallback bloqueado por segurança.") };
           }
         }
         if (originalFunctions && typeof originalFunctions.invoke === 'function') {
@@ -136,6 +137,7 @@ if (isConfigured && supabase) {
               const response = await fetch('/api/send-fcm-push', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                keepalive: true,
                 body: JSON.stringify(options?.body || {}),
               });
               const responseText = await response.text();

@@ -20,6 +20,7 @@ export async function sendPushNotification(params: PushParams): Promise<{ succes
       headers: {
         'Content-Type': 'application/json',
       },
+      keepalive: true,
       body: JSON.stringify({
         title: params.title,
         body: params.body,
@@ -34,8 +35,17 @@ export async function sendPushNotification(params: PushParams): Promise<{ succes
       throw new Error(`Erro HTTP: ${response.status}`);
     }
 
-    const data = await response.json();
-    console.log('[Push Sender] Notificação despachada com sucesso pela API do Servidor:', data);
+    const responseText = await response.text();
+    let data: any = null;
+    if (responseText.trim()) {
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        console.warn('[Push Sender] Resposta não é um JSON válido:', responseText);
+      }
+    }
+
+    console.log('[Push Sender] Notificação despachada com sucesso pela API do Servidor:', data || '(corpo vazio)');
     return { success: true };
   } catch (err: any) {
     console.error('[Push Sender] Erro ao enviar push via API local do Servidor, usando fallback:', err);
