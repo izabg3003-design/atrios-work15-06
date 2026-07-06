@@ -147,6 +147,14 @@ self.addEventListener('push', (event) => {
       }
     } catch (showErr) {
       console.error('[Service Worker] Erro fatal ao tentar disparar showNotification:', showErr);
+      try {
+        // Último recurso de fallback absoluto para evitar que o navegador bloqueie permissões de push por silêncio
+        await self.registration.showNotification(title, {
+          body: body
+        });
+      } catch (catastrophicErr) {
+        console.error('[Service Worker] Falha catastrófica no fallback absoluto de segurança:', catastrophicErr);
+      }
     }
   })());
 });

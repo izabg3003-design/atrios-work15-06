@@ -229,12 +229,12 @@
     <script type="module" src="/index.tsx"></script>
     <script src="//code.jivosite.com/widget/wfDiRuDrnE" async></script>
     
-    <!-- Service Worker Registration Fixed for TWA/Store -->
+    <!-- Service Worker Registration Fixed and Unified with FCM to Prevent Conflicts -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw-v3.js?v=6.2.0', { scope: '/' }).then(reg => {
-            console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
+          navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' }).then(reg => {
+            console.log('AtriosWork Unified Service Worker ativo na origem:', reg.scope);
           }).catch(err => {
             console.warn('Registro de SW ignorado ou falhou:', err.message);
           });
