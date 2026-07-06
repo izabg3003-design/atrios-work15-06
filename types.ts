@@ -70,6 +70,7 @@ export interface UserProfile {
   settings?: {
     language: Language;
     currency: Currency;
+    last_seen_at?: string;
   };
   created_at?: string;
 }

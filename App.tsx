@@ -166,6 +166,37 @@ const App: React.FC = () => {
       clearTimeout(timer);
     };
   }, []);
+
+  useEffect(() => {
+    if (!user || !user.id || appState === 'landing' || appState === 'login') return;
+
+    const updateActivity = async () => {
+      try {
+        const { data: latestProfile } = await supabase
+          .from('profiles')
+          .select('settings')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const currentSettings = latestProfile?.settings || {};
+        const updatedSettings = {
+          ...currentSettings,
+          last_seen_at: new Date().toISOString()
+        };
+
+        await supabase
+          .from('profiles')
+          .update({ settings: updatedSettings })
+          .eq('id', user.id);
+      } catch (err) {
+        console.warn('Erro ao atualizar atividade periódica:', err);
+      }
+    };
+
+    updateActivity();
+    const interval = setInterval(updateActivity, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user?.id, appState]);
   
   const [now, setNow] = useState(new Date());
   const isInitialLoad = useRef(true);
@@ -291,6 +322,22 @@ const App: React.FC = () => {
           setAuthInitialized(true);
           return;
         }
+        const currentSettings = profile.settings || {};
+        const nowIso = new Date().toISOString();
+        const lastSeen = currentSettings.last_seen_at;
+        const shouldUpdate = !lastSeen || (new Date(nowIso).getTime() - new Date(lastSeen).getTime() > 2 * 60 * 1000);
+
+        if (shouldUpdate) {
+          const updatedSettings = {
+            ...currentSettings,
+            last_seen_at: nowIso
+          };
+          supabase.from('profiles').update({ settings: updatedSettings }).eq('id', userId).then(({ error }) => {
+            if (error) console.warn("Erro ao atualizar last_seen_at:", error);
+          });
+          profile.settings = updatedSettings;
+        }
+
         setUser(profile);
         if (profile.email?.toLowerCase()?.includes('master@atrioswork.com') || profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) setAppState('admin');
         else if (profile.role === 'vendor') setAppState('vendor-detail');
@@ -307,6 +354,37 @@ const App: React.FC = () => {
     } catch (e) { setAppState('landing'); }
     finally { setTimeout(() => setAuthInitialized(true), 100); }
   }, []);
+
+  useEffect(() => {
+    if (!user || !user.id || appState === 'landing' || appState === 'login') return;
+
+    const updateActivity = async () => {
+      try {
+        const { data: latestProfile } = await supabase
+          .from('profiles')
+          .select('settings')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        const currentSettings = latestProfile?.settings || {};
+        const updatedSettings = {
+          ...currentSettings,
+          last_seen_at: new Date().toISOString()
+        };
+
+        await supabase
+          .from('profiles')
+          .update({ settings: updatedSettings })
+          .eq('id', user.id);
+      } catch (err) {
+        console.warn('Erro ao atualizar atividade periódica:', err);
+      }
+    };
+
+    updateActivity();
+    const interval = setInterval(updateActivity, 2 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [user?.id, appState]);
 
   useEffect(() => {
     if (!isConfigured) { setAppState('landing'); return; }

@@ -1076,6 +1076,84 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     }
   };
 
+  const getUserActivityStatus = (u: any) => {
+    const lastSeenStr = u.settings?.last_seen_at || u.profile?.settings?.last_seen_at;
+    if (!lastSeenStr) {
+      return {
+        label: 'Sem atividade recente',
+        color: 'bg-slate-500/40',
+        textColor: 'text-slate-500',
+        borderColor: 'border-slate-500/20',
+        isOnline: false,
+        daysAgo: null
+      };
+    }
+
+    try {
+      const lastSeenDate = new Date(lastSeenStr);
+      const nowTime = now.getTime();
+      const diffMs = nowTime - lastSeenDate.getTime();
+      const diffMinutes = Math.floor(diffMs / (1000 * 60));
+      const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffMinutes < 5) {
+        return {
+          label: 'Aberto Agora',
+          color: 'bg-green-500 shadow-[0_0_10px_#22c55e] animate-pulse',
+          textColor: 'text-green-400',
+          borderColor: 'border-green-500/20',
+          isOnline: true,
+          daysAgo: 0
+        };
+      }
+
+      const isToday = lastSeenDate.getDate() === now.getDate() &&
+                      lastSeenDate.getMonth() === now.getMonth() &&
+                      lastSeenDate.getFullYear() === now.getFullYear();
+
+      if (isToday) {
+        return {
+          label: 'Abriu hoje',
+          color: 'bg-blue-500 shadow-[0_0_8px_#3b82f6]',
+          textColor: 'text-blue-400',
+          borderColor: 'border-blue-500/20',
+          isOnline: false,
+          daysAgo: 0
+        };
+      }
+
+      if (diffDays <= 1) {
+        return {
+          label: 'Abriu ontem',
+          color: 'bg-amber-500',
+          textColor: 'text-amber-400',
+          borderColor: 'border-amber-500/20',
+          isOnline: false,
+          daysAgo: 1
+        };
+      }
+
+      return {
+        label: `Não abre há ${diffDays} dia${diffDays > 1 ? 's' : ''}`,
+        color: diffDays > 7 ? 'bg-red-500' : 'bg-slate-400',
+        textColor: diffDays > 7 ? 'text-red-400 font-bold' : 'text-slate-400',
+        borderColor: diffDays > 7 ? 'border-red-500/20' : 'border-slate-500/10',
+        isOnline: false,
+        daysAgo: diffDays
+      };
+    } catch (e) {
+      return {
+        label: 'Sem atividade recente',
+        color: 'bg-slate-500/40',
+        textColor: 'text-slate-500',
+        borderColor: 'border-slate-500/20',
+        isOnline: false,
+        daysAgo: null
+      };
+    }
+  };
+
   const getAtriosWorkIdDisplay = (u: any) => {
     if (hideValues) return "••••••••";
     const sub = typeof u.subscription === 'string' ? JSON.parse(u.subscription) : (u.subscription || {});
@@ -1737,8 +1815,27 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                           <div className="flex items-center gap-4">
                             <div className="w-10 h-10 rounded-xl bg-slate-950 border border-slate-800 flex items-center justify-center font-black text-purple-400 text-xs">{u.name?.charAt(0)}</div>
                             <div>
-                               <p className="font-bold text-white text-sm">{u.name}</p>
+                               <div className="flex items-center gap-2">
+                                 <p className="font-bold text-white text-sm">{u.name}</p>
+                                 {(() => {
+                                   const activity = getUserActivityStatus(u);
+                                   return (
+                                     <span 
+                                       className={`inline-block w-2.5 h-2.5 rounded-full border border-white/10 ${activity.color}`} 
+                                       title={activity.label} 
+                                     />
+                                   );
+                                 })()}
+                               </div>
                                <p className="text-[9px] text-slate-500 uppercase font-black">{u.email}</p>
+                               {(() => {
+                                 const activity = getUserActivityStatus(u);
+                                 return (
+                                   <p className={`text-[8px] font-bold ${activity.textColor} uppercase tracking-[0.15em] mt-1`}>
+                                     {activity.label}
+                                   </p>
+                                 );
+                               })()}
                             </div>
                           </div>
                         </td>

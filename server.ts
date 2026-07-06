@@ -179,6 +179,33 @@ function loadLocalSubscriptions(): any[] {
   return [];
 }
 
+async function loadAllSubscriptions(): Promise<any[]> {
+  const localSubs = loadLocalSubscriptions();
+  if (isFirebaseAdminInitialized) {
+    try {
+      const db = getFirestore();
+      const snapshot = await db.collection("web_push_subscriptions").get();
+      const firestoreSubs: any[] = [];
+      snapshot.forEach((doc) => {
+        firestoreSubs.push(doc.data());
+      });
+      console.log(`[Push Server] Carregadas ${firestoreSubs.length} assinaturas do Firestore.`);
+      
+      const allSubs = [...localSubs];
+      firestoreSubs.forEach((fs: any) => {
+        const endpoint = fs.subscription?.endpoint;
+        if (endpoint && !allSubs.some((s) => s.subscription?.endpoint === endpoint)) {
+          allSubs.push(fs);
+        }
+      });
+      return allSubs;
+    } catch (e) {
+      console.error("[Push Server] Erro ao carregar assinaturas do Firestore:", e);
+    }
+  }
+  return localSubs;
+}
+
 function saveLocalSubscription(sub: any) {
   const subs = loadLocalSubscriptions();
   const endpoint = sub.subscription?.endpoint;
@@ -508,7 +535,7 @@ async function startServer() {
       });
 
       // Incorporar também assinaturas salvas localmente/Firestore para retrocompatibilidade
-      const localSubs = loadLocalSubscriptions();
+      const localSubs = await loadAllSubscriptions();
       localSubs.forEach((ls) => {
         if (!ls.subscription || !ls.subscription.endpoint) return;
         // Evitar duplicados pelo endpoint
@@ -521,8 +548,9 @@ async function startServer() {
           const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
           const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
 
-          // 3. Verificar se o e-mail ou dados correspondem a um Master
+          // 3. Verificar se o e-mail ou dados correspondem a um Master/Admin
           const isMaster = isMasterEmail(userEmail);
+          const isAdmin = isMaster || userRole === "admin" || userRole === "master";
 
           let belongsToAudience = false;
 
@@ -531,16 +559,16 @@ async function startServer() {
           } else if (targetUserEmail) {
             belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
           } else if (isSys) {
-            belongsToAudience = isMaster;
+            belongsToAudience = isAdmin;
           } else {
             if (audience === "admin" || audience === "master") {
-              belongsToAudience = isMaster;
+              belongsToAudience = isAdmin;
             } else if (audience === "vendors") {
               belongsToAudience = userRole === "vendor";
             } else if (audience === "support") {
-              belongsToAudience = userRole === "support" || isMaster;
+              belongsToAudience = userRole === "support" || isAdmin;
             } else if (audience === "user") {
-              belongsToAudience = userRole === "user" && !isMaster;
+              belongsToAudience = userRole === "user" && !isAdmin;
             } else if (!audience || audience === "geral" || audience === "all") {
               belongsToAudience = true;
             }
@@ -559,6 +587,9 @@ async function startServer() {
       // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
       const webPushPromises = webPushSubscriptions.map(async (ws) => {
         const payload = JSON.stringify({
+          title,
+          body,
+          url: absoluteTargetUrl,
           notification: {
             title,
             body,
