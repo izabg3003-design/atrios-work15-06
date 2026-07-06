@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles } from 'lucide-react';
+import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles, Bell, BellRing, RefreshCw, AlertTriangle, Send } from 'lucide-react';
 import { UserProfile, Language, Currency } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -25,6 +25,193 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
   const [passwords, setPasswords] = useState({ new: '', confirm: '' });
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
   const [passUpdateSuccess, setPassUpdateSuccess] = useState(false);
+
+  // Estado para diagnóstico e controlo de notificações push
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>('default');
+  const [hasPushToken, setHasPushToken] = useState(false);
+  const [pushDetails, setPushDetails] = useState<any>(null);
+  const [isSyncingPush, setIsSyncingPush] = useState(false);
+  const [isTestingPush, setIsTestingPush] = useState(false);
+  const [isTestingSystemPush, setIsTestingSystemPush] = useState(false);
+  const [pushStatusMsg, setPushStatusMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if ('Notification' in window) {
+      setPushPermission(Notification.permission);
+      
+      // Verificar se existe assinatura ativa localmente
+      if (navigator.serviceWorker) {
+        navigator.serviceWorker.ready.then(async (reg) => {
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) {
+            setHasPushToken(true);
+            setPushDetails(sub.toJSON());
+          }
+        }).catch((err) => {
+          console.warn('Erro ao obter subscrição inicial:', err);
+        });
+      }
+    }
+  }, []);
+
+  const urlBase64ToUint8Array = (base64String: string) => {
+    const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  };
+
+  const handleForceSyncPush = async () => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) {
+      alert('O seu navegador não suporta Service Worker ou Push Notifications.');
+      return;
+    }
+    setIsSyncingPush(true);
+    setPushStatusMsg('A obter chave de segurança e a registar...');
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      
+      // Obter chave pública VAPID do servidor
+      let publicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
+      try {
+        const keyRes = await fetch('/api/push/public-key');
+        if (keyRes.ok) {
+          const keyData = await keyRes.json();
+          if (keyData?.publicKey) publicKey = keyData.publicKey;
+        }
+      } catch (e) {
+        console.warn('Erro ao obter chave pública:', e);
+      }
+
+      let sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        const currentKeyBuffer = sub.options.applicationServerKey;
+        const serverKeyBuffer = urlBase64ToUint8Array(publicKey);
+        let keysMatch = false;
+        if (currentKeyBuffer) {
+          const currentKeyArray = new Uint8Array(currentKeyBuffer);
+          keysMatch = currentKeyArray.length === serverKeyBuffer.length &&
+                      currentKeyArray.every((val, i) => val === serverKeyBuffer[i]);
+        }
+        if (!keysMatch) {
+          await sub.unsubscribe();
+          sub = null;
+        }
+      }
+
+      if (!sub) {
+        const convertedKey = urlBase64ToUint8Array(publicKey);
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: convertedKey
+        });
+      }
+
+      const vapidSub = sub.toJSON();
+      setPushDetails(vapidSub);
+      setHasPushToken(true);
+
+      // Persistir no backend
+      const response = await fetch('/api/push/subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          subscription: vapidSub,
+          userId: user.id,
+          email: user.email,
+          role: user.role
+        })
+      });
+
+      if (response.ok) {
+        setPushStatusMsg('Dispositivo sincronizado e registado com sucesso!');
+      } else {
+        setPushStatusMsg('Erro ao guardar assinatura no servidor.');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setPushStatusMsg(`Falha na sincronização: ${err.message || err}`);
+    } finally {
+      setIsSyncingPush(false);
+    }
+  };
+
+  const handleRequestPushPermission = async () => {
+    if (!('Notification' in window)) {
+      alert('As notificações não são suportadas neste navegador.');
+      return;
+    }
+    try {
+      const perm = await Notification.requestPermission();
+      setPushPermission(perm);
+      if (perm === 'granted') {
+        setPushStatusMsg('Permissão concedida! Sincronizando dispositivo...');
+        await handleForceSyncPush();
+      } else if (perm === 'denied') {
+        setPushStatusMsg('Permissão bloqueada pelo navegador. Ative nas configurações do seu navegador.');
+      }
+    } catch (err: any) {
+      alert(`Erro ao pedir permissão: ${err.message}`);
+    }
+  };
+
+  const handleTestPush = async () => {
+    setIsTestingPush(true);
+    setPushStatusMsg('A enviar notificação de teste pessoal...');
+    try {
+      const res = await fetch('/api/send-fcm-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '🔔 Teste de Notificação AtriosWork',
+          body: 'As suas notificações de sistema pessoais estão ativas e a funcionar perfeitamente!',
+          targetUserEmail: user.email,
+          url: '/'
+        })
+      });
+      if (res.ok) {
+        setPushStatusMsg('Notificação enviada com sucesso! Verifique se recebeu no seu ecrã.');
+      } else {
+        const text = await res.text();
+        setPushStatusMsg(`Erro ao enviar teste: ${text || res.statusText}`);
+      }
+    } catch (err: any) {
+      setPushStatusMsg(`Falha no envio de teste: ${err.message}`);
+    } finally {
+      setIsTestingPush(false);
+    }
+  };
+
+  const handleTestSystemPush = async () => {
+    setIsTestingSystemPush(true);
+    setPushStatusMsg('A enviar notificação de teste de sistema (Admins)...');
+    try {
+      const res = await fetch('/api/send-fcm-push', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: '🆕 Teste: Novo Cadastro no App!',
+          body: `O utilizador de teste registou-se no sistema às ${new Date().toLocaleTimeString('pt-PT')}.`,
+          audience: 'admin',
+          url: '/'
+        })
+      });
+      if (res.ok) {
+        setPushStatusMsg('Disparo de teste de sistema concluído para todos os administradores!');
+      } else {
+        const text = await res.text();
+        setPushStatusMsg(`Erro ao enviar teste de sistema: ${text || res.statusText}`);
+      }
+    } catch (err: any) {
+      setPushStatusMsg(`Falha no envio do teste de sistema: ${err.message}`);
+    } finally {
+      setIsTestingSystemPush(false);
+    }
+  };
 
   useEffect(() => { 
     setFormUser({
@@ -332,6 +519,116 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.security.confirmPassword')}</label><input type="password" value={passwords.confirm} onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
             </div>
             <button onClick={handleUpdatePassword} disabled={isUpdatingPass} className="w-full py-4 rounded-xl bg-slate-950 border border-slate-800 text-purple-400 font-black uppercase text-[10px] tracking-widest hover:bg-purple-600 hover:text-white transition-all">{isUpdatingPass ? 'PROCESSANDO...' : 'ATUALIZAR SEGURANÇA'}</button>
+          </div>
+
+          {/* DIAGNÓSTICO E CONFIGURAÇÃO DE NOTIFICAÇÕES PUSH */}
+          <div className="bg-slate-800/20 border border-slate-800 p-8 rounded-[2.5rem] space-y-6 shadow-xl relative overflow-hidden">
+            <div className="absolute -right-10 -bottom-10 w-32 h-32 bg-blue-500/5 rounded-full blur-2xl pointer-events-none" />
+            <div className="flex items-center gap-3">
+              <Bell className="w-5 h-5 text-blue-400" />
+              <h4 className="text-sm font-black text-white uppercase tracking-widest">Estado das Notificações do Sistema</h4>
+            </div>
+
+            <p className="text-[10px] text-slate-400 font-bold uppercase leading-normal">
+              Se as notificações de novos utilizadores ou de chat de suporte não estiverem a chegar, verifique as permissões do seu navegador e teste a receção em tempo real abaixo.
+            </p>
+
+            {/* Painel de Indicadores */}
+            <div className="grid sm:grid-cols-2 gap-4">
+              {/* Indicador de Permissão do Navegador */}
+              <div className="p-4 bg-slate-950/40 rounded-3xl border border-white/5 flex items-center justify-between">
+                <div>
+                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block">Permissão do Browser</span>
+                  <span className={`text-xs font-black uppercase tracking-wider ${
+                    pushPermission === 'granted' ? 'text-green-400' :
+                    pushPermission === 'denied' ? 'text-red-400' : 'text-blue-400'
+                  }`}>
+                    {pushPermission === 'granted' ? 'PERMITIDO ✓' :
+                     pushPermission === 'denied' ? 'BLOQUEADO ✗' : 'NÃO CONFIGURADO ?'}
+                  </span>
+                </div>
+                {pushPermission !== 'granted' ? (
+                  <button
+                    onClick={handleRequestPushPermission}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white font-black text-[9px] uppercase tracking-wider rounded-xl transition-all"
+                  >
+                    Ativar
+                  </button>
+                ) : (
+                  <span className="w-2.5 h-2.5 bg-green-500 rounded-full animate-ping" />
+                )}
+              </div>
+
+              {/* Indicador de Registo no Servidor */}
+              <div className="p-4 bg-slate-950/40 rounded-3xl border border-white/5 flex items-center justify-between">
+                <div>
+                  <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest block">Sincronização Cloud</span>
+                  <span className={`text-xs font-black uppercase tracking-wider ${
+                    hasPushToken ? 'text-green-400' : 'text-amber-400'
+                  }`}>
+                    {hasPushToken ? 'SINCRONIZADO' : 'NÃO DETETADO'}
+                  </span>
+                </div>
+                <button
+                  onClick={handleForceSyncPush}
+                  disabled={isSyncingPush}
+                  className="px-3 py-2 bg-slate-900 hover:bg-slate-800 border border-white/5 text-slate-300 hover:text-white font-black text-[9px] uppercase tracking-wider rounded-xl flex items-center gap-1.5 transition-all disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isSyncingPush ? 'animate-spin' : ''}`} />
+                  Registar
+                </button>
+              </div>
+            </div>
+
+            {/* Mensagem de Instruções e Status */}
+            {pushStatusMsg && (
+              <div className="p-4 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-2xl flex gap-3 items-start">
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                <p className="text-[9px] font-black uppercase tracking-widest leading-normal">
+                  {pushStatusMsg}
+                </p>
+              </div>
+            )}
+
+            {pushPermission === 'denied' && (
+              <div className="p-4 bg-red-500/10 border border-red-500/20 text-red-400 rounded-2xl flex gap-3 items-start">
+                <AlertTriangle className="w-5 h-5 shrink-0 mt-0.5" />
+                <p className="text-[9px] font-bold uppercase leading-normal">
+                  DICA DE DESBLOQUEIO: Clique no ícone de cadeado (🔒) ao lado da URL na barra de endereços do seu navegador e altere a permissão de "Notificações" para "Permitir". Depois, clique em "Registar" acima.
+                </p>
+              </div>
+            )}
+
+            {/* Ações de Disparo de Teste */}
+            <div className="pt-2 flex flex-col sm:flex-row gap-3">
+              <button
+                onClick={handleTestPush}
+                disabled={isTestingPush || pushPermission !== 'granted'}
+                className="flex-1 py-4 bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] tracking-widest uppercase rounded-2xl transition-all shadow-lg shadow-blue-500/10 disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {isTestingPush ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Send className="w-3.5 h-3.5" />
+                )}
+                Testar Push Pessoal
+              </button>
+
+              {(isMaster || formUser.role === 'admin') && (
+                <button
+                  onClick={handleTestSystemPush}
+                  disabled={isTestingSystemPush || pushPermission !== 'granted'}
+                  className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 text-slate-900 font-black text-[10px] tracking-widest uppercase rounded-2xl transition-all shadow-lg shadow-emerald-500/10 disabled:opacity-40 flex items-center justify-center gap-2"
+                >
+                  {isTestingSystemPush ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <BellRing className="w-3.5 h-3.5 animate-bounce" />
+                  )}
+                  Disparar Push de Sistema
+                </button>
+              )}
+            </div>
           </div>
 
           {/* SECÇÃO DESCARREGAR APP NATIVA (PWA) */}
