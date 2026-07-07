@@ -403,6 +403,102 @@ async function startServer() {
     return res.status(201).json({ success: true });
   });
 
+  // ROTA: Receber Webhooks do Supabase de forma nativa e converter em Push Notifications (Sem necessidade de Edge Functions!)
+  app.post("/api/supabase-webhook", async (req, res) => {
+    try {
+      const { type, table, record, old_record } = req.body;
+      console.log(`[Supabase Webhook] Evento recebido - Tabela: ${table}, Tipo: ${type}`);
+
+      if (!table || !record) {
+        return res.status(400).json({ success: false, error: "Estrutura do webhook do Supabase inválida." });
+      }
+
+      let title = "";
+      let body = "";
+      let audience = "master"; // Por padrão, notificações de sistema administrativas vão para o Master
+      let targetUrl = "/admin";
+
+      // 1. Mapear as tabelas e eventos conhecidos para mensagens bonitas
+      if (table === "chat_messages") {
+        if (type === "INSERT") {
+          // Apenas notificar se for enviado pelo usuário/visitante comum, e não por administradores
+          if (record.sender_role === "user" || record.sender_role === "visitor") {
+            title = "💬 Nova Mensagem de Suporte";
+            body = record.text || "O utilizador enviou uma mensagem.";
+            targetUrl = "/suporte";
+          } else {
+            // Ignorar mensagens de suporte enviadas pelo admin
+            return res.json({ success: true, message: "Mensagem do admin ignorada." });
+          }
+        }
+      } else if (table === "support_tickets") {
+        if (type === "INSERT") {
+          title = "🆘 Novo Ticket de Suporte Solicitado";
+          body = `Assunto: ${record.subject || "Atendimento geral"} | Utilizador: ${record.user_email || "Anónimo"}`;
+          targetUrl = "/suporte";
+        } else if (type === "UPDATE" && record.status !== old_record?.status) {
+          title = "ℹ️ Alteração de Estado no Ticket";
+          body = `O ticket #${record.id} passou de "${old_record?.status || "pendente"}" para "${record.status}".`;
+          targetUrl = "/suporte";
+        }
+      } else if (table === "profiles") {
+        if (type === "INSERT") {
+          title = "✨ Novo Utilizador Registado";
+          body = `${record.name || "Sem Nome"} (${record.email || "Sem Email"}) acabou de criar uma conta.`;
+          targetUrl = "/admin";
+        }
+      } else if (table === "app_banners") {
+        // Se for um broadcast do próprio app para enviar push
+        if (type === "INSERT" && (record.user_type === "push_notification" || record.title?.includes("[PUSH]"))) {
+          title = (record.title || "AtriosWork").replace("[PUSH]", "").replace("[push]", "").trim();
+          body = record.highlight || record.subtitle || "Nova notificação!";
+          audience = record.target_audience || "all";
+          targetUrl = record.action_url || "/";
+        }
+      }
+
+      // Se não mapeou nenhum título/corpo válido, ignorar para evitar falsos positivos
+      if (!title || !body) {
+        return res.json({ success: true, message: "Evento recebido mas nenhuma regra de push correspondente." });
+      }
+
+      // 2. Chamar o disparador de Push Interno do próprio servidor
+      // Fazer fetch para localhost:3000 garante que todo o fluxo de formatação, fallback e logging seja reaproveitado!
+      try {
+        const localPort = process.env.PORT || 3000;
+        const pushResponse = await fetch(`http://127.0.0.1:${localPort}/api/send-fcm-push`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({
+            title,
+            body,
+            audience,
+            url: targetUrl
+          })
+        });
+
+        if (pushResponse.ok) {
+          const pushResult = await pushResponse.json();
+          console.log("[Supabase Webhook] Notificação despachada com sucesso:", pushResult);
+          return res.json({ success: true, pushResult });
+        } else {
+          const pushError = await pushResponse.text();
+          console.error("[Supabase Webhook] Erro ao despachar notificação push local:", pushError);
+          return res.status(500).json({ success: false, error: pushError });
+        }
+      } catch (innerErr: any) {
+        console.error("[Supabase Webhook] Excepção ao despachar push interno:", innerErr.message);
+        return res.status(500).json({ success: false, error: innerErr.message });
+      }
+
+    } catch (err: any) {
+      console.error("[Supabase Webhook] Erro ao processar webhook do Supabase:", err);
+      return res.status(500).json({ success: false, error: err.message || String(err) });
+    }
+  });
+
   // ROTA: Envio de Push Inteligente (Suporta FCM de forma nativa/v1 + Web Push VAPID + Fallbacks)
   app.post("/api/send-fcm-push", async (req, res) => {
     try {
