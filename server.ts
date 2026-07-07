@@ -415,6 +415,19 @@ async function startServer() {
         });
       }
 
+      // Map parameters robustly: support targetUserId as userId, and if they represent "master", "admin", or "support"
+      // we map them to the proper group audience. This prevents failures where UUID-based queries look for the literal string "master"
+      let finalTargetUserId = targetUserId || req.body.userId;
+      let finalAudience = audience || "";
+
+      if (finalTargetUserId && typeof finalTargetUserId === "string") {
+        const lowerId = finalTargetUserId.toLowerCase();
+        if (lowerId === "master" || lowerId === "admin" || lowerId === "support") {
+          finalAudience = lowerId;
+          finalTargetUserId = undefined;
+        }
+      }
+
       // Calcular dinamicamente o link do ícone do domínio ativo do request (evita chaves e imagens expiradas/CORS)
       const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
       const host = req.get("host") || "atrioswork.pt";
@@ -428,7 +441,7 @@ async function startServer() {
         absoluteTargetUrl = `${currentOrigin}/${cleanPath}`;
       }
 
-      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'}) - URL Destino: ${absoluteTargetUrl}`);
+      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${finalAudience || "geral"}" (finalTargetUserId: ${finalTargetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'}) - URL Destino: ${absoluteTargetUrl}`);
 
       // 1. Obter credenciais do Supabase
       const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
@@ -446,10 +459,10 @@ async function startServer() {
       // 2. Obter perfis ativos do Supabase de forma inteligente e resiliente para evitar limites de paginação (max 1000)
       let profiles: any[] = [];
       try {
-        const hasTargetUser = !!(targetUserId || targetUserEmail);
+        const hasTargetUser = !!(finalTargetUserId || targetUserEmail);
         const titleL = (title || "").toLowerCase();
         const bodyL = (body || "").toLowerCase();
-        const audL = (audience || "").toLowerCase();
+        const audL = (finalAudience || "").toLowerCase();
         const isSys = (audL === "admin" || audL === "master" || audL === "support") || 
                       (!hasTargetUser && audL !== "user" && (
                         titleL.includes("atendimento humano") || bodyL.includes("atendimento humano") ||
@@ -467,8 +480,8 @@ async function startServer() {
 
         let query = supabase.from("profiles").select("id, fcm_token, role, email");
 
-        if (targetUserId) {
-          query = query.eq("id", targetUserId);
+        if (finalTargetUserId) {
+          query = query.eq("id", finalTargetUserId);
         } else if (targetUserEmail) {
           query = query.ilike("email", targetUserEmail);
         } else if (isSys || audL === "admin" || audL === "master") {
@@ -542,16 +555,16 @@ async function startServer() {
         return systemKeywords.some(keyword => titleL.includes(keyword) || bodyL.includes(keyword));
       };
 
-      const hasTargetUser = !!(targetUserId || targetUserEmail);
-      const isSys = isSystemNotification(title, body, audience, hasTargetUser);
+      const hasTargetUser = !!(finalTargetUserId || targetUserEmail);
+      const isSys = isSystemNotification(title, body, finalAudience, hasTargetUser);
       if (isSys) {
         console.log(`[Push Server] Notificação "${title}" classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA. Filtrando apenas para contas Master.`);
       }
 
       let filteredProfiles = profiles || [];
 
-      if (targetUserId) {
-        filteredProfiles = filteredProfiles.filter((p) => p.id === targetUserId);
+      if (finalTargetUserId) {
+        filteredProfiles = filteredProfiles.filter((p) => p.id === finalTargetUserId);
       } else if (targetUserEmail) {
         filteredProfiles = filteredProfiles.filter((p) => (p.email || "").toLowerCase() === targetUserEmail.toLowerCase());
       } else if (isSys) {
@@ -559,18 +572,18 @@ async function startServer() {
         filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
       } else {
         // Fluxo normal para as outras notificações (ex: expiração de licença, informativos gerais, etc.)
-        if (audience === "admin" || audience === "master") {
+        if (finalAudience === "admin" || finalAudience === "master") {
           filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
-        } else if (audience === "vendors") {
+        } else if (finalAudience === "vendors") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "vendor");
-        } else if (audience === "support") {
+        } else if (finalAudience === "support") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "support" || isAdminUser(p));
-        } else if (audience === "user") {
+        } else if (finalAudience === "user") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "user" && !isMasterEmail(p.email));
         }
       }
 
-      // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON
+      // Separar tokens normais FCM e assinaturas Web Push estruturadas in JSON
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
 
@@ -621,22 +634,22 @@ async function startServer() {
 
           let belongsToAudience = false;
 
-          if (targetUserId) {
-            belongsToAudience = ls.userId === targetUserId;
+          if (finalTargetUserId) {
+            belongsToAudience = ls.userId === finalTargetUserId;
           } else if (targetUserEmail) {
             belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
           } else if (isSys) {
             belongsToAudience = isAdmin;
           } else {
-            if (audience === "admin" || audience === "master") {
+            if (finalAudience === "admin" || finalAudience === "master") {
               belongsToAudience = isAdmin;
-            } else if (audience === "vendors") {
+            } else if (finalAudience === "vendors") {
               belongsToAudience = userRole === "vendor";
-            } else if (audience === "support") {
+            } else if (finalAudience === "support") {
               belongsToAudience = userRole === "support" || isAdmin;
-            } else if (audience === "user") {
+            } else if (finalAudience === "user") {
               belongsToAudience = userRole === "user" && !isAdmin;
-            } else if (!audience || audience === "geral" || audience === "all") {
+            } else if (!finalAudience || finalAudience === "geral" || finalAudience === "all") {
               belongsToAudience = true;
             }
           }
