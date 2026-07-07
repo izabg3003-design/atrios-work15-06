@@ -96,6 +96,12 @@ self.addEventListener('push', (event) => {
         }
       }
 
+      // Evitar duplicar notificações do FCM se o SDK do Firebase já estiver ativo na mesma thread do Service Worker
+      if (rawData && (rawData.from || rawData.collapse_key || rawData['gcm.message_id'] || rawData.google || rawData.multicast_id)) {
+        console.log('[Service Worker] Notificação push detectada como originária do FCM. O Firebase SDK tratará no segundo plano. Ignorando exibição duplicada.');
+        return;
+      }
+
       // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
       title = rawData.notification?.title || 
               rawData.title || 
