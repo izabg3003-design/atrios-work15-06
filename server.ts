@@ -600,10 +600,33 @@ async function startServer() {
         }
       }
 
+      // 2.5 Consultar também a tabela user_push_subscriptions do Supabase para todos os filteredProfiles encontrados (Solução Definitiva!)
+      const filteredUserIds = filteredProfiles.map((p) => p.id).filter(Boolean);
+      let supabaseSubscriptions: any[] = [];
+      
+      if (filteredUserIds.length > 0) {
+        try {
+          const { data: subData, error: subError } = await supabase
+            .from("user_push_subscriptions")
+            .select("*")
+            .in("user_id", filteredUserIds);
+          
+          if (subError) {
+            console.warn("[FCM Server] Erro ao buscar dados na tabela user_push_subscriptions:", subError.message);
+          } else if (subData) {
+            supabaseSubscriptions = subData;
+            console.log(`[FCM Server] Obtidos ${supabaseSubscriptions.length} registos da tabela user_push_subscriptions para os IDs:`, filteredUserIds);
+          }
+        } catch (subExc: any) {
+          console.warn("[FCM Server] Excepção ao consultar user_push_subscriptions:", subExc.message || subExc);
+        }
+      }
+
       // Separar tokens normais FCM e assinaturas Web Push estruturadas in JSON
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
 
+      // A) Processar perfis do Supabase clássico (retrocompatibilidade)
       filteredProfiles.forEach((p) => {
         const token = p.fcm_token;
         if (!token || !token.trim()) return;
@@ -618,16 +641,88 @@ async function startServer() {
                 userId: p.id,
               });
               // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
-              if (sub.fcmToken) {
+              if (sub.fcmToken && !fcmTokens.includes(sub.fcmToken)) {
                 fcmTokens.push(sub.fcmToken);
               }
             }
           } catch (e) {
             // Se falhar o parse, trata como token normal
-            fcmTokens.push(token);
+            if (!fcmTokens.includes(token)) {
+              fcmTokens.push(token);
+            }
           }
         } else {
-          fcmTokens.push(token);
+          if (!fcmTokens.includes(token)) {
+            fcmTokens.push(token);
+          }
+        }
+      });
+
+      // B) Processar registos da tabela user_push_subscriptions do Supabase (A correção definitiva do Master!)
+      supabaseSubscriptions.forEach((sub) => {
+        // 1. Extrair token FCM se existir
+        const fcm = sub.fcmToken || sub.fcm_token || sub.fcmtoken;
+        if (fcm && typeof fcm === "string" && fcm.trim()) {
+          const trimmedFcm = fcm.trim();
+          if (!fcmTokens.includes(trimmedFcm)) {
+            fcmTokens.push(trimmedFcm);
+            console.log(`[FCM Server] Token FCM adicionado de user_push_subscriptions: ${trimmedFcm.substring(0, 15)}...`);
+          }
+        }
+
+        // 2. Extrair subscrição Web Push se contiver endpoint
+        if (sub.endpoint && typeof sub.endpoint === "string") {
+          // Evitar duplicados por endpoint
+          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription && ws.subscription.endpoint === sub.endpoint);
+          if (!jaExiste) {
+            let keysObj = sub.keys;
+            if (typeof keysObj === "string") {
+              try {
+                keysObj = JSON.parse(keysObj);
+              } catch (e) {
+                keysObj = null;
+              }
+            }
+            
+            const p256dh = sub.p256dh || (keysObj ? keysObj.p256dh : "");
+            const auth = sub.auth || (keysObj ? keysObj.auth : "");
+
+            webPushSubscriptions.push({
+              subscription: {
+                endpoint: sub.endpoint,
+                keys: {
+                  p256dh: p256dh,
+                  auth: auth
+                },
+                fcmToken: fcm || undefined
+              },
+              userId: sub.user_id || sub.userId
+            });
+            console.log(`[FCM Server] Assinatura Web Push adicionada de user_push_subscriptions para endpoint: ${sub.endpoint.substring(0, 30)}...`);
+          }
+        } else if (sub.subscription) {
+          // Se houver um objeto completo de subscrição gravado como JSON numa coluna JSON ou string
+          let parsedSub = sub.subscription;
+          if (typeof parsedSub === "string") {
+            try {
+              parsedSub = JSON.parse(parsedSub);
+            } catch (e) {
+              parsedSub = null;
+            }
+          }
+          if (parsedSub && parsedSub.endpoint) {
+            const jaExiste = webPushSubscriptions.some((ws) => ws.subscription && ws.subscription.endpoint === parsedSub.endpoint);
+            if (!jaExiste) {
+              webPushSubscriptions.push({
+                subscription: parsedSub,
+                userId: sub.user_id || sub.userId
+              });
+              console.log(`[FCM Server] Assinatura JSON adicionada de user_push_subscriptions para endpoint: ${parsedSub.endpoint.substring(0, 30)}...`);
+              if (parsedSub.fcmToken && !fcmTokens.includes(parsedSub.fcmToken)) {
+                fcmTokens.push(parsedSub.fcmToken);
+              }
+            }
+          }
         }
       });
 
