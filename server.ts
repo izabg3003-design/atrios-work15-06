@@ -486,18 +486,30 @@ async function startServer() {
           query = query.ilike("email", targetUserEmail);
         } else if (isSys || audL === "admin" || audL === "master") {
           // Otimização crucial: buscar apenas perfis que sejam admins, masters ou que tenham e-mails de Master
-          query = query.or("role.eq.admin,role.eq.master,email.ilike.%master@atrioswork.com%,email.ilike.%izarellebraga@gmail.com%,email.ilike.%master@digitalnexus.com%");
+          // Corrigido: Usando asteriscos (*) como curingas para o ilike do PostgREST/Supabase em vez de %, e incluindo matches exatos.
+          query = query.or("role.eq.admin,role.eq.master,email.ilike.master@atrioswork.com,email.ilike.*master@atrioswork.com*,email.ilike.izarellebraga@gmail.com,email.ilike.*izarellebraga@gmail.com*,email.ilike.master@digitalnexus.com,email.ilike.*master@digitalnexus.com*");
         } else if (audL === "vendors") {
           query = query.eq("role", "vendor");
         } else if (audL === "support") {
-          query = query.or("role.eq.support,role.eq.admin,role.eq.master,email.ilike.%master@atrioswork.com%,email.ilike.%izarellebraga@gmail.com%,email.ilike.%master@digitalnexus.com%");
+          query = query.or("role.eq.support,role.eq.admin,role.eq.master,email.ilike.master@atrioswork.com,email.ilike.*master@atrioswork.com*,email.ilike.izarellebraga@gmail.com,email.ilike.*izarellebraga@gmail.com*,email.ilike.master@digitalnexus.com,email.ilike.*master@digitalnexus.com*");
         } else if (audL === "user") {
           query = query.eq("role", "user");
         }
 
-        const { data, error: dbError } = await query;
+        let { data, error: dbError } = await query;
 
-        if (dbError) {
+        // Fallback de segurança definitivo: se a busca de admins ou masters retornou vazia ou falhou,
+        // carregamos todos os perfis em memória para filtrar no servidor em JavaScript de forma 100% garantida.
+        if ((!data || data.length === 0) && (isSys || audL === "admin" || audL === "master" || audL === "support")) {
+          console.log("[FCM Server] Consulta otimizada de admins retornou 0 resultados. Ativando fallback de varredura completa de perfis...");
+          const fallbackQuery = await supabase.from("profiles").select("id, fcm_token, role, email");
+          if (!fallbackQuery.error && fallbackQuery.data) {
+            data = fallbackQuery.data;
+            console.log(`[FCM Server] Varredura completa de perfis de fallback obteve ${data.length} registos em memória.`);
+          }
+        }
+
+        if (dbError && (!data || data.length === 0)) {
           console.warn("[FCM Server] Erro ao buscar perfis no Supabase (usando dados locais de subscrições como alternativa):", dbError.message);
         } else {
           profiles = data || [];
@@ -518,7 +530,12 @@ async function startServer() {
       const isAdminUser = (profile: any) => {
         const emailVal = (profile.email || "").toLowerCase();
         const roleVal = (profile.role || "").toLowerCase();
-        return isMasterEmail(emailVal) || roleVal === "admin" || roleVal === "master";
+        const idVal = (profile.id || "").toLowerCase();
+        return isMasterEmail(emailVal) || 
+               roleVal === "admin" || 
+               roleVal === "master" || 
+               idVal === "master" || 
+               idVal === "admin";
       };
 
       // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
@@ -629,8 +646,8 @@ async function startServer() {
           const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
 
           // 3. Verificar se o e-mail ou dados correspondem a um Master/Admin
-          const isMaster = isMasterEmail(userEmail);
-          const isAdmin = isMaster || userRole === "admin" || userRole === "master";
+          const isMaster = isMasterEmail(userEmail) || (ls.userId || "").toLowerCase() === "master";
+          const isAdmin = isMaster || userRole === "admin" || userRole === "master" || (ls.userId || "").toLowerCase() === "admin";
 
           let belongsToAudience = false;
 
