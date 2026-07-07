@@ -96,10 +96,25 @@ self.addEventListener('push', (event) => {
         }
       }
 
-      // Evitar duplicar notificações do FCM se o SDK do Firebase já estiver ativo na mesma thread do Service Worker
-      if (rawData && (rawData.from || rawData.collapse_key || rawData['gcm.message_id'] || rawData.google || rawData.multicast_id)) {
-        console.log('[Service Worker] Notificação push detectada como originária do FCM. O Firebase SDK tratará no segundo plano. Ignorando exibição duplicada.');
-        return;
+      // Evitar duplicar notificações do FCM se o SDK do Firebase já estiver ativo na mesma thread do Service Worker E a app estiver aberta.
+      // Se a app estiver FECHADA, garantimos a exibição forçada para evitar que mensagens fiquem em silêncio.
+      let isAppOpen = false;
+      try {
+        const clients = await self.clients.matchAll({ type: 'window' });
+        isAppOpen = clients && clients.length > 0;
+      } catch (clientErr) {
+        console.warn('[Service Worker] Falha ao verificar se app está aberto:', clientErr);
+      }
+
+      const isFcmMessage = !!(rawData && (rawData.from || rawData.collapse_key || rawData['gcm.message_id'] || rawData.google || rawData.multicast_id));
+
+      if (isFcmMessage) {
+        if (isAppOpen) {
+          console.log('[Service Worker] Notificação push detectada como FCM com o App Aberto. O Firebase SDK ou app tratará em primeiro plano. Ignorando.');
+          return;
+        } else {
+          console.log('[Service Worker] Notificação push detectada como FCM com o App FECHADO. Forçando exibição manual para garantir entrega.');
+        }
       }
 
       // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
@@ -114,12 +129,29 @@ self.addEventListener('push', (event) => {
              rawData.data?.body || 
              rawData.data?.notification?.body || 
              'Nova notificação do sistema!';
-                 
+                  
       url = rawData.notification?.data?.url ||
             rawData.data?.url || 
             rawData.url || 
             rawData.data?.notification?.url || 
             '/';
+
+      // Gerar uma tag única para de-duplicação nativa do navegador
+      const messageTag = rawData['gcm.message_id'] || rawData.collapse_key || rawData.data?.['gcm.message_id'] || title;
+
+      // Verificar se já existe uma notificação visível idêntica ou com a mesma tag para de-duplicar
+      try {
+        const activeNotifications = await self.registration.getNotifications();
+        const isAlreadyShown = activeNotifications.some(n => 
+          n.tag === messageTag || (n.title === title && n.body === body)
+        );
+        if (isAlreadyShown) {
+          console.log('[Service Worker] Notificação com mesma tag ou conteúdo já está visível. Cancelando exibição duplicada.');
+          return;
+        }
+      } catch (notifCheckErr) {
+        console.warn('[Service Worker] Falha ao obter notificações ativas:', notifCheckErr);
+      }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
@@ -128,6 +160,7 @@ self.addEventListener('push', (event) => {
       // Resolver URLs relativas para absolutas usando self.location.origin para garantir que o OS consiga carregar as imagens em segundo plano com o app fechado
       const origin = self.location.origin;
       const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
+      const messageTag = rawData['gcm.message_id'] || rawData.collapse_key || rawData.data?.['gcm.message_id'] || title;
 
       const options = {
         body: body,
@@ -135,6 +168,8 @@ self.addEventListener('push', (event) => {
         badge: iconUrl,
         vibrate: [200, 100, 200],
         data: url,
+        tag: messageTag,
+        renotify: false, // Não re-vibrar se for apenas atualização
         actions: [
           { action: 'open', title: 'Ver App' }
         ]
@@ -148,7 +183,8 @@ self.addEventListener('push', (event) => {
         await self.registration.showNotification(title, {
           body: body,
           icon: iconUrl,
-          data: url
+          data: url,
+          tag: messageTag
         });
       }
     } catch (showErr) {
