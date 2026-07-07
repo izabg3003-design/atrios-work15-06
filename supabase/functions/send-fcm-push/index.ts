@@ -203,10 +203,33 @@ serve(async (req) => {
       console.warn("[Edge Function VAPID] Erro ao obter chaves do banco de dados:", err);
     }
 
+    // 2.5 Consultar também a tabela user_push_subscriptions do Supabase para todos os filteredProfiles encontrados (A correção definitiva do Master!)
+    const filteredUserIds = filteredProfiles.map((p: any) => p.id).filter(Boolean);
+    let supabaseSubscriptions: any[] = [];
+    
+    if (filteredUserIds.length > 0) {
+      try {
+        const { data: subData, error: subError } = await supabase
+          .from("user_push_subscriptions")
+          .select("*")
+          .in("user_id", filteredUserIds);
+        
+        if (subError) {
+          console.warn("[Edge Function] Erro ao buscar dados na tabela user_push_subscriptions:", subError.message);
+        } else if (subData) {
+          supabaseSubscriptions = subData;
+          console.log(`[Edge Function] Obtidos ${supabaseSubscriptions.length} registos da tabela user_push_subscriptions para os IDs:`, filteredUserIds);
+        }
+      } catch (subExc: any) {
+        console.warn("[Edge Function] Excepção ao consultar user_push_subscriptions:", subExc.message || subExc);
+      }
+    }
+
     const rawTokens = filteredProfiles.map(p => p.fcm_token).filter((t): t is string => !!t && t.trim().length > 0);
     const fcmTokens: string[] = [];
     const webPushSubscriptions: any[] = [];
 
+    // A) Processar perfis clássicos do Supabase (retrocompatibilidade)
     rawTokens.forEach((t) => {
       const trimmed = t.trim();
       if (trimmed.startsWith("{")) {
@@ -217,19 +240,93 @@ serve(async (req) => {
               subscription: parsed,
               userId: null,
             });
-            if (parsed.fcmToken) {
+            if (parsed.fcmToken && !fcmTokens.includes(parsed.fcmToken)) {
               fcmTokens.push(parsed.fcmToken);
             }
           } else if (parsed && parsed.fcmToken) {
-            fcmTokens.push(parsed.fcmToken);
+            if (!fcmTokens.includes(parsed.fcmToken)) {
+              fcmTokens.push(parsed.fcmToken);
+            }
           } else if (parsed && parsed.token) {
-            fcmTokens.push(parsed.token);
+            if (!fcmTokens.includes(parsed.token)) {
+              fcmTokens.push(parsed.token);
+            }
           }
         } catch (_e) {
-          fcmTokens.push(trimmed);
+          if (!fcmTokens.includes(trimmed)) {
+            fcmTokens.push(trimmed);
+          }
         }
       } else {
-        fcmTokens.push(trimmed);
+        if (!fcmTokens.includes(trimmed)) {
+          fcmTokens.push(trimmed);
+        }
+      }
+    });
+
+    // B) Processar registos da tabela user_push_subscriptions (Correção definitiva!)
+    supabaseSubscriptions.forEach((sub) => {
+      // 1. Extrair token FCM se existir
+      const fcm = sub.fcmToken || sub.fcm_token || sub.fcmtoken;
+      if (fcm && typeof fcm === "string" && fcm.trim()) {
+        const trimmedFcm = fcm.trim();
+        if (!fcmTokens.includes(trimmedFcm)) {
+          fcmTokens.push(trimmedFcm);
+          console.log(`[Edge Function] Token FCM adicionado de user_push_subscriptions: ${trimmedFcm.substring(0, 15)}...`);
+        }
+      }
+
+      // 2. Extrair subscrição Web Push se contiver endpoint
+      if (sub.endpoint && typeof sub.endpoint === "string") {
+        const jaExiste = webPushSubscriptions.some((ws) => ws.subscription && ws.subscription.endpoint === sub.endpoint);
+        if (!jaExiste) {
+          let keysObj = sub.keys;
+          if (typeof keysObj === "string") {
+            try {
+              keysObj = JSON.parse(keysObj);
+            } catch (e) {
+              keysObj = null;
+            }
+          }
+          
+          const p256dh = sub.p256dh || (keysObj ? keysObj.p256dh : "");
+          const auth = sub.auth || (keysObj ? keysObj.auth : "");
+
+          webPushSubscriptions.push({
+            subscription: {
+              endpoint: sub.endpoint,
+              keys: {
+                p256dh: p256dh,
+                auth: auth
+              },
+              fcmToken: fcm || undefined
+            },
+            userId: sub.user_id || sub.userId
+          });
+          console.log(`[Edge Function] Assinatura Web Push adicionada de user_push_subscriptions: ${sub.endpoint.substring(0, 30)}...`);
+        }
+      } else if (sub.subscription) {
+        let parsedSub = sub.subscription;
+        if (typeof parsedSub === "string") {
+          try {
+            parsedSub = JSON.parse(parsedSub);
+          } catch (e) {
+            parsedSub = null;
+          }
+        }
+        if (parsedSub && parsedSub.endpoint) {
+          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription && ws.subscription.endpoint === parsedSub.endpoint);
+          if (!jaExiste) {
+            webPushSubscriptions.push({
+              subscription: parsedSub,
+              userId: sub.user_id || sub.userId
+            });
+            console.log(`[Edge Function] Assinatura JSON adicionada de user_push_subscriptions: ${parsedSub.endpoint.substring(0, 30)}...`);
+            if (parsedSub.fcmToken && !fcmTokens.includes(parsedSub.fcmToken)) {
+              fcmTokens.push(parsedSub.fcmToken);
+            }
+          }
+        }
       }
     });
 
