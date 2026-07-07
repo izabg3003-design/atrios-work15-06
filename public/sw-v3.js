@@ -96,24 +96,24 @@ self.addEventListener('push', (event) => {
         }
       }
 
-      // Evitar duplicar notificações do FCM se o SDK do Firebase já estiver ativo na mesma thread do Service Worker E a app estiver aberta.
-      // Se a app estiver FECHADA, garantimos a exibição forçada para evitar que mensagens fiquem em silêncio.
-      let isAppOpen = false;
+      // Evitar duplicar notificações do FCM se o SDK do Firebase já estiver ativo na mesma thread do Service Worker E a app estiver FOCADA (ativa no ecrã).
+      // Se a app estiver em segundo plano ou FECHADA, garantimos a exibição forçada para garantir que chegue sempre.
+      let isAppFocused = false;
       try {
         const clients = await self.clients.matchAll({ type: 'window' });
-        isAppOpen = clients && clients.length > 0;
+        isAppFocused = clients && clients.some(client => client.focused);
       } catch (clientErr) {
-        console.warn('[Service Worker] Falha ao verificar se app está aberto:', clientErr);
+        console.warn('[Service Worker] Falha ao verificar se app está focado:', clientErr);
       }
 
       const isFcmMessage = !!(rawData && (rawData.from || rawData.collapse_key || rawData['gcm.message_id'] || rawData.google || rawData.multicast_id));
 
       if (isFcmMessage) {
-        if (isAppOpen) {
-          console.log('[Service Worker] Notificação push detectada como FCM com o App Aberto. O Firebase SDK ou app tratará em primeiro plano. Ignorando.');
+        if (isAppFocused) {
+          console.log('[Service Worker] Notificação push detectada como FCM com o App FOCADO e ativo. O Firebase SDK ou app tratará em primeiro plano. Ignorando.');
           return;
         } else {
-          console.log('[Service Worker] Notificação push detectada como FCM com o App FECHADO. Forçando exibição manual para garantir entrega.');
+          console.log('[Service Worker] Notificação push detectada como FCM com o App desfocado ou FECHADO. Forçando exibição manual para garantir entrega.');
         }
       }
 

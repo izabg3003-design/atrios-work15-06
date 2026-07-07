@@ -453,7 +453,16 @@ async function startServer() {
           title = (record.title || "AtriosWork").replace("[PUSH]", "").replace("[push]", "").trim();
           body = record.highlight || record.subtitle || "Nova notificação!";
           audience = record.target_audience || "all";
-          targetUrl = record.action_url || "/";
+          targetUrl = record.action_url || record.cta_link || "/";
+
+          // Se for suporte humano, nova mensagem de suporte ou contiver palavras-chave administrativas, forçar audience para master
+          const isSupportMsg = title.toLowerCase().includes("suporte") || 
+                              body.toLowerCase().includes("suporte") || 
+                              body.toLowerCase().includes("atendimento humano") ||
+                              body.toLowerCase().includes("solicitou");
+          if (isSupportMsg) {
+            audience = "master";
+          }
         }
       }
 
