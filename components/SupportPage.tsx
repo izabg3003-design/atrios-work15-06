@@ -8,7 +8,6 @@ import {
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, WorkRecord } from '../types';
-import { sendPushNotification } from '../lib/pushSender';
 
 interface Props {
   user: UserProfile;
@@ -213,16 +212,6 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
 
       // Disparar push fcm/vapid direcionado e exclusivo para o usuário que abriu o ticket
       try {
-        await sendPushNotification({
-          title: '💬 Suporte AtriosWork',
-          body: `Nova mensagem do suporte: "${currentReply.substring(0, 60)}${currentReply.length > 60 ? '...' : ''}"`,
-          audience: 'user',
-          targetUserId: selectedUser.id,
-          targetUserEmail: selectedUser.email,
-          url: '/'
-        });
-
-        // Redundância Supabase Edge Functions se configurado
         await supabase.functions.invoke('send-fcm-push', {
           body: {
             title: '💬 Suporte AtriosWork',
@@ -232,7 +221,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
             targetUserEmail: selectedUser.email,
             url: '/'
           }
-        }).catch(() => {});
+        });
       } catch (fcmErr) {
         console.warn('Erro ao disparar push de resposta de suporte:', fcmErr);
       }

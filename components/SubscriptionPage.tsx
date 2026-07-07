@@ -3,7 +3,6 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { ArrowLeft, Loader2, CreditCard, Tag, Sparkles, CheckCircle2, User, Mail, Phone, Lock, Zap, ShieldCheck, AlertTriangle, CalendarDays, KeySquare, Wallet, Info, Globe, Shield, Check, ShieldAlert, Star, FileDown, Clock, Coins, Cloud, Headphones } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { getStripe } from '../lib/stripe';
-import { sendPushNotification } from '../lib/pushSender';
 
 interface Props {
   onSuccess: () => void;
@@ -288,20 +287,13 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
         
         // Trigger push notification to admins about the new license sale
         try {
-          await sendPushNotification({
-            title: '💰 Nova Venda Realizada!',
-            body: `O utilizador ${formData.name} (${formData.email}) comprou uma Licença AtriosWork por €${finalAmount}! Código: ${isDiscountApplied ? vendorCode.trim().toUpperCase() : 'Nenhum'}`,
-            audience: 'admin'
-          });
-
-          // Redundância Supabase Edge Functions se configurado
           await supabase.functions.invoke('send-fcm-push', {
             body: {
               title: '💰 Nova Venda Realizada!',
               body: `O utilizador ${formData.name} (${formData.email}) comprou uma Licença AtriosWork por €${finalAmount}! Código: ${isDiscountApplied ? vendorCode.trim().toUpperCase() : 'Nenhum'}`,
               audience: 'admin'
             }
-          }).catch(() => {});
+          });
         } catch (fcmErr) {
           console.warn('Erro ao disparar push de nova venda:', fcmErr);
         }

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v6.2.0';
+const CACHE_NAME = 'atrioswork-v6.1';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -96,27 +96,6 @@ self.addEventListener('push', (event) => {
         }
       }
 
-      // Evitar duplicar notificações do FCM se o SDK do Firebase já estiver ativo na mesma thread do Service Worker E a app estiver FOCADA (ativa no ecrã).
-      // Se a app estiver em segundo plano ou FECHADA, garantimos a exibição forçada para garantir que chegue sempre.
-      let isAppFocused = false;
-      try {
-        const clients = await self.clients.matchAll({ type: 'window' });
-        isAppFocused = clients && clients.some(client => client.focused);
-      } catch (clientErr) {
-        console.warn('[Service Worker] Falha ao verificar se app está focado:', clientErr);
-      }
-
-      const isFcmMessage = !!(rawData && (rawData.from || rawData.collapse_key || rawData['gcm.message_id'] || rawData.google || rawData.multicast_id));
-
-      if (isFcmMessage) {
-        if (isAppFocused) {
-          console.log('[Service Worker] Notificação push detectada como FCM com o App FOCADO e ativo. O Firebase SDK ou app tratará em primeiro plano. Ignorando.');
-          return;
-        } else {
-          console.log('[Service Worker] Notificação push detectada como FCM com o App desfocado ou FECHADO. Forçando exibição manual para garantir entrega.');
-        }
-      }
-
       // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
       title = rawData.notification?.title || 
               rawData.title || 
@@ -129,29 +108,12 @@ self.addEventListener('push', (event) => {
              rawData.data?.body || 
              rawData.data?.notification?.body || 
              'Nova notificação do sistema!';
-                  
+                 
       url = rawData.notification?.data?.url ||
             rawData.data?.url || 
             rawData.url || 
             rawData.data?.notification?.url || 
             '/';
-
-      // Gerar uma tag única para de-duplicação nativa do navegador
-      const messageTag = rawData['gcm.message_id'] || rawData.collapse_key || rawData.data?.['gcm.message_id'] || title;
-
-      // Verificar se já existe uma notificação visível idêntica ou com a mesma tag para de-duplicar
-      try {
-        const activeNotifications = await self.registration.getNotifications();
-        const isAlreadyShown = activeNotifications.some(n => 
-          n.tag === messageTag || (n.title === title && n.body === body)
-        );
-        if (isAlreadyShown) {
-          console.log('[Service Worker] Notificação com mesma tag ou conteúdo já está visível. Cancelando exibição duplicada.');
-          return;
-        }
-      } catch (notifCheckErr) {
-        console.warn('[Service Worker] Falha ao obter notificações ativas:', notifCheckErr);
-      }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
@@ -160,7 +122,6 @@ self.addEventListener('push', (event) => {
       // Resolver URLs relativas para absolutas usando self.location.origin para garantir que o OS consiga carregar as imagens em segundo plano com o app fechado
       const origin = self.location.origin;
       const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
-      const messageTag = rawData['gcm.message_id'] || rawData.collapse_key || rawData.data?.['gcm.message_id'] || title;
 
       const options = {
         body: body,
@@ -168,8 +129,6 @@ self.addEventListener('push', (event) => {
         badge: iconUrl,
         vibrate: [200, 100, 200],
         data: url,
-        tag: messageTag,
-        renotify: false, // Não re-vibrar se for apenas atualização
         actions: [
           { action: 'open', title: 'Ver App' }
         ]
@@ -183,20 +142,11 @@ self.addEventListener('push', (event) => {
         await self.registration.showNotification(title, {
           body: body,
           icon: iconUrl,
-          data: url,
-          tag: messageTag
+          data: url
         });
       }
     } catch (showErr) {
       console.error('[Service Worker] Erro fatal ao tentar disparar showNotification:', showErr);
-      try {
-        // Último recurso de fallback absoluto para evitar que o navegador bloqueie permissões de push por silêncio
-        await self.registration.showNotification(title, {
-          body: body
-        });
-      } catch (catastrophicErr) {
-        console.error('[Service Worker] Falha catastrófica no fallback absoluto de segurança:', catastrophicErr);
-      }
     }
   })());
 });

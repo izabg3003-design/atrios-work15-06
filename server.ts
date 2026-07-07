@@ -101,15 +101,15 @@ async function initializeVapidKeys() {
   webpush.setVapidDetails(vapidSubject, vapidPublicKey!, vapidPrivateKey!);
 }
 
-// 🔵 2. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO E FIRESTORE)
+// 🔵 2. INICIALIZAÇÃO DO FIREBASE ADMIN SDK (FCM NATIVO)
 const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT || process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
 let isFirebaseAdminInitialized = false;
 
-try {
-  const apps = getApps();
-  if (!apps.length) {
-    if (serviceAccountEnv) {
-      const serviceAccount = JSON.parse(serviceAccountEnv);
+if (serviceAccountEnv) {
+  try {
+    const serviceAccount = JSON.parse(serviceAccountEnv);
+    const apps = getApps();
+    if (!apps.length) {
       const isServiceAccount = serviceAccount && (serviceAccount.type === "service_account" || (serviceAccount.client_email && serviceAccount.private_key));
       
       if (isServiceAccount) {
@@ -119,34 +119,22 @@ try {
         isFirebaseAdminInitialized = true;
         console.log("[Firebase Admin] SDK Inicializado com sucesso via conta de serviço.");
       } else {
-        initializeApp();
-        isFirebaseAdminInitialized = true;
-        console.log("[Firebase Admin] SDK Inicializado com credenciais padrão do Google Cloud.");
+        try {
+          initializeApp();
+          isFirebaseAdminInitialized = true;
+          console.log("[Firebase Admin] SDK Inicializado com credenciais padrão do Google Cloud.");
+        } catch (initErr) {
+          console.warn("[Firebase Admin] Credenciais inválidas fornecidas e impossível carregar credenciais padrão:", initErr);
+        }
       }
     } else {
-      // Tentar ler o projectId do firebase-applet-config.json para inicialização nativa no Cloud Run
-      let configProjId = undefined;
-      try {
-        const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-        if (fs.existsSync(configPath)) {
-          const configJson = JSON.parse(fs.readFileSync(configPath, "utf8"));
-          configProjId = configJson.projectId;
-        }
-      } catch (e) {
-        // Ignorar erro silenciosamente
-      }
-
-      initializeApp({
-        projectId: configProjId || "gen-lang-client-0484473706"
-      });
       isFirebaseAdminInitialized = true;
-      console.log("[Firebase Admin] SDK Inicializado automaticamente com Project ID:", configProjId);
     }
-  } else {
-    isFirebaseAdminInitialized = true;
+  } catch (err: any) {
+    console.error("[Firebase Admin] Falha ao inicializar SDK via JSON da conta de serviço:", err);
   }
-} catch (err: any) {
-  console.error("[Firebase Admin] Falha ao inicializar SDK:", err.message || err);
+} else {
+  console.warn("[Firebase Admin] FIREBASE_SERVICE_ACCOUNT não encontrada. Envio nativo FCM desativado.");
 }
 
 // Helper para obter token de acesso do Google OAuth2 de forma nativa e segura para fallback HTTP v1
@@ -177,27 +165,6 @@ function getGoogleAccessToken(clientEmail: string, privateKey: string): string {
   return `${toSign}.${signature}`;
 }
 
-function getFirestoreDb() {
-  let databaseId: string | undefined = undefined;
-  try {
-    const configPath = path.join(process.cwd(), "firebase-applet-config.json");
-    if (fs.existsSync(configPath)) {
-      const configJson = JSON.parse(fs.readFileSync(configPath, "utf8"));
-      databaseId = configJson.firestoreDatabaseId;
-    }
-  } catch (e) {
-    // Ignorar erro silenciosamente
-  }
-
-  const apps = getApps();
-  const app = apps.length > 0 ? apps[0] : undefined;
-  
-  if (app && databaseId) {
-    return getFirestore(app, databaseId);
-  }
-  return getFirestore();
-}
-
 // 🔵 3. PERSISTÊNCIA AUXILIAR LOCAL DE ASSINATURAS (WEB PUSH / VAPID)
 const subsFilePath = path.join(process.cwd(), "web-push-subscriptions.json");
 
@@ -216,7 +183,7 @@ async function loadAllSubscriptions(): Promise<any[]> {
   const localSubs = loadLocalSubscriptions();
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestoreDb();
+      const db = getFirestore();
       const snapshot = await db.collection("web_push_subscriptions").get();
       const firestoreSubs: any[] = [];
       snapshot.forEach((doc) => {
@@ -276,7 +243,7 @@ async function saveSubscriptionToDatabase(data: { subscription: any; userId: str
   // 2. Gravar no Firestore se o Firebase Admin estiver ativo
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestoreDb();
+      const db = getFirestore();
       const safeId = Buffer.from(data.subscription.endpoint).toString("base64url");
       await db.collection("web_push_subscriptions").doc(safeId).set({
         subscription: data.subscription,
@@ -316,7 +283,7 @@ async function deleteSubscriptionFromDatabase(endpoint: string) {
   // Remover do Firestore
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestoreDb();
+      const db = getFirestore();
       const safeId = Buffer.from(endpoint).toString("base64url");
       await db.collection("web_push_subscriptions").doc(safeId).delete();
       console.log("[Firestore] Assinatura inválida (410/404) removida do Firestore.");
@@ -403,111 +370,6 @@ async function startServer() {
     return res.status(201).json({ success: true });
   });
 
-  // ROTA: Receber Webhooks do Supabase de forma nativa e converter em Push Notifications (Sem necessidade de Edge Functions!)
-  app.post("/api/supabase-webhook", async (req, res) => {
-    try {
-      const { type, table, record, old_record } = req.body;
-      console.log(`[Supabase Webhook] Evento recebido - Tabela: ${table}, Tipo: ${type}`);
-
-      if (!table || !record) {
-        return res.status(400).json({ success: false, error: "Estrutura do webhook do Supabase inválida." });
-      }
-
-      let title = "";
-      let body = "";
-      let audience = "master"; // Por padrão, notificações de sistema administrativas vão para o Master
-      let targetUrl = "/admin";
-
-      // 1. Mapear as tabelas e eventos conhecidos para mensagens bonitas
-      if (table === "chat_messages") {
-        if (type === "INSERT") {
-          // Apenas notificar se for enviado pelo usuário/visitante comum, e não por administradores
-          if (record.sender_role === "user" || record.sender_role === "visitor") {
-            title = "💬 Nova Mensagem de Suporte";
-            body = record.text || "O utilizador enviou uma mensagem.";
-            targetUrl = "/suporte";
-          } else {
-            // Ignorar mensagens de suporte enviadas pelo admin
-            return res.json({ success: true, message: "Mensagem do admin ignorada." });
-          }
-        }
-      } else if (table === "support_tickets") {
-        if (type === "INSERT") {
-          title = "🆘 Novo Ticket de Suporte Solicitado";
-          body = `Assunto: ${record.subject || "Atendimento geral"} | Utilizador: ${record.user_email || "Anónimo"}`;
-          targetUrl = "/suporte";
-        } else if (type === "UPDATE" && record.status !== old_record?.status) {
-          title = "ℹ️ Alteração de Estado no Ticket";
-          body = `O ticket #${record.id} passou de "${old_record?.status || "pendente"}" para "${record.status}".`;
-          targetUrl = "/suporte";
-        }
-      } else if (table === "profiles") {
-        if (type === "INSERT") {
-          title = "✨ Novo Utilizador Registado";
-          body = `${record.name || "Sem Nome"} (${record.email || "Sem Email"}) acabou de criar uma conta.`;
-          targetUrl = "/admin";
-        }
-      } else if (table === "app_banners") {
-        // Se for um broadcast do próprio app para enviar push
-        if (type === "INSERT" && (record.user_type === "push_notification" || record.title?.includes("[PUSH]"))) {
-          title = (record.title || "AtriosWork").replace("[PUSH]", "").replace("[push]", "").trim();
-          body = record.highlight || record.subtitle || "Nova notificação!";
-          audience = record.target_audience || "all";
-          targetUrl = record.action_url || record.cta_link || "/";
-
-          // Se for suporte humano, nova mensagem de suporte ou contiver palavras-chave administrativas, forçar audience para master
-          const isSupportMsg = title.toLowerCase().includes("suporte") || 
-                              body.toLowerCase().includes("suporte") || 
-                              body.toLowerCase().includes("atendimento humano") ||
-                              body.toLowerCase().includes("solicitou");
-          if (isSupportMsg) {
-            audience = "master";
-          }
-        }
-      }
-
-      // Se não mapeou nenhum título/corpo válido, ignorar para evitar falsos positivos
-      if (!title || !body) {
-        return res.json({ success: true, message: "Evento recebido mas nenhuma regra de push correspondente." });
-      }
-
-      // 2. Chamar o disparador de Push Interno do próprio servidor
-      // Fazer fetch para localhost:3000 garante que todo o fluxo de formatação, fallback e logging seja reaproveitado!
-      try {
-        const localPort = process.env.PORT || 3000;
-        const pushResponse = await fetch(`http://127.0.0.1:${localPort}/api/send-fcm-push`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify({
-            title,
-            body,
-            audience,
-            url: targetUrl
-          })
-        });
-
-        if (pushResponse.ok) {
-          const pushResult = await pushResponse.json();
-          console.log("[Supabase Webhook] Notificação despachada com sucesso:", pushResult);
-          return res.json({ success: true, pushResult });
-        } else {
-          const pushError = await pushResponse.text();
-          console.error("[Supabase Webhook] Erro ao despachar notificação push local:", pushError);
-          return res.status(500).json({ success: false, error: pushError });
-        }
-      } catch (innerErr: any) {
-        console.error("[Supabase Webhook] Excepção ao despachar push interno:", innerErr.message);
-        return res.status(500).json({ success: false, error: innerErr.message });
-      }
-
-    } catch (err: any) {
-      console.error("[Supabase Webhook] Erro ao processar webhook do Supabase:", err);
-      return res.status(500).json({ success: false, error: err.message || String(err) });
-    }
-  });
-
   // ROTA: Envio de Push Inteligente (Suporta FCM de forma nativa/v1 + Web Push VAPID + Fallbacks)
   app.post("/api/send-fcm-push", async (req, res) => {
     try {
@@ -518,19 +380,6 @@ async function startServer() {
           success: false,
           error: "Campos 'title' e 'body' são obrigatórios.",
         });
-      }
-
-      // Map parameters robustly: support targetUserId as userId, and if they represent "master", "admin", or "support"
-      // we map them to the proper group audience. This prevents failures where UUID-based queries look for the literal string "master"
-      let finalTargetUserId = targetUserId || req.body.userId;
-      let finalAudience = audience || "";
-
-      if (finalTargetUserId && typeof finalTargetUserId === "string") {
-        const lowerId = finalTargetUserId.toLowerCase();
-        if (lowerId === "master" || lowerId === "admin" || lowerId === "support") {
-          finalAudience = lowerId;
-          finalTargetUserId = undefined;
-        }
       }
 
       // Calcular dinamicamente o link do ícone do domínio ativo do request (evita chaves e imagens expiradas/CORS)
@@ -546,7 +395,7 @@ async function startServer() {
         absoluteTargetUrl = `${currentOrigin}/${cleanPath}`;
       }
 
-      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${finalAudience || "geral"}" (finalTargetUserId: ${finalTargetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'}) - URL Destino: ${absoluteTargetUrl}`);
+      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'}) - URL Destino: ${absoluteTargetUrl}`);
 
       // 1. Obter credenciais do Supabase
       const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
@@ -561,64 +410,18 @@ async function startServer() {
 
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-      // 2. Obter perfis ativos do Supabase de forma inteligente e resiliente para evitar limites de paginação (max 1000)
+      // 2. Obter perfis ativos do Supabase que contêm fcm_token ou subscrições de forma resiliente
       let profiles: any[] = [];
       try {
-        const hasTargetUser = !!(finalTargetUserId || targetUserEmail);
-        const titleL = (title || "").toLowerCase();
-        const bodyL = (body || "").toLowerCase();
-        const audL = (finalAudience || "").toLowerCase();
-        const isSys = (audL === "admin" || audL === "master" || audL === "support") || 
-                      (!hasTargetUser && audL !== "user" && (
-                        titleL.includes("atendimento humano") || bodyL.includes("atendimento humano") ||
-                        titleL.includes("novo utilizador") || bodyL.includes("novo utilizador") ||
-                        titleL.includes("novo cadastro") || bodyL.includes("novo cadastro") ||
-                        titleL.includes("novo registo") || bodyL.includes("novo registo") ||
-                        titleL.includes("registou-se") || bodyL.includes("registou-se") ||
-                        titleL.includes("registrado") || bodyL.includes("registrado") ||
-                        titleL.includes("desbloqueio") || bodyL.includes("desbloqueio") ||
-                        titleL.includes("venda realizada") || bodyL.includes("venda realizada") ||
-                        titleL.includes("nova venda") || bodyL.includes("nova venda") ||
-                        titleL.includes("solicitou atendimento") || bodyL.includes("solicitou atendimento") ||
-                        titleL.includes("solicitação de") || bodyL.includes("solicitação de")
-                      ));
+        const { data, error: dbError } = await supabase
+          .from("profiles")
+          .select("id, fcm_token, role, email")
+          .not("fcm_token", "is", null);
 
-        let query = supabase.from("profiles").select("id, fcm_token, role, email");
-
-        if (finalTargetUserId) {
-          query = query.eq("id", finalTargetUserId);
-        } else if (targetUserEmail) {
-          query = query.ilike("email", targetUserEmail);
-        } else if (isSys || audL === "admin" || audL === "master") {
-          // Otimização crucial: buscar apenas perfis que sejam admins, masters ou que tenham e-mails de Master
-          // Corrigido: Usando asteriscos (*) como curingas para o ilike do PostgREST/Supabase em vez de %, e incluindo matches exatos.
-          query = query.or("role.eq.admin,role.eq.master,email.ilike.master@atrioswork.com,email.ilike.*master@atrioswork.com*,email.ilike.izarellebraga@gmail.com,email.ilike.*izarellebraga@gmail.com*,email.ilike.master@digitalnexus.com,email.ilike.*master@digitalnexus.com*");
-        } else if (audL === "vendors") {
-          query = query.eq("role", "vendor");
-        } else if (audL === "support") {
-          query = query.or("role.eq.support,role.eq.admin,role.eq.master,email.ilike.master@atrioswork.com,email.ilike.*master@atrioswork.com*,email.ilike.izarellebraga@gmail.com,email.ilike.*izarellebraga@gmail.com*,email.ilike.master@digitalnexus.com,email.ilike.*master@digitalnexus.com*");
-        } else if (audL === "user") {
-          query = query.eq("role", "user");
-        }
-
-        let { data, error: dbError } = await query;
-
-        // Fallback de segurança definitivo: se a busca de admins ou masters retornou vazia ou falhou,
-        // carregamos todos os perfis em memória para filtrar no servidor em JavaScript de forma 100% garantida.
-        if ((!data || data.length === 0) && (isSys || audL === "admin" || audL === "master" || audL === "support")) {
-          console.log("[FCM Server] Consulta otimizada de admins retornou 0 resultados. Ativando fallback de varredura completa de perfis...");
-          const fallbackQuery = await supabase.from("profiles").select("id, fcm_token, role, email");
-          if (!fallbackQuery.error && fallbackQuery.data) {
-            data = fallbackQuery.data;
-            console.log(`[FCM Server] Varredura completa de perfis de fallback obteve ${data.length} registos em memória.`);
-          }
-        }
-
-        if (dbError && (!data || data.length === 0)) {
+        if (dbError) {
           console.warn("[FCM Server] Erro ao buscar perfis no Supabase (usando dados locais de subscrições como alternativa):", dbError.message);
         } else {
           profiles = data || [];
-          console.log(`[FCM Server] Consulta de perfis retornou ${profiles.length} registos correspondentes.`);
         }
       } catch (err: any) {
         console.warn("[FCM Server] Excepção ao buscar perfis do Supabase:", err.message || err);
@@ -635,12 +438,7 @@ async function startServer() {
       const isAdminUser = (profile: any) => {
         const emailVal = (profile.email || "").toLowerCase();
         const roleVal = (profile.role || "").toLowerCase();
-        const idVal = (profile.id || "").toLowerCase();
-        return isMasterEmail(emailVal) || 
-               roleVal === "admin" || 
-               roleVal === "master" || 
-               idVal === "master" || 
-               idVal === "admin";
+        return isMasterEmail(emailVal) || roleVal === "admin" || roleVal === "master";
       };
 
       // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
@@ -677,16 +475,16 @@ async function startServer() {
         return systemKeywords.some(keyword => titleL.includes(keyword) || bodyL.includes(keyword));
       };
 
-      const hasTargetUser = !!(finalTargetUserId || targetUserEmail);
-      const isSys = isSystemNotification(title, body, finalAudience, hasTargetUser);
+      const hasTargetUser = !!(targetUserId || targetUserEmail);
+      const isSys = isSystemNotification(title, body, audience, hasTargetUser);
       if (isSys) {
         console.log(`[Push Server] Notificação "${title}" classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA. Filtrando apenas para contas Master.`);
       }
 
       let filteredProfiles = profiles || [];
 
-      if (finalTargetUserId) {
-        filteredProfiles = filteredProfiles.filter((p) => p.id === finalTargetUserId);
+      if (targetUserId) {
+        filteredProfiles = filteredProfiles.filter((p) => p.id === targetUserId);
       } else if (targetUserEmail) {
         filteredProfiles = filteredProfiles.filter((p) => (p.email || "").toLowerCase() === targetUserEmail.toLowerCase());
       } else if (isSys) {
@@ -694,44 +492,21 @@ async function startServer() {
         filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
       } else {
         // Fluxo normal para as outras notificações (ex: expiração de licença, informativos gerais, etc.)
-        if (finalAudience === "admin" || finalAudience === "master") {
+        if (audience === "admin" || audience === "master") {
           filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
-        } else if (finalAudience === "vendors") {
+        } else if (audience === "vendors") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "vendor");
-        } else if (finalAudience === "support") {
+        } else if (audience === "support") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "support" || isAdminUser(p));
-        } else if (finalAudience === "user") {
+        } else if (audience === "user") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "user" && !isMasterEmail(p.email));
         }
       }
 
-      // 2.5 Consultar também a tabela user_push_subscriptions do Supabase para todos os filteredProfiles encontrados (Solução Definitiva!)
-      const filteredUserIds = filteredProfiles.map((p) => p.id).filter(Boolean);
-      let supabaseSubscriptions: any[] = [];
-      
-      if (filteredUserIds.length > 0) {
-        try {
-          const { data: subData, error: subError } = await supabase
-            .from("user_push_subscriptions")
-            .select("*")
-            .in("user_id", filteredUserIds);
-          
-          if (subError) {
-            console.warn("[FCM Server] Erro ao buscar dados na tabela user_push_subscriptions:", subError.message);
-          } else if (subData) {
-            supabaseSubscriptions = subData;
-            console.log(`[FCM Server] Obtidos ${supabaseSubscriptions.length} registos da tabela user_push_subscriptions para os IDs:`, filteredUserIds);
-          }
-        } catch (subExc: any) {
-          console.warn("[FCM Server] Excepção ao consultar user_push_subscriptions:", subExc.message || subExc);
-        }
-      }
-
-      // Separar tokens normais FCM e assinaturas Web Push estruturadas in JSON
+      // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
 
-      // A) Processar perfis do Supabase clássico (retrocompatibilidade)
       filteredProfiles.forEach((p) => {
         const token = p.fcm_token;
         if (!token || !token.trim()) return;
@@ -746,88 +521,16 @@ async function startServer() {
                 userId: p.id,
               });
               // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
-              if (sub.fcmToken && !fcmTokens.includes(sub.fcmToken)) {
+              if (sub.fcmToken) {
                 fcmTokens.push(sub.fcmToken);
               }
             }
           } catch (e) {
             // Se falhar o parse, trata como token normal
-            if (!fcmTokens.includes(token)) {
-              fcmTokens.push(token);
-            }
-          }
-        } else {
-          if (!fcmTokens.includes(token)) {
             fcmTokens.push(token);
           }
-        }
-      });
-
-      // B) Processar registos da tabela user_push_subscriptions do Supabase (A correção definitiva do Master!)
-      supabaseSubscriptions.forEach((sub) => {
-        // 1. Extrair token FCM se existir
-        const fcm = sub.fcmToken || sub.fcm_token || sub.fcmtoken;
-        if (fcm && typeof fcm === "string" && fcm.trim()) {
-          const trimmedFcm = fcm.trim();
-          if (!fcmTokens.includes(trimmedFcm)) {
-            fcmTokens.push(trimmedFcm);
-            console.log(`[FCM Server] Token FCM adicionado de user_push_subscriptions: ${trimmedFcm.substring(0, 15)}...`);
-          }
-        }
-
-        // 2. Extrair subscrição Web Push se contiver endpoint
-        if (sub.endpoint && typeof sub.endpoint === "string") {
-          // Evitar duplicados por endpoint
-          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription && ws.subscription.endpoint === sub.endpoint);
-          if (!jaExiste) {
-            let keysObj = sub.keys;
-            if (typeof keysObj === "string") {
-              try {
-                keysObj = JSON.parse(keysObj);
-              } catch (e) {
-                keysObj = null;
-              }
-            }
-            
-            const p256dh = sub.p256dh || (keysObj ? keysObj.p256dh : "");
-            const auth = sub.auth || (keysObj ? keysObj.auth : "");
-
-            webPushSubscriptions.push({
-              subscription: {
-                endpoint: sub.endpoint,
-                keys: {
-                  p256dh: p256dh,
-                  auth: auth
-                },
-                fcmToken: fcm || undefined
-              },
-              userId: sub.user_id || sub.userId
-            });
-            console.log(`[FCM Server] Assinatura Web Push adicionada de user_push_subscriptions para endpoint: ${sub.endpoint.substring(0, 30)}...`);
-          }
-        } else if (sub.subscription) {
-          // Se houver um objeto completo de subscrição gravado como JSON numa coluna JSON ou string
-          let parsedSub = sub.subscription;
-          if (typeof parsedSub === "string") {
-            try {
-              parsedSub = JSON.parse(parsedSub);
-            } catch (e) {
-              parsedSub = null;
-            }
-          }
-          if (parsedSub && parsedSub.endpoint) {
-            const jaExiste = webPushSubscriptions.some((ws) => ws.subscription && ws.subscription.endpoint === parsedSub.endpoint);
-            if (!jaExiste) {
-              webPushSubscriptions.push({
-                subscription: parsedSub,
-                userId: sub.user_id || sub.userId
-              });
-              console.log(`[FCM Server] Assinatura JSON adicionada de user_push_subscriptions para endpoint: ${parsedSub.endpoint.substring(0, 30)}...`);
-              if (parsedSub.fcmToken && !fcmTokens.includes(parsedSub.fcmToken)) {
-                fcmTokens.push(parsedSub.fcmToken);
-              }
-            }
-          }
+        } else {
+          fcmTokens.push(token);
         }
       });
 
@@ -846,27 +549,27 @@ async function startServer() {
           const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
 
           // 3. Verificar se o e-mail ou dados correspondem a um Master/Admin
-          const isMaster = isMasterEmail(userEmail) || (ls.userId || "").toLowerCase() === "master";
-          const isAdmin = isMaster || userRole === "admin" || userRole === "master" || (ls.userId || "").toLowerCase() === "admin";
+          const isMaster = isMasterEmail(userEmail);
+          const isAdmin = isMaster || userRole === "admin" || userRole === "master";
 
           let belongsToAudience = false;
 
-          if (finalTargetUserId) {
-            belongsToAudience = ls.userId === finalTargetUserId;
+          if (targetUserId) {
+            belongsToAudience = ls.userId === targetUserId;
           } else if (targetUserEmail) {
             belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
           } else if (isSys) {
             belongsToAudience = isAdmin;
           } else {
-            if (finalAudience === "admin" || finalAudience === "master") {
+            if (audience === "admin" || audience === "master") {
               belongsToAudience = isAdmin;
-            } else if (finalAudience === "vendors") {
+            } else if (audience === "vendors") {
               belongsToAudience = userRole === "vendor";
-            } else if (finalAudience === "support") {
+            } else if (audience === "support") {
               belongsToAudience = userRole === "support" || isAdmin;
-            } else if (finalAudience === "user") {
+            } else if (audience === "user") {
               belongsToAudience = userRole === "user" && !isAdmin;
-            } else if (!finalAudience || finalAudience === "geral" || finalAudience === "all") {
+            } else if (!audience || audience === "geral" || audience === "all") {
               belongsToAudience = true;
             }
           }
