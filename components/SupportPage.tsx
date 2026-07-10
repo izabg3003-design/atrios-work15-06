@@ -31,6 +31,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
   const [notificationsEnabled, setNotificationsEnabled] = useState(false);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [newTicketPulse, setNewTicketPulse] = useState(false);
+  const [dbWarning, setDbWarning] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const replyingRef = useRef(false);
@@ -244,6 +245,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
   const resolveTicket = async (userId: string) => {
     if (!userId || loading) return;
     setLoading(true);
+    setDbWarning(null); // Limpar aviso anterior
     try {
       const { error } = await supabase
         .from('support_tickets')
@@ -253,11 +255,30 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
         })
         .eq('user_id', userId);
 
-      if (error) throw error;
+      if (error) {
+        const errorStr = JSON.stringify(error) || "";
+        if (errorStr.includes('net.http_post') || errorStr.includes('trigger') || error.message?.includes('net.http_post') || error.message?.includes('trigger')) {
+          setDbWarning("Erro de Trigger no seu Supabase. O ticket foi resolvido visualmente, mas o banco rejeitou o update.");
+          setSelectedUser(null);
+          // Atualiza o estado local para remover o ticket da lista ativa
+          setActiveChats(prev => prev.filter(c => c.user_id !== userId));
+          return;
+        }
+        throw error;
+      }
       setSelectedUser(null);
       await fetchTickets();
     } catch (err: any) {
       console.error("AtriosWork Resolve Error:", err);
+      const errStr = JSON.stringify(err) || "";
+      if (errStr.includes('net.http_post') || errStr.includes('trigger') || err.message?.includes('net.http_post') || err.message?.includes('trigger')) {
+        setDbWarning("Erro de Trigger no seu Supabase. O ticket foi resolvido visualmente, mas o banco rejeitou o update.");
+        setSelectedUser(null);
+        // Atualiza o estado local para remover o ticket da lista ativa
+        setActiveChats(prev => prev.filter(c => c.user_id !== userId));
+      } else {
+        alert("Erro ao marcar ticket como resolvido: " + (err.message || JSON.stringify(err)));
+      }
     } finally {
       setLoading(false);
     }
@@ -283,6 +304,38 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
                 Silenciar Alarme
               </button>
            </div>
+        </div>
+      )}
+
+      {/* Aviso de Trigger Corrompido no Supabase */}
+      {dbWarning && (
+        <div className="bg-amber-950/40 border-2 border-amber-500/50 p-6 rounded-[2.5rem] text-slate-100 flex flex-col md:flex-row items-start justify-between gap-6 shadow-2xl animate-[fadeIn_0.3s_ease-out]">
+          <div className="space-y-2 flex-1">
+            <div className="flex items-center gap-2 text-amber-400">
+              <Info className="w-5 h-5 animate-pulse" />
+              <p className="text-xs font-black uppercase tracking-widest">Aviso de Banco de Dados (Supabase)</p>
+            </div>
+            <p className="text-xs text-slate-300 leading-relaxed">
+              O ticket foi marcado como resolvido <strong>no seu ecrã</strong> para não interromper o seu trabalho, mas o banco de dados do seu Supabase rejeitou a gravação porque existe um <strong>Trigger corrompido</strong> (devido à falta da extensão <code className="bg-black/50 px-1 py-0.5 rounded text-amber-300 font-mono">pg_net</code> ou à função <code className="bg-black/50 px-1 py-0.5 rounded text-amber-300 font-mono">net.http_post</code> ausente).
+            </p>
+            <p className="text-[11px] text-slate-400">
+              Para corrigir isso permanentemente, aceda ao <strong>SQL Editor</strong> no painel do seu Supabase e execute:
+            </p>
+            <pre className="bg-black/80 p-3 rounded-xl text-[10px] font-mono text-amber-300 overflow-x-auto border border-amber-500/20 select-all">
+{`DROP TRIGGER IF EXISTS send_push_trigger ON support_tickets;
+DROP TRIGGER IF EXISTS on_ticket_created ON support_tickets;
+DROP TRIGGER IF EXISTS send_push_trigger ON chat_messages;
+DROP TRIGGER IF EXISTS on_message_created ON chat_messages;
+DROP TRIGGER IF EXISTS send_push_trigger ON app_banners;
+DROP TRIGGER IF EXISTS on_banner_created ON app_banners;`}
+            </pre>
+          </div>
+          <button 
+            onClick={() => setDbWarning(null)} 
+            className="px-4 py-2 bg-slate-950 hover:bg-slate-900 border border-slate-800 rounded-xl font-bold text-[10px] uppercase tracking-wider text-slate-400 hover:text-white transition-all whitespace-nowrap self-stretch md:self-auto flex items-center justify-center"
+          >
+            Fechar Aviso
+          </button>
         </div>
       )}
 
