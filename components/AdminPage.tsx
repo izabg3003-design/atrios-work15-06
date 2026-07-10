@@ -674,7 +674,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       };
       
       const { error } = await supabase.from('app_banners').insert([bannerData]);
-      if (error) throw error;
+      if (error) {
+        // Se o erro for devido a net.http_post ausente / trigger quebrado
+        if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
+          throw new Error(`Existe um Trigger corrompido ou extensão 'pg_net' desativada no seu Supabase.\n\nPara corrigir e permitir a gravação de banners, execute o seguinte comando no SQL Editor do painel do Supabase:\n\nDROP TRIGGER IF EXISTS send_push_trigger ON app_banners;\nDROP TRIGGER IF EXISTS on_banner_created ON app_banners;`);
+        }
+        throw error;
+      }
       
       setShowAddBanner(false);
       setNewBanner({ title: '', highlight: '', subtitle: '', cta_text: 'Ver Oferta', theme_color: 'emerald', is_active: true, image_url: '', user_type: 'all' });
@@ -700,6 +706,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     
     setIsSendingPush(true);
     setPushSendResult(null);
+    let dbInsertWarning = '';
     try {
       if (isScheduled) {
         if (!scheduledDate || !scheduledTime) {
@@ -732,15 +739,24 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           image_url: null
         };
 
-        const { error } = await supabase.from('app_banners').insert([pushRecord]);
-        if (error) throw error;
+        try {
+          const { error } = await supabase.from('app_banners').insert([pushRecord]);
+          if (error) {
+            console.warn("Aviso ao salvar agendamento no Supabase (prosseguindo):", error);
+            if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
+              dbInsertWarning = "Nota: O agendamento foi salvo apenas em memória pois existe um Trigger corrompido ou falta da extensão 'pg_net' no seu Supabase. Execute 'DROP TRIGGER IF EXISTS send_push_trigger ON app_banners;' no SQL Editor do Supabase.";
+            }
+          }
+        } catch (dbErr) {
+          console.warn("Falha física ao salvar agendamento:", dbErr);
+        }
 
         setNewPushTitle('');
         setNewPushBody('');
         setIsScheduled(false);
         setPushSendResult({
           success: true,
-          msg: `Notificação agendada com sucesso para ${testDate.toLocaleDateString('pt-PT')} às ${testDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}!`
+          msg: `Notificação agendada com sucesso para ${testDate.toLocaleDateString('pt-PT')} às ${testDate.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })}! ${dbInsertWarning}`
         });
         fetchData();
         setIsSendingPush(false);
@@ -760,8 +776,17 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         image_url: null
       };
 
-      const { error } = await supabase.from('app_banners').insert([pushRecord]);
-      if (error) throw error;
+      try {
+        const { error } = await supabase.from('app_banners').insert([pushRecord]);
+        if (error) {
+          console.warn("Aviso ao registrar histórico no Supabase (continuando com o envio do Push):", error);
+          if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
+            dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: O envio de push prosseguiu com sucesso, mas o histórico não pôde ser salvo porque existe um Trigger corrompido ('net.http_post' não encontrado) no seu Supabase. Para corrigir isto permanentemente, aceda ao SQL Editor no painel do Supabase e execute:\nDROP TRIGGER IF EXISTS send_push_trigger ON app_banners;\nDROP TRIGGER IF EXISTS on_banner_created ON app_banners;";
+          }
+        }
+      } catch (dbErr) {
+        console.warn("Excepção ao registrar histórico (continuando com o envio do Push):", dbErr);
+      }
 
       let clientFcmMsg = '';
       let clientFcmSuccess = false;
@@ -839,7 +864,35 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         }
       }
 
-      // Tenta chamar a Edge Function como redundância
+      // Tenta chamar o servidor Express local como fallback confiável
+      let serverFcmSuccess = false;
+      let serverFcmMsg = '';
+      try {
+        const serverResponse = await fetch('/api/send-fcm-push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: newPushTitle.trim(),
+            body: newPushBody.trim(),
+            audience: newPushAudience,
+            url: '/'
+          })
+        });
+        const serverData = await serverResponse.json();
+        if (serverResponse.ok && serverData.success) {
+          serverFcmSuccess = true;
+          serverFcmMsg = `Servidor: Enviado a ${serverData.sent || 0} dispositivos.`;
+        } else {
+          serverFcmMsg = `Servidor: ${serverData.error || 'Falha no disparo.'}`;
+        }
+      } catch (servErr: any) {
+        console.warn('[Push Fallback] Erro no servidor de disparo local:', servErr);
+        serverFcmMsg = `Servidor: indisponível ou erro (${servErr.message || servErr})`;
+      }
+
+      // Tenta chamar a Edge Function como redundância adicional
       try {
         await supabase.functions.invoke('send-fcm-push', {
           body: {
@@ -855,10 +908,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       setNewPushTitle('');
       setNewPushBody('');
       setPushSendResult({
-        success: clientFcmSuccess,
-        msg: clientFcmSuccess 
-          ? `Transmissão concluída! ${clientFcmMsg}`
-          : `Transmissão falhou ou precisa de ajuste: ${clientFcmMsg}`
+        success: clientFcmSuccess || serverFcmSuccess,
+        msg: (clientFcmSuccess || serverFcmSuccess)
+          ? `Transmissão concluída! ${clientFcmMsg ? clientFcmMsg + ' | ' : ''}${serverFcmMsg}${dbInsertWarning}`
+          : `Transmissão falhou ou precisa de ajuste: ${clientFcmMsg ? clientFcmMsg + ' | ' : ''}${serverFcmMsg}${dbInsertWarning}`
       });
       fetchData();
     } catch (err: any) {
