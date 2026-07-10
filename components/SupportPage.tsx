@@ -203,33 +203,42 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     setReplyText('');
     replyingRef.current = true;
     
+    // 1. Tentar gravar mensagem de chat na DB
     try {
-      await supabase.from('chat_messages').insert({ user_id: selectedUser.id, text: currentReply, sender_role: 'support' });
-      await supabase.from('support_tickets').update({ 
+      const { error: msgErr } = await supabase.from('chat_messages').insert({ user_id: selectedUser.id, text: currentReply, sender_role: 'support' });
+      if (msgErr) console.warn("Aviso ao gravar mensagem de suporte na DB (prosseguindo):", msgErr);
+    } catch (dbErr) {
+      console.warn("Falha física ao guardar mensagem de suporte (prosseguindo):", dbErr);
+    }
+
+    // 2. Tentar atualizar o ticket na DB
+    try {
+      const { error: ticketErr } = await supabase.from('support_tickets').update({ 
         last_message: currentReply, 
         updated_at: new Date().toISOString() 
       }).eq('user_id', selectedUser.id);
-
-      // Disparar push fcm/vapid direcionado e exclusivo para o usuário que abriu o ticket
-      try {
-        await supabase.functions.invoke('send-fcm-push', {
-          body: {
-            title: '💬 Suporte AtriosWork',
-            body: `Nova mensagem do suporte: "${currentReply.substring(0, 60)}${currentReply.length > 60 ? '...' : ''}"`,
-            audience: 'user',
-            targetUserId: selectedUser.id,
-            targetUserEmail: selectedUser.email,
-            url: '/'
-          }
-        });
-      } catch (fcmErr) {
-        console.warn('Erro ao disparar push de resposta de suporte:', fcmErr);
-      }
-    } catch (err) {
-      console.error("Error sending reply:", err);
-    } finally {
-      replyingRef.current = false;
+      if (ticketErr) console.warn("Aviso ao atualizar ticket na DB (prosseguindo):", ticketErr);
+    } catch (dbErr) {
+      console.warn("Falha física ao atualizar ticket (prosseguindo):", dbErr);
     }
+
+    // 3. Disparar push fcm/vapid direcionado e exclusivo para o utilizador (Sempre executado!)
+    try {
+      await supabase.functions.invoke('send-fcm-push', {
+        body: {
+          title: '💬 Suporte AtriosWork',
+          body: `Nova mensagem do suporte: "${currentReply.substring(0, 60)}${currentReply.length > 60 ? '...' : ''}"`,
+          audience: 'user',
+          targetUserId: selectedUser.id,
+          targetUserEmail: selectedUser.email,
+          url: '/'
+        }
+      });
+    } catch (fcmErr) {
+      console.warn('Erro ao disparar push de resposta de suporte:', fcmErr);
+    }
+
+    replyingRef.current = false;
   };
 
   const resolveTicket = async (userId: string) => {

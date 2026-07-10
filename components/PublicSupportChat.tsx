@@ -154,31 +154,49 @@ const PublicSupportChat: React.FC = () => {
 
       if (!targetId) return false;
 
-      await supabase.from('profiles').upsert({
-        id: targetId,
-        name: userData.name.trim(),
-        email: cleanEmail,
-        role: 'user',
-        hourlyRate: 0,
-        isFreelancer: false,
-        subscription: { status: 'GUEST_VISITOR', isActive: true, startDate: new Date().toISOString() }
-      }, { onConflict: 'id' });
+      // 1. Tentar fazer upsert no perfil
+      try {
+        const { error: profileErr } = await supabase.from('profiles').upsert({
+          id: targetId,
+          name: userData.name.trim(),
+          email: cleanEmail,
+          role: 'user',
+          hourlyRate: 0,
+          isFreelancer: false,
+          subscription: { status: 'GUEST_VISITOR', isActive: true, startDate: new Date().toISOString() }
+        }, { onConflict: 'id' });
+        if (profileErr) console.warn("Aviso ao guardar perfil na DB (prosseguindo):", profileErr);
+      } catch (dbErr) {
+        console.warn("Falha física ao guardar perfil (prosseguindo):", dbErr);
+      }
 
-      await supabase.from('support_tickets').upsert({
-        user_id: targetId,
-        status: 'open',
-        last_message: text,
-        updated_at: new Date().toISOString()
-      }, { onConflict: 'user_id' });
+      // 2. Tentar atualizar/criar o ticket
+      try {
+        const { error: ticketErr } = await supabase.from('support_tickets').upsert({
+          user_id: targetId,
+          status: 'open',
+          last_message: text,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'user_id' });
+        if (ticketErr) console.warn("Aviso ao gerir ticket na DB (prosseguindo):", ticketErr);
+      } catch (dbErr) {
+        console.warn("Falha física ao gerir ticket (prosseguindo):", dbErr);
+      }
 
-      await supabase.from('chat_messages').insert({
-        user_id: targetId,
-        text: text,
-        sender_role: 'user'
-      });
+      // 3. Tentar gravar mensagem de chat
+      try {
+        const { error: msgErr } = await supabase.from('chat_messages').insert({
+          user_id: targetId,
+          text: text,
+          sender_role: 'user'
+        });
+        if (msgErr) console.warn("Aviso ao guardar mensagem de chat na DB (prosseguindo):", msgErr);
+      } catch (dbErr) {
+        console.warn("Falha física ao guardar mensagem de chat (prosseguindo):", dbErr);
+      }
       
-      // Log notification in history (app_banners) and trigger push
-      const isHumanRequest = text.includes('solicitou atendimento humano');
+      // 4. Tentar registar no histórico (app_banners)
+      const isHumanRequest = text.includes('solicitou atendimento humano') || text.includes('atendimento humano');
       try {
         await supabase.from('app_banners').insert([{
           title: isHumanRequest ? `[PUSH] 🆘 Suporte Humano: ${userData.name.trim()}` : `[PUSH] 💬 Visitante: ${userData.name.trim()}`,
@@ -193,10 +211,10 @@ const PublicSupportChat: React.FC = () => {
           user_type: 'push_notification'
         }]);
       } catch (dbErr) {
-        console.error('Erro ao registrar push no histórico:', dbErr);
+        console.warn('Erro ao registrar push no histórico:', dbErr);
       }
       
-      // Trigger push notification to admins about the new guest support message
+      // 5. Disparar notificação push real FCM para admins (Sempre executado!)
       try {
         await supabase.functions.invoke('send-fcm-push', {
           body: {

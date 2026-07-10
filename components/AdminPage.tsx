@@ -781,7 +781,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         if (error) {
           console.warn("Aviso ao registrar histórico no Supabase (continuando com o envio do Push):", error);
           if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
-            dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: O envio de push prosseguiu com sucesso, mas o histórico não pôde ser salvo porque existe um Trigger corrompido ('net.http_post' não encontrado) no seu Supabase. Para corrigir isto permanentemente, aceda ao SQL Editor no painel do Supabase e execute:\nDROP TRIGGER IF EXISTS send_push_trigger ON app_banners;\nDROP TRIGGER IF EXISTS on_banner_created ON app_banners;";
+            dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: O envio de push prosseguiu com sucesso, mas o histórico não pôde ser salvo porque existe um Trigger corrompido ('net.http_post' não encontrado) no seu Supabase. Para corrigir isto permanentemente, aceda ao SQL Editor no painel do Supabase e execute:\nDROP TRIGGER IF EXISTS send_push_trigger ON app_banners;\nDROP TRIGGER IF EXISTS on_banner_created ON app_banners;\nDROP TRIGGER IF EXISTS send_push_trigger ON chat_messages;\nDROP TRIGGER IF EXISTS on_message_created ON chat_messages;\nDROP TRIGGER IF EXISTS send_push_trigger ON support_tickets;\nDROP TRIGGER IF EXISTS on_ticket_created ON support_tickets;";
           }
         }
       } catch (dbErr) {

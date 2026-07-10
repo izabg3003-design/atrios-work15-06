@@ -208,48 +208,57 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
     scrollToBottom();
 
     if (isHumanSupportActive) {
+      // 1. Tentar gravar mensagem de chat na DB (se falhar, prossegue para não quebrar a notificação e o fluxo)
       try {
-        await supabase.from('chat_messages').insert({ user_id: user.id, text: currentText, sender_role: 'user' });
-        await supabase.from('support_tickets').update({ 
+        const { error: msgErr } = await supabase.from('chat_messages').insert({ user_id: user.id, text: currentText, sender_role: 'user' });
+        if (msgErr) console.warn("Aviso ao guardar mensagem de chat na DB (prosseguindo):", msgErr);
+      } catch (dbErr) {
+        console.warn("Falha física ao guardar mensagem de chat (prosseguindo):", dbErr);
+      }
+
+      // 2. Tentar atualizar o ticket na DB
+      try {
+        const { error: ticketErr } = await supabase.from('support_tickets').update({ 
           last_message: currentText, 
           status: 'open',
           updated_at: new Date().toISOString() 
         }).eq('user_id', user.id);
-
-        // Log notification in history (app_banners) and trigger push
-        try {
-          await supabase.from('app_banners').insert([{
-            title: `[PUSH] 💬 Suporte: ${user.name || 'Utilizador'}`,
-            highlight: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
-            subtitle: 'Notificação de Suporte',
-            cta_text: 'Atender',
-            cta_link: '/',
-            theme_color: 'blue',
-            is_active: true,
-            user_type: 'push_notification'
-          }]);
-        } catch (dbErr) {
-          console.error('Erro ao registrar push no histórico:', dbErr);
-        }
-
-        // Trigger push notification to admins about the new support message
-        try {
-          await supabase.functions.invoke('send-fcm-push', {
-            body: {
-              title: '💬 Nova Mensagem de Suporte',
-              body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
-              audience: 'admin'
-            }
-          });
-        } catch (fcmErr) {
-          console.warn('Erro ao disparar push de mensagem de suporte:', fcmErr);
-        }
-      } catch (err) {
-        console.error("Error sending message:", err);
-      } finally {
-        setIsSending(false);
-        sendingRef.current = false;
+        if (ticketErr) console.warn("Aviso ao atualizar ticket na DB (prosseguindo):", ticketErr);
+      } catch (dbErr) {
+        console.warn("Falha física ao atualizar ticket (prosseguindo):", dbErr);
       }
+
+      // 3. Tentar registar no histórico (app_banners)
+      try {
+        await supabase.from('app_banners').insert([{
+          title: `[PUSH] 💬 Suporte: ${user.name || 'Utilizador'}`,
+          highlight: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+          subtitle: 'Notificação de Suporte',
+          cta_text: 'Atender',
+          cta_link: '/',
+          theme_color: 'blue',
+          is_active: true,
+          user_type: 'push_notification'
+        }]);
+      } catch (dbErr) {
+        console.warn('Erro ao registrar push no histórico:', dbErr);
+      }
+
+      // 4. Disparar notificação push real FCM para admins (Sempre executado!)
+      try {
+        await supabase.functions.invoke('send-fcm-push', {
+          body: {
+            title: '💬 Nova Mensagem de Suporte',
+            body: `${user.name || 'Utilizador'}: "${currentText.substring(0, 60)}${currentText.length > 60 ? '...' : ''}"`,
+            audience: 'admin'
+          }
+        });
+      } catch (fcmErr) {
+        console.warn('Erro ao disparar push de mensagem de suporte:', fcmErr);
+      }
+
+      setIsSending(false);
+      sendingRef.current = false;
     } else {
       setIsTyping(true);
       try {
@@ -320,16 +329,28 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
     sendingRef.current = true;
     const triggerText = "O utilizador solicitou falar com um atendente humano agora.";
     
+    let isOnline = false;
     try {
-      const isOnline = await checkAgentsAvailability();
-      
-      await supabase.from('chat_messages').insert({ 
+      isOnline = await checkAgentsAvailability();
+    } catch (err) {
+      console.warn("Erro ao checar agentes:", err);
+    }
+
+    // 1. Tentar gravar a mensagem de controle na DB
+    try {
+      const { error: msgErr } = await supabase.from('chat_messages').insert({ 
         user_id: user.id, 
         text: "--- SOLICITAÇÃO DE ATENDIMENTO HUMANO ---", 
         sender_role: 'user' 
       });
+      if (msgErr) console.warn("Aviso ao guardar mensagem de suporte na DB (prosseguindo):", msgErr);
+    } catch (dbErr) {
+      console.warn("Falha física ao guardar mensagem de suporte (prosseguindo):", dbErr);
+    }
 
-      const { data: updateData } = await supabase
+    // 2. Tentar atualizar ou criar o ticket de suporte
+    try {
+      const { data: updateData, error: updateErr } = await supabase
         .from('support_tickets')
         .update({ 
           status: 'open', 
@@ -339,60 +360,61 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
         .eq('user_id', user.id)
         .select();
 
-      if (!updateData || updateData.length === 0) {
-        await supabase.from('support_tickets').insert({ 
+      if (updateErr || !updateData || updateData.length === 0) {
+        const { error: insertErr } = await supabase.from('support_tickets').insert({ 
           user_id: user.id, 
           status: 'open', 
           last_message: triggerText, 
           updated_at: new Date().toISOString() 
         });
+        if (insertErr) console.warn("Aviso ao criar ticket de suporte na DB (prosseguindo):", insertErr);
       }
-
-      // Log notification in history (app_banners) and trigger push
-      try {
-        await supabase.from('app_banners').insert([{
-          title: `[PUSH] 💬 Suporte: ${user.name}`,
-          highlight: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
-          subtitle: 'Solicitação de Suporte Humano',
-          cta_text: 'Atender',
-          cta_link: '/',
-          theme_color: 'rose',
-          is_active: true,
-          user_type: 'push_notification'
-        }]);
-      } catch (dbErr) {
-        console.error('Erro ao registrar push no histórico:', dbErr);
-      }
-      
-      try {
-        await supabase.functions.invoke('send-fcm-push', {
-          body: {
-            title: '🆘 Atendimento Humano Solicitado!',
-            body: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
-            audience: 'admin'
-          }
-        });
-      } catch (fcmErr) {
-        console.warn('Erro ao disparar push de atendimento humano:', fcmErr);
-      }
-
-      setIsHumanSupportActive(true);
-      setConnectionStatus(isOnline ? 'online' : 'offline');
-      
-      const sysMsg: Message = { 
-        id: 'sys-' + Date.now(), 
-        role: 'support', 
-        text: isOnline ? "Conectando-o a um agente da AtriosWork. Por favor, aguarde um momento." : "De momento todos os nossos agentes estão ocupados. Deixe a sua mensagem e responderemos assim que possível.", 
-        timestamp: new Date() 
-      };
-      
-      setMessages(prev => [...prev, sysMsg]);
-      scrollToBottom();
-    } catch (err: any) {
-      console.error("Support trigger error:", err);
-    } finally {
-      sendingRef.current = false;
+    } catch (dbErr) {
+      console.warn("Falha física ao gerir ticket de suporte (prosseguindo):", dbErr);
     }
+
+    // 3. Tentar registar no histórico (app_banners)
+    try {
+      await supabase.from('app_banners').insert([{
+        title: `[PUSH] 💬 Suporte: ${user.name}`,
+        highlight: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
+        subtitle: 'Solicitação de Suporte Humano',
+        cta_text: 'Atender',
+        cta_link: '/',
+        theme_color: 'rose',
+        is_active: true,
+        user_type: 'push_notification'
+      }]);
+    } catch (dbErr) {
+      console.warn('Erro ao registrar push no histórico:', dbErr);
+    }
+    
+    // 4. Disparar notificação push real FCM para admins (Sempre executado!)
+    try {
+      await supabase.functions.invoke('send-fcm-push', {
+        body: {
+          title: '🆘 Atendimento Humano Solicitado!',
+          body: `O utilizador ${user.name} (${user.email}) solicitou atendimento humano no chat.`,
+          audience: 'admin'
+        }
+      });
+    } catch (fcmErr) {
+      console.warn('Erro ao disparar push de atendimento humano:', fcmErr);
+    }
+
+    setIsHumanSupportActive(true);
+    setConnectionStatus(isOnline ? 'online' : 'offline');
+    
+    const sysMsg: Message = { 
+      id: 'sys-' + Date.now(), 
+      role: 'support', 
+      text: isOnline ? "Conectando-o a um agente da AtriosWork. Por favor, aguarde um momento." : "De momento todos os nossos agentes estão ocupados. Deixe a sua mensagem e responderemos assim que possível.", 
+      timestamp: new Date() 
+    };
+    
+    setMessages(prev => [...prev, sysMsg]);
+    scrollToBottom();
+    sendingRef.current = false;
   };
 
   return (
