@@ -276,7 +276,15 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    // Polling resiliente de 5 segundos para garantir atualização do chat mesmo se o Realtime falhar
+    const pollInterval = setInterval(() => {
+      reloadMessages();
+    }, 5000);
+
+    return () => {
+      clearInterval(pollInterval);
+      supabase.removeChannel(channel);
+    };
   }, [user.id, scrollToBottom, checkAgentsAvailability, reloadMessages]);
 
   const handleSend = async (e: React.FormEvent) => {

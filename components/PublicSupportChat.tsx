@@ -200,7 +200,13 @@ const PublicSupportChat: React.FC = () => {
       })
       .subscribe();
 
+    // Polling resiliente de 5 segundos para garantir atualização do chat mesmo se o Realtime falhar
+    const pollInterval = setInterval(() => {
+      reloadVisitorMessages();
+    }, 5000);
+
     return () => {
+      clearInterval(pollInterval);
       supabase.removeChannel(channel);
     };
   }, [visitorId, isOpen, scrollToBottom, reloadVisitorMessages]);

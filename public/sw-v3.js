@@ -35,6 +35,11 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
+  // Ignorar chamadas de API de forma estrita para evitar interceptação ou caches falsos
+  if (event.request.url.includes('/api/')) {
+    return;
+  }
+
   // ONLY intercept GET requests to prevent issues with POST/PUT/DELETE API calls or third-party connections
   if (event.request.method !== 'GET') {
     return;

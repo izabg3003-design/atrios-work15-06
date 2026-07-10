@@ -237,6 +237,11 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     fetchTickets();
     requestNotificationPermission();
 
+    // Sondagem resiliente de 15 segundos para atualizar a fila caso o Realtime do Supabase falhe ou seja intercetado
+    const pollInterval = setInterval(() => {
+      fetchTickets(true);
+    }, 15000);
+
     const ticketChannel = supabase.channel('atrioswork_support_global_sync')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'support_tickets' }, () => { 
         fetchTickets(true); 
@@ -250,7 +255,10 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(ticketChannel); };
+    return () => {
+      clearInterval(pollInterval);
+      supabase.removeChannel(ticketChannel);
+    };
   }, [selectedUser]);
 
   useEffect(() => {
@@ -283,6 +291,11 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     };
     fetchMsgs();
 
+    // Polling ativo resiliente a cada 5 segundos para mensagens de chat
+    const pollInterval = setInterval(() => {
+      fetchMsgs();
+    }, 5000);
+
     const chatChannel = supabase.channel(`atrioswork_chat_agent_sync_${selectedUser.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${selectedUser.id}` }, payload => {
         setChatMessages(prev => {
@@ -298,7 +311,10 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(chatChannel); };
+    return () => {
+      clearInterval(pollInterval);
+      supabase.removeChannel(chatChannel);
+    };
   }, [activeView, selectedUser?.id]);
 
   const getProfileFromTicket = (ticket: any): UserProfile | null => {
