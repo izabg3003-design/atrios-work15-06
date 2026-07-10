@@ -34,5 +34,31 @@ service cloud.firestore {
       );
       allow delete: if isOwner(userId);
     }
+
+    // Rules for fallback support tickets
+    match /support_tickets/{userId} {
+      allow read: if true;
+      allow write: if isValidId(userId) && (
+        incoming().keys().hasAll(['id', 'user_id', 'status', 'last_message', 'updated_at']) &&
+        incoming().id == userId &&
+        incoming().user_id == userId &&
+        (incoming().status == 'open' || incoming().status == 'resolved') &&
+        incoming().last_message is string && incoming().last_message.size() <= 5000 &&
+        incoming().updated_at is string && incoming().updated_at.size() <= 64
+      );
+
+      // Rules for fallback support messages
+      match /messages/{messageId} {
+        allow read: if true;
+        allow write: if isValidId(userId) && isValidId(messageId) && (
+          incoming().keys().hasAll(['id', 'user_id', 'text', 'sender_role', 'created_at']) &&
+          incoming().id == messageId &&
+          incoming().user_id == userId &&
+          incoming().text is string && incoming().text.size() <= 5000 &&
+          (incoming().sender_role == 'user' || incoming().sender_role == 'support' || incoming().sender_role == 'ai') &&
+          incoming().created_at is string && incoming().created_at.size() <= 64
+        );
+      }
+    }
   }
 }

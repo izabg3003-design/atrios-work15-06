@@ -5,6 +5,12 @@ import {
 } from 'lucide-react';
 import { GoogleGenAI } from "@google/genai";
 import { supabase } from '../lib/supabase';
+import { 
+  saveFallbackTicket, 
+  saveFallbackMessage, 
+  getFallbackMessages, 
+  listenToFallbackMessages 
+} from '../lib/firestore-fallback';
 
 interface Message {
   role: 'user' | 'ai' | 'support';
@@ -24,6 +30,7 @@ const PublicSupportChat: React.FC = () => {
   const [showHumanSupportStatus, setShowHumanSupportStatus] = useState(false);
   const [isHumanModeActive, setIsHumanModeActive] = useState(false);
   const [visitorId, setVisitorId] = useState<string | null>(null);
+  const isApiFallbackSupported = useRef(true);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -70,21 +77,41 @@ const PublicSupportChat: React.FC = () => {
         if (history) combinedHistory = history.map(h => ({ sender_role: h.sender_role, text: h.text, created_at: h.created_at || new Date().toISOString() }));
       } catch (e) {}
 
+      if (isApiFallbackSupported.current) {
+        try {
+          const fbRes = await fetch(`/api/fallback-messages/${visitorId}`);
+          if (fbRes.ok) {
+            const fbMessages = await fbRes.json();
+            fbMessages.forEach((fm: any) => {
+              if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
+                combinedHistory.push({
+                  sender_role: fm.sender_role,
+                  text: fm.text,
+                  created_at: fm.created_at
+                });
+              }
+            });
+          } else if (fbRes.status === 404) {
+            isApiFallbackSupported.current = false;
+          }
+        } catch (e) {}
+      }
+
+      // Integrar mensagens do Firestore Fallback para máxima confiabilidade
       try {
-        const fbRes = await fetch(`/api/fallback-messages/${visitorId}`);
-        if (fbRes.ok) {
-          const fbMessages = await fbRes.json();
-          fbMessages.forEach((fm: any) => {
-            if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
-              combinedHistory.push({
-                sender_role: fm.sender_role,
-                text: fm.text,
-                created_at: fm.created_at
-              });
-            }
-          });
-        }
-      } catch (e) {}
+        const fsMessages = await getFallbackMessages(visitorId);
+        fsMessages.forEach((fm: any) => {
+          if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
+            combinedHistory.push({
+              sender_role: fm.sender_role,
+              text: fm.text,
+              created_at: fm.created_at
+            });
+          }
+        });
+      } catch (fsErr) {
+        console.warn("Erro ao buscar histórico do visitante no Firestore Fallback:", fsErr);
+      }
 
       combinedHistory.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
@@ -125,22 +152,42 @@ const PublicSupportChat: React.FC = () => {
             console.warn("Erro ao obter historico publico do Supabase:", err);
           }
 
-          try {
-            const fbRes = await fetch(`/api/fallback-messages/${uid}`);
-            if (fbRes.ok) {
-              const fbMessages = await fbRes.json();
-              fbMessages.forEach((fm: any) => {
-                if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
-                  combinedHistory.push({
-                    sender_role: fm.sender_role,
-                    text: fm.text,
-                    created_at: fm.created_at
-                  });
-                }
-              });
+          if (isApiFallbackSupported.current) {
+            try {
+              const fbRes = await fetch(`/api/fallback-messages/${uid}`);
+              if (fbRes.ok) {
+                const fbMessages = await fbRes.json();
+                fbMessages.forEach((fm: any) => {
+                  if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
+                    combinedHistory.push({
+                      sender_role: fm.sender_role,
+                      text: fm.text,
+                      created_at: fm.created_at
+                    });
+                  }
+                });
+              } else if (fbRes.status === 404) {
+                isApiFallbackSupported.current = false;
+              }
+            } catch (err) {
+              console.warn("Erro ao obter historico publico do fallback:", err);
             }
-          } catch (err) {
-            console.warn("Erro ao obter historico publico do fallback:", err);
+          }
+
+          // Integrar histórico do Firestore Fallback
+          try {
+            const fsMessages = await getFallbackMessages(uid);
+            fsMessages.forEach((fm: any) => {
+              if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
+                combinedHistory.push({
+                  sender_role: fm.sender_role,
+                  text: fm.text,
+                  created_at: fm.created_at
+                });
+              }
+            });
+          } catch (fsErr) {
+            console.warn("Erro ao carregar histórico do visitante no Firestore Fallback:", fsErr);
           }
 
           combinedHistory.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -200,6 +247,33 @@ const PublicSupportChat: React.FC = () => {
       })
       .subscribe();
 
+    // Ouvinte em tempo real do Firestore Fallback para respostas instantâneas do suporte
+    let unsubscribeFirestoreMsgs: any = null;
+    try {
+      unsubscribeFirestoreMsgs = listenToFallbackMessages(visitorId, (fsMessages) => {
+        setMessages(prev => {
+          const updated = [...prev];
+          fsMessages.forEach(fm => {
+            const exists = updated.some(m => m.text === fm.text && m.role === fm.sender_role);
+            if (!exists) {
+              if (fm.sender_role === 'support') {
+                setIsHumanModeActive(true);
+                setShowHumanSupportStatus(true);
+              }
+              updated.push({
+                role: fm.sender_role as any,
+                text: fm.text
+              });
+            }
+          });
+          return updated;
+        });
+        scrollToBottom();
+      });
+    } catch (fsErr) {
+      console.warn("Erro ao subscrever chat no Firestore Fallback:", fsErr);
+    }
+
     // Polling resiliente de 5 segundos para garantir atualização do chat mesmo se o Realtime falhar
     const pollInterval = setInterval(() => {
       reloadVisitorMessages();
@@ -207,6 +281,7 @@ const PublicSupportChat: React.FC = () => {
 
     return () => {
       clearInterval(pollInterval);
+      if (unsubscribeFirestoreMsgs) unsubscribeFirestoreMsgs();
       supabase.removeChannel(channel);
     };
   }, [visitorId, isOpen, scrollToBottom, reloadVisitorMessages]);
@@ -268,20 +343,29 @@ const PublicSupportChat: React.FC = () => {
       }
 
       // Atualizar ticket no Fallback local
+      if (isApiFallbackSupported.current) {
+        try {
+          await fetch('/api/fallback-tickets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ 
+              user_id: targetId, 
+              status: 'open', 
+              last_message: text,
+              user_name: userData.name.trim(),
+              user_email: cleanEmail
+            })
+          });
+        } catch (err) {
+          console.warn("Erro ao salvar ticket no fallback local:", err);
+        }
+      }
+
+      // Atualizar ticket no Firestore Fallback
       try {
-        await fetch('/api/fallback-tickets', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            user_id: targetId, 
-            status: 'open', 
-            last_message: text,
-            user_name: userData.name.trim(),
-            user_email: cleanEmail
-          })
-        });
-      } catch (err) {
-        console.warn("Erro ao salvar ticket no fallback local:", err);
+        await saveFallbackTicket(targetId, 'open', text, userData.name.trim(), cleanEmail);
+      } catch (fsErr) {
+        console.warn("Erro ao salvar ticket no Firestore Fallback:", fsErr);
       }
 
       // 3. Tentar gravar mensagem de chat
@@ -297,14 +381,23 @@ const PublicSupportChat: React.FC = () => {
       }
 
       // Gravar mensagem no Fallback local
+      if (isApiFallbackSupported.current) {
+        try {
+          await fetch('/api/fallback-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: targetId, text: text, sender_role: 'user' })
+          });
+        } catch (err) {
+          console.warn("Erro ao salvar mensagem no fallback local:", err);
+        }
+      }
+
+      // Gravar mensagem no Firestore Fallback
       try {
-        await fetch('/api/fallback-messages', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: targetId, text: text, sender_role: 'user' })
-        });
-      } catch (err) {
-        console.warn("Erro ao salvar mensagem no fallback local:", err);
+        await saveFallbackMessage(targetId, text, 'user');
+      } catch (fsErr) {
+        console.warn("Erro ao salvar mensagem no Firestore Fallback:", fsErr);
       }
       
       // 4. Tentar registar no histórico (app_banners)
@@ -420,18 +513,32 @@ const PublicSupportChat: React.FC = () => {
 
       // Guardar mensagem AI no fallback local para manter histórico íntegro
       if (visitorId) {
-        try {
-          await fetch('/api/fallback-messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: visitorId, text: currentText, sender_role: 'user' })
-          });
-          await fetch('/api/fallback-messages', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ user_id: visitorId, text: aiText, sender_role: 'ai' })
-          });
+        if (isApiFallbackSupported.current) {
+          try {
+            await fetch('/api/fallback-messages', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: visitorId, text: currentText, sender_role: 'user' })
+            });
+            await fetch('/api/fallback-messages', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ user_id: visitorId, text: aiText, sender_role: 'ai' })
+            });
+          } catch (err) {
+            console.warn("Erro ao salvar mensagens da IA no fallback local:", err);
+          }
+        }
 
+        // Guardar no Firestore Fallback
+        try {
+          await saveFallbackMessage(visitorId, currentText, 'user');
+          await saveFallbackMessage(visitorId, aiText, 'ai');
+        } catch (fsErr) {
+          console.warn("Erro ao salvar mensagens da IA no Firestore Fallback:", fsErr);
+        }
+
+        try {
           // Broadcast
           const syncChannel = supabase.channel(`atrioswork_visitor_chat_${visitorId}`);
           syncChannel.subscribe((status) => {
@@ -443,8 +550,8 @@ const PublicSupportChat: React.FC = () => {
               });
             }
           });
-        } catch (err) {
-          console.warn("Erro ao salvar mensagens da IA no fallback local:", err);
+        } catch (broadcastErr) {
+          console.warn("Erro ao enviar broadcast:", broadcastErr);
         }
       }
     } catch (err) {

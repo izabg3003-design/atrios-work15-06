@@ -15,12 +15,48 @@
         }
       },
       "required": ["id"]
+    },
+    "support_ticket": {
+      "title": "Support Ticket",
+      "description": "Fallback support ticket storing state of active human help requests",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "resolved"] },
+        "last_message": { "type": "string" },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "user_name": { "type": "string" },
+        "user_email": { "type": "string" }
+      },
+      "required": ["id", "user_id", "status", "last_message", "updated_at"]
+    },
+    "support_message": {
+      "title": "Support Message",
+      "description": "Fallback chat message stored under support ticket messages subcollection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "user_id": { "type": "string" },
+        "text": { "type": "string" },
+        "sender_role": { "type": "string", "enum": ["user", "support", "ai"] },
+        "created_at": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "user_id", "text", "sender_role", "created_at"]
     }
   },
   "firestore": {
     "users/{userId}": {
       "schema": "user",
       "description": "Collection storing user configurations and PWA push tokens"
+    },
+    "support_tickets/{userId}": {
+      "schema": "support_ticket",
+      "description": "Fallback collection tracking human help requests in real-time"
+    },
+    "support_tickets/{userId}/messages/{messageId}": {
+      "schema": "support_message",
+      "description": "Fallback collection containing individual chat messages under a ticket"
     }
   }
 }
