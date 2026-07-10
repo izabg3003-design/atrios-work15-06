@@ -104,35 +104,115 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
   };
 
   const fetchTickets = async (isNewTrigger = false) => {
-    const { data: active } = await supabase
-      .from('support_tickets')
-      .select('*, profiles(*)')
-      .eq('status', 'open')
-      .order('updated_at', { ascending: false });
-    
-    if (active && active.length > 0) {
+    let active: any[] = [];
+    let resolved: any[] = [];
+
+    // 1. Tentar ler do Supabase
+    try {
+      const { data: activeDb } = await supabase
+        .from('support_tickets')
+        .select('*, profiles(*)')
+        .eq('status', 'open')
+        .order('updated_at', { ascending: false });
+      if (activeDb) active = [...activeDb];
+    } catch (err) {
+      console.warn("Erro ao buscar tickets ativos do Supabase:", err);
+    }
+
+    try {
+      const { data: resolvedDb } = await supabase
+        .from('support_tickets')
+        .select('*, profiles(*)')
+        .eq('status', 'resolved')
+        .order('updated_at', { ascending: false })
+        .limit(50);
+      if (resolvedDb) resolved = [...resolvedDb];
+    } catch (err) {
+      console.warn("Erro ao buscar tickets resolvidos do Supabase:", err);
+    }
+
+    // 2. Tentar ler da nossa API de backup local /api/fallback-tickets
+    try {
+      const fbRes = await fetch('/api/fallback-tickets');
+      if (fbRes.ok) {
+        const fbTickets = await fbRes.json();
+        
+        fbTickets.forEach((ft: any) => {
+          if (ft.status === 'open') {
+            const existingIdx = active.findIndex(t => t.user_id === ft.user_id);
+            if (existingIdx !== -1) {
+              if (new Date(ft.updated_at).getTime() > new Date(active[existingIdx].updated_at).getTime()) {
+                active[existingIdx] = {
+                  ...active[existingIdx],
+                  last_message: ft.last_message,
+                  updated_at: ft.updated_at
+                };
+              }
+            } else {
+              active.push({
+                id: ft.id,
+                user_id: ft.user_id,
+                status: 'open',
+                last_message: ft.last_message,
+                updated_at: ft.updated_at,
+                profiles: {
+                  id: ft.user_id,
+                  name: ft.user_name || 'Visitante/Utilizador',
+                  email: ft.user_email || '',
+                  role: 'user'
+                }
+              });
+            }
+          } else if (ft.status === 'resolved') {
+            const existingIdx = resolved.findIndex(t => t.user_id === ft.user_id);
+            if (existingIdx !== -1) {
+              if (new Date(ft.updated_at).getTime() > new Date(resolved[existingIdx].updated_at).getTime()) {
+                resolved[existingIdx] = {
+                  ...resolved[existingIdx],
+                  last_message: ft.last_message,
+                  updated_at: ft.updated_at
+                };
+              }
+            } else {
+              resolved.push({
+                id: ft.id,
+                user_id: ft.user_id,
+                status: 'resolved',
+                last_message: ft.last_message,
+                updated_at: ft.updated_at,
+                profiles: {
+                  id: ft.user_id,
+                  name: ft.user_name || 'Visitante/Utilizador',
+                  email: ft.user_email || '',
+                  role: 'user'
+                }
+              });
+            }
+          }
+        });
+      }
+    } catch (err) {
+      console.warn("Erro ao buscar backup local de tickets:", err);
+    }
+
+    // Ordenar por updated_at descendente
+    active.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+    resolved.sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime());
+
+    if (active.length > 0) {
       const newest = active[0];
       if (isNewTrigger) {
-        // Se detetar uma atualização nova em qualquer ticket de suporte ativo que não estamos a atender no momento
         if (newest.updated_at !== lastTicketUpdatedAt.current && newest.user_id !== selectedUser?.id) {
           lastTicketUpdatedAt.current = newest.updated_at;
           handleNewTicketAlert(newest);
         }
       } else {
-        // Sincroniza sem disparar o alarme (ex: carregamento inicial)
         lastTicketUpdatedAt.current = newest.updated_at;
       }
     }
     
-    setActiveChats(active || []);
-
-    const { data: resolved } = await supabase
-      .from('support_tickets')
-      .select('*, profiles(*)')
-      .eq('status', 'resolved')
-      .order('updated_at', { ascending: false })
-      .limit(50);
-    setResolvedTickets(resolved || []);
+    setActiveChats(active);
+    setResolvedTickets(resolved);
   };
 
   const handleNewTicketAlert = (ticket: any) => {
@@ -143,8 +223,8 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
       const n = new Notification("AtriosWork - ALERTA URGENTE", {
         body: `NOVO TICKET DE: ${ticket.profiles?.name || 'Visitante'}\n"${ticket.last_message}"`,
         icon: "/logo_atualizado.jpg?v=20260314_v1",
-        requireInteraction: true, // A notificação não desaparece até o usuário clicar/fechar
-        tag: "atrioswork-alert" // Evita múltiplas notificações iguais
+        requireInteraction: true,
+        tag: "atrioswork-alert"
       });
       n.onclick = () => {
         window.focus();
@@ -164,6 +244,10 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'support_tickets' }, () => { 
         fetchTickets(true); 
       })
+      .on('broadcast', { event: 'support_request' }, (payload) => {
+        console.log("[Support Broadcast] Nova solicitação de suporte recebida:", payload);
+        fetchTickets(true);
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(ticketChannel); };
@@ -172,10 +256,33 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
   useEffect(() => {
     if (activeView !== 'chat' || !selectedUser?.id) return;
     const fetchMsgs = async () => {
-       const { data } = await supabase.from('chat_messages').select('*').eq('user_id', selectedUser.id).order('created_at', { ascending: true });
-       setChatMessages(data || []);
+       let combinedMsgs: any[] = [];
+       try {
+         const { data } = await supabase.from('chat_messages').select('*').eq('user_id', selectedUser.id).order('created_at', { ascending: true });
+         if (data) combinedMsgs = [...data];
+       } catch (err) {
+         console.warn("Erro ao buscar histórico do Supabase:", err);
+       }
+
+       try {
+         const fbRes = await fetch(`/api/fallback-messages/${selectedUser.id}`);
+         if (fbRes.ok) {
+           const fbMessages = await fbRes.json();
+           fbMessages.forEach((fm: any) => {
+             if (!combinedMsgs.some(m => m.id === fm.id || (m.text === fm.text && Math.abs(new Date(m.created_at).getTime() - new Date(fm.created_at).getTime()) < 5000))) {
+               combinedMsgs.push(fm);
+             }
+           });
+         }
+       } catch (err) {
+         console.warn("Erro ao buscar histórico local de fallback:", err);
+       }
+
+       combinedMsgs.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+       setChatMessages(combinedMsgs);
     };
     fetchMsgs();
+
     const chatChannel = supabase.channel(`atrioswork_chat_agent_sync_${selectedUser.id}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${selectedUser.id}` }, payload => {
         setChatMessages(prev => {
@@ -183,7 +290,14 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
           if (payload.new.sender_role === 'user') startAlarm();
           return [...prev, payload.new];
         });
-      }).subscribe();
+      })
+      .on('broadcast', { event: 'support_sync' }, () => {
+        console.log("[Agent Chat Broadcast] Atualizando chat devido a sincronização...");
+        fetchMsgs();
+        startAlarm();
+      })
+      .subscribe();
+
     return () => { supabase.removeChannel(chatChannel); };
   }, [activeView, selectedUser?.id]);
 
@@ -208,6 +322,16 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     const currentReply = replyText.trim();
     setReplyText('');
     replyingRef.current = true;
+
+    // Adiciona a mensagem de forma otimista localmente
+    const tempId = 'temp-' + Date.now();
+    setChatMessages(prev => [...prev, {
+      id: tempId,
+      user_id: selectedUser.id,
+      text: currentReply,
+      sender_role: 'support',
+      created_at: new Date().toISOString()
+    }]);
     
     // 1. Tentar gravar mensagem de chat na DB
     try {
@@ -215,6 +339,17 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
       if (msgErr) console.warn("Aviso ao gravar mensagem de suporte na DB (prosseguindo):", msgErr);
     } catch (dbErr) {
       console.warn("Falha física ao guardar mensagem de suporte (prosseguindo):", dbErr);
+    }
+
+    // Gravar no Fallback local
+    try {
+      await fetch('/api/fallback-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: selectedUser.id, text: currentReply, sender_role: 'support' })
+      });
+    } catch (err) {
+      console.warn("Erro ao salvar mensagem no fallback local:", err);
     }
 
     // 2. Tentar atualizar o ticket na DB
@@ -226,6 +361,39 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
       if (ticketErr) console.warn("Aviso ao atualizar ticket na DB (prosseguindo):", ticketErr);
     } catch (dbErr) {
       console.warn("Falha física ao atualizar ticket (prosseguindo):", dbErr);
+    }
+
+    // Atualizar no Fallback local
+    try {
+      await fetch('/api/fallback-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          user_id: selectedUser.id, 
+          status: 'open', 
+          last_message: currentReply,
+          user_name: selectedUser.name || 'Utilizador',
+          user_email: selectedUser.email || ''
+        })
+      });
+    } catch (err) {
+      console.warn("Erro ao salvar ticket no fallback local:", err);
+    }
+
+    // Enviar broadcast de sincronização
+    try {
+      const syncChannel = supabase.channel(`atrioswork_chat_sync_${selectedUser.id}`);
+      syncChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          syncChannel.send({
+            type: 'broadcast',
+            event: 'support_sync',
+            payload: { user_id: selectedUser.id }
+          });
+        }
+      });
+    } catch (broadcastErr) {
+      console.warn("Erro ao enviar broadcast de resposta:", broadcastErr);
     }
 
     // 3. Disparar push fcm/vapid direcionado e exclusivo para o utilizador (Sempre executado!)
@@ -252,38 +420,56 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     setLoading(true);
     setDbWarning(null); // Limpar aviso anterior
     try {
-      const { error } = await supabase
-        .from('support_tickets')
-        .update({ 
-          status: 'resolved', 
-          updated_at: new Date().toISOString() 
-        })
-        .eq('user_id', userId);
+      // 1. Resolver no Supabase
+      try {
+        const { error } = await supabase
+          .from('support_tickets')
+          .update({ 
+            status: 'resolved', 
+            updated_at: new Date().toISOString() 
+          })
+          .eq('user_id', userId);
 
-      if (error) {
-        const errorStr = JSON.stringify(error) || "";
-        if (error.code === '42883' || error.status === 404 || errorStr.includes('404') || errorStr.includes('net.http_post') || errorStr.includes('trigger') || error.message?.includes('net.http_post') || error.message?.includes('trigger')) {
-          setDbWarning("Erro de Trigger no seu Supabase. O ticket foi resolvido visualmente, mas o banco rejeitou o update.");
-          setSelectedUser(null);
-          // Atualiza o estado local para remover o ticket da lista ativa
-          setActiveChats(prev => prev.filter(c => c.user_id !== userId));
-          return;
+        if (error) {
+          console.warn("Aviso ao resolver ticket no Supabase (prosseguindo):", error);
         }
-        throw error;
+      } catch (err) {
+        console.warn("Erro físico ao resolver ticket no Supabase (prosseguindo):", err);
       }
+
+      // 2. Resolver no Fallback local
+      try {
+        await fetch('/api/fallback-resolve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId })
+        });
+      } catch (err) {
+        console.warn("Erro ao resolver ticket no fallback local:", err);
+      }
+
+      // 3. Enviar broadcast de encerramento de suporte
+      try {
+        const syncChannel = supabase.channel(`atrioswork_chat_sync_${userId}`);
+        syncChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            syncChannel.send({
+              type: 'broadcast',
+              event: 'support_resolved',
+              payload: { user_id: userId }
+            });
+          }
+        });
+      } catch (broadcastErr) {
+        console.warn("Erro ao disparar broadcast de encerramento:", broadcastErr);
+      }
+
       setSelectedUser(null);
       await fetchTickets();
     } catch (err: any) {
       console.error("AtriosWork Resolve Error:", err);
-      const errStr = JSON.stringify(err) || "";
-      if (err.code === '42883' || err.status === 404 || errStr.includes('404') || errStr.includes('net.http_post') || errStr.includes('trigger') || err.message?.includes('net.http_post') || err.message?.includes('trigger')) {
-        setDbWarning("Erro de Trigger no seu Supabase. O ticket foi resolvido visualmente, mas o banco rejeitou o update.");
-        setSelectedUser(null);
-        // Atualiza o estado local para remover o ticket da lista ativa
-        setActiveChats(prev => prev.filter(c => c.user_id !== userId));
-      } else {
-        alert("Erro ao marcar ticket como resolvido: " + (err.message || JSON.stringify(err)));
-      }
+      setSelectedUser(null);
+      await fetchTickets();
     } finally {
       setLoading(false);
     }
