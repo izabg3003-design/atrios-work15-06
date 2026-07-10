@@ -257,7 +257,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
 
       if (error) {
         const errorStr = JSON.stringify(error) || "";
-        if (errorStr.includes('net.http_post') || errorStr.includes('trigger') || error.message?.includes('net.http_post') || error.message?.includes('trigger')) {
+        if (error.code === '42883' || error.status === 404 || errorStr.includes('404') || errorStr.includes('net.http_post') || errorStr.includes('trigger') || error.message?.includes('net.http_post') || error.message?.includes('trigger')) {
           setDbWarning("Erro de Trigger no seu Supabase. O ticket foi resolvido visualmente, mas o banco rejeitou o update.");
           setSelectedUser(null);
           // Atualiza o estado local para remover o ticket da lista ativa
@@ -271,7 +271,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     } catch (err: any) {
       console.error("AtriosWork Resolve Error:", err);
       const errStr = JSON.stringify(err) || "";
-      if (errStr.includes('net.http_post') || errStr.includes('trigger') || err.message?.includes('net.http_post') || err.message?.includes('trigger')) {
+      if (err.code === '42883' || err.status === 404 || errStr.includes('404') || errStr.includes('net.http_post') || errStr.includes('trigger') || err.message?.includes('net.http_post') || err.message?.includes('trigger')) {
         setDbWarning("Erro de Trigger no seu Supabase. O ticket foi resolvido visualmente, mas o banco rejeitou o update.");
         setSelectedUser(null);
         // Atualiza o estado local para remover o ticket da lista ativa
@@ -322,12 +322,30 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
               Para corrigir isso permanentemente, aceda ao <strong>SQL Editor</strong> no painel do seu Supabase e execute:
             </p>
             <pre className="bg-black/80 p-3 rounded-xl text-[10px] font-mono text-amber-300 overflow-x-auto border border-amber-500/20 select-all">
-{`DROP TRIGGER IF EXISTS send_push_trigger ON support_tickets;
+{`-- 1. Remover TODAS as possíveis triggers da tabela support_tickets
+DROP TRIGGER IF EXISTS send_push_trigger ON support_tickets;
+DROP TRIGGER IF EXISTS send_push_on_ticket_update ON support_tickets;
 DROP TRIGGER IF EXISTS on_ticket_created ON support_tickets;
+DROP TRIGGER IF EXISTS on_ticket_updated ON support_tickets;
+DROP TRIGGER IF EXISTS on_ticket_change ON support_tickets;
+DROP TRIGGER IF EXISTS ticket_trigger ON support_tickets;
+DROP TRIGGER IF EXISTS support_ticket_trigger ON support_tickets;
+
+-- 2. Remover TODAS as possíveis triggers da tabela chat_messages
 DROP TRIGGER IF EXISTS send_push_trigger ON chat_messages;
+DROP TRIGGER IF EXISTS send_push_on_message ON chat_messages;
 DROP TRIGGER IF EXISTS on_message_created ON chat_messages;
+DROP TRIGGER IF EXISTS on_message_updated ON chat_messages;
+DROP TRIGGER IF EXISTS on_message_change ON chat_messages;
+DROP TRIGGER IF EXISTS message_trigger ON chat_messages;
+DROP TRIGGER IF EXISTS chat_message_trigger ON chat_messages;
+
+-- 3. Remover TODAS as possíveis triggers da tabela app_banners
 DROP TRIGGER IF EXISTS send_push_trigger ON app_banners;
-DROP TRIGGER IF EXISTS on_banner_created ON app_banners;`}
+DROP TRIGGER IF EXISTS send_push_on_banner ON app_banners;
+DROP TRIGGER IF EXISTS on_banner_created ON app_banners;
+DROP TRIGGER IF EXISTS on_banner_updated ON app_banners;
+DROP TRIGGER IF EXISTS on_banner_change ON app_banners;`}
             </pre>
           </div>
           <button 
