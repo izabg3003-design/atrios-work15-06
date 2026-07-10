@@ -77,6 +77,51 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
     return () => clearInterval(interval);
   }, [checkAgentsAvailability]);
 
+  const reloadMessages = useCallback(async () => {
+    if (!user.id) return;
+    try {
+      let combinedDbMessages: any[] = [];
+      try {
+        const { data: dbMessages } = await supabase
+          .from('chat_messages')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: true });
+        if (dbMessages) combinedDbMessages = [...dbMessages];
+      } catch (e) {
+        console.warn("Erro ao ler do Supabase:", e);
+      }
+
+      try {
+        const fbRes = await fetch(`/api/fallback-messages/${user.id}`);
+        if (fbRes.ok) {
+          const fbMessages = await fbRes.json();
+          fbMessages.forEach((fm: any) => {
+            if (!combinedDbMessages.some(m => m.id === fm.id || (m.text === fm.text && Math.abs(new Date(m.created_at).getTime() - new Date(fm.created_at).getTime()) < 5000))) {
+              combinedDbMessages.push(fm);
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("Erro ao ler fallback local:", e);
+      }
+
+      combinedDbMessages.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+      if (combinedDbMessages.length > 0) {
+        const formatted = combinedDbMessages.map(m => ({
+          id: m.id,
+          role: m.sender_role as any,
+          text: m.text,
+          timestamp: new Date(m.created_at)
+        }));
+        setMessages(formatted);
+      }
+    } catch (err) {
+      console.warn("Erro ao recarregar mensagens:", err);
+    }
+  }, [user.id]);
+
   useEffect(() => {
     const initializeChat = async () => {
       if (!user.id || hasInitialized.current) return;
@@ -85,27 +130,68 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
       await checkAgentsAvailability();
       
       try {
-        const { data: ticket } = await supabase
-          .from('support_tickets')
-          .select('status')
-          .eq('user_id', user.id)
-          .eq('status', 'open')
-          .maybeSingle();
+        let isTicketOpen = false;
+        try {
+          const { data: ticket } = await supabase
+            .from('support_tickets')
+            .select('status')
+            .eq('user_id', user.id)
+            .eq('status', 'open')
+            .maybeSingle();
 
-        const isTicketOpen = ticket?.status === 'open';
+          if (ticket?.status === 'open') isTicketOpen = true;
+        } catch (err) {
+          console.warn("Falha ao obter status do Supabase:", err);
+        }
+
+        // Tentar obter status no Fallback local
+        try {
+          const fbRes = await fetch('/api/fallback-tickets');
+          if (fbRes.ok) {
+            const fbTickets = await fbRes.json();
+            const myFbTicket = fbTickets.find((t: any) => t.user_id === user.id);
+            if (myFbTicket && myFbTicket.status === 'open') {
+              isTicketOpen = true;
+            }
+          }
+        } catch (err) {
+          console.warn("Falha ao carregar status do fallback local:", err);
+        }
+
         setIsHumanSupportActive(isTicketOpen);
         if (isTicketOpen) setConnectionStatus('online');
 
-        const { data: dbMessages, error: msgsError } = await supabase
-          .from('chat_messages')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: true });
+        let combinedDbMessages: any[] = [];
+        try {
+          const { data: dbMessages } = await supabase
+            .from('chat_messages')
+            .select('*')
+            .eq('user_id', user.id)
+            .order('created_at', { ascending: true });
+          if (dbMessages) combinedDbMessages = [...dbMessages];
+        } catch (err) {
+          console.warn("Erro ao buscar histórico do Supabase, usando backup local:", err);
+        }
 
-        if (msgsError) throw msgsError;
+        // Tentar obter histórico do Fallback local
+        try {
+          const fbRes = await fetch(`/api/fallback-messages/${user.id}`);
+          if (fbRes.ok) {
+            const fbMessages = await fbRes.json();
+            fbMessages.forEach((fm: any) => {
+              if (!combinedDbMessages.some(m => m.id === fm.id || (m.text === fm.text && Math.abs(new Date(m.created_at).getTime() - new Date(fm.created_at).getTime()) < 5000))) {
+                combinedDbMessages.push(fm);
+              }
+            });
+          }
+        } catch (err) {
+          console.warn("Erro ao buscar histórico do fallback local:", err);
+        }
 
-        if (dbMessages && dbMessages.length > 0) {
-          const formatted = dbMessages.map(m => ({
+        combinedDbMessages.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+        if (combinedDbMessages.length > 0) {
+          const formatted = combinedDbMessages.map(m => ({
             id: m.id,
             role: m.sender_role as any,
             text: m.text,
@@ -140,10 +226,8 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
         if (!msg || !msg.id) return;
 
         setMessages(prev => {
-          // 1. Check if message already exists by real ID
           if (prev.some(m => m.id === msg.id)) return prev;
 
-          // 2. If it's a user message, try to find and replace the local temporary message
           if (msg.sender_role === 'user') {
             const tempIdx = prev.findIndex(m => m.role === 'user' && m.text === msg.text && String(m.id).startsWith('temp-'));
             if (tempIdx !== -1) {
@@ -158,13 +242,11 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
             }
           }
 
-          // 3. Handle human support activation
           if (msg.sender_role === 'support') {
             setIsHumanSupportActive(true);
             setConnectionStatus('online');
           }
 
-          // 4. Add new message (AI, Support, or User from another session)
           return [...prev, { 
             id: msg.id, 
             role: msg.sender_role as any, 
@@ -183,10 +265,19 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
           setIsHumanSupportActive(true);
         }
       })
+      .on('broadcast', { event: 'support_sync' }, (payload) => {
+        console.log("[Support Sync] Atualizando mensagens via broadcast:", payload);
+        reloadMessages();
+      })
+      .on('broadcast', { event: 'support_resolved' }, () => {
+        console.log("[Support Sync] Suporte humano resolvido via admin!");
+        setIsHumanSupportActive(false);
+        setConnectionStatus('idle');
+      })
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user.id, scrollToBottom, checkAgentsAvailability]);
+  }, [user.id, scrollToBottom, checkAgentsAvailability, reloadMessages]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -208,12 +299,23 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
     scrollToBottom();
 
     if (isHumanSupportActive) {
-      // 1. Tentar gravar mensagem de chat na DB (se falhar, prossegue para não quebrar a notificação e o fluxo)
+      // 1. Tentar gravar mensagem de chat na DB
       try {
         const { error: msgErr } = await supabase.from('chat_messages').insert({ user_id: user.id, text: currentText, sender_role: 'user' });
         if (msgErr) console.warn("Aviso ao guardar mensagem de chat na DB (prosseguindo):", msgErr);
       } catch (dbErr) {
         console.warn("Falha física ao guardar mensagem de chat (prosseguindo):", dbErr);
+      }
+
+      // Gravar mensagem no Fallback local
+      try {
+        await fetch('/api/fallback-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: user.id, text: currentText, sender_role: 'user' })
+        });
+      } catch (err) {
+        console.warn("Erro ao salvar mensagem no fallback local:", err);
       }
 
       // 2. Tentar atualizar o ticket na DB
@@ -226,6 +328,23 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
         if (ticketErr) console.warn("Aviso ao atualizar ticket na DB (prosseguindo):", ticketErr);
       } catch (dbErr) {
         console.warn("Falha física ao atualizar ticket (prosseguindo):", dbErr);
+      }
+
+      // Atualizar ticket no Fallback local
+      try {
+        await fetch('/api/fallback-tickets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            user_id: user.id, 
+            status: 'open', 
+            last_message: currentText,
+            user_name: user.name || 'Utilizador',
+            user_email: user.email || ''
+          })
+        });
+      } catch (err) {
+        console.warn("Erro ao salvar ticket no fallback local:", err);
       }
 
       // 3. Tentar registar no histórico (app_banners)
@@ -255,6 +374,33 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
         });
       } catch (fcmErr) {
         console.warn('Erro ao disparar push de mensagem de suporte:', fcmErr);
+      }
+
+      // Enviar broadcast de sincronização
+      try {
+        const syncChannel = supabase.channel(`atrioswork_chat_sync_${user.id}`);
+        syncChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            syncChannel.send({
+              type: 'broadcast',
+              event: 'support_sync',
+              payload: { user_id: user.id }
+            });
+            // Também para o canal global dos administradores
+            const globalChannel = supabase.channel('atrioswork_support_global_sync');
+            globalChannel.subscribe((st) => {
+              if (st === 'SUBSCRIBED') {
+                globalChannel.send({
+                  type: 'broadcast',
+                  event: 'support_request',
+                  payload: { user_id: user.id }
+                });
+              }
+            });
+          }
+        });
+      } catch (broadcastErr) {
+        console.warn("Erro ao enviar broadcast:", broadcastErr);
       }
 
       setIsSending(false);
@@ -301,10 +447,46 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
         const aiText = response.text || "Desculpe, tive um problema ao processar a sua pergunta. Pode tentar novamente ou chamar um humano?";
         
         // Guardar na DB
-        await supabase.from('chat_messages').insert([
-          { user_id: user.id, text: currentText, sender_role: 'user' },
-          { user_id: user.id, text: aiText, sender_role: 'ai' }
-        ]);
+        try {
+          await supabase.from('chat_messages').insert([
+            { user_id: user.id, text: currentText, sender_role: 'user' },
+            { user_id: user.id, text: aiText, sender_role: 'ai' }
+          ]);
+        } catch (dbErr) {
+          console.warn("Erro ao guardar mensagens AI no Supabase:", dbErr);
+        }
+
+        // Guardar no Fallback local
+        try {
+          await fetch('/api/fallback-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: user.id, text: currentText, sender_role: 'user' })
+          });
+          await fetch('/api/fallback-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: user.id, text: aiText, sender_role: 'ai' })
+          });
+        } catch (err) {
+          console.warn("Erro ao salvar mensagens AI no fallback local:", err);
+        }
+
+        // Enviar broadcast de sincronização
+        try {
+          const syncChannel = supabase.channel(`atrioswork_chat_sync_${user.id}`);
+          syncChannel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              syncChannel.send({
+                type: 'broadcast',
+                event: 'support_sync',
+                payload: { user_id: user.id }
+              });
+            }
+          });
+        } catch (broadcastErr) {
+          console.warn("Erro ao enviar broadcast:", broadcastErr);
+        }
 
       } catch (err: any) {
         console.error("AI Error:", err);
@@ -348,6 +530,17 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
       console.warn("Falha física ao guardar mensagem de suporte (prosseguindo):", dbErr);
     }
 
+    // Gravar no Fallback local
+    try {
+      await fetch('/api/fallback-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: user.id, text: "--- SOLICITAÇÃO DE ATENDIMENTO HUMANO ---", sender_role: 'user' })
+      });
+    } catch (err) {
+      console.warn("Erro ao salvar mensagem no fallback local:", err);
+    }
+
     // 2. Tentar atualizar ou criar o ticket de suporte
     try {
       const { data: updateData, error: updateErr } = await supabase
@@ -371,6 +564,23 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
       }
     } catch (dbErr) {
       console.warn("Falha física ao gerir ticket de suporte (prosseguindo):", dbErr);
+    }
+
+    // Atualizar ticket no Fallback local
+    try {
+      await fetch('/api/fallback-tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          user_id: user.id, 
+          status: 'open', 
+          last_message: triggerText,
+          user_name: user.name || 'Utilizador',
+          user_email: user.email || ''
+        })
+      });
+    } catch (err) {
+      console.warn("Erro ao salvar ticket no fallback local:", err);
     }
 
     // 3. Tentar registar no histórico (app_banners)
@@ -400,6 +610,33 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
       });
     } catch (fcmErr) {
       console.warn('Erro ao disparar push de atendimento humano:', fcmErr);
+    }
+
+    // Enviar broadcast de sincronização
+    try {
+      const syncChannel = supabase.channel(`atrioswork_chat_sync_${user.id}`);
+      syncChannel.subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          syncChannel.send({
+            type: 'broadcast',
+            event: 'support_sync',
+            payload: { user_id: user.id }
+          });
+          // Também para o canal global dos administradores
+          const globalChannel = supabase.channel('atrioswork_support_global_sync');
+          globalChannel.subscribe((st) => {
+            if (st === 'SUBSCRIBED') {
+              globalChannel.send({
+                type: 'broadcast',
+                event: 'support_request',
+                payload: { user_id: user.id }
+              });
+            }
+          });
+        }
+      });
+    } catch (broadcastErr) {
+      console.warn("Erro ao enviar broadcast:", broadcastErr);
     }
 
     setIsHumanSupportActive(true);

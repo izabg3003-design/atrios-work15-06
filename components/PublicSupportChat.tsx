@@ -57,6 +57,49 @@ const PublicSupportChat: React.FC = () => {
     }
   }, []);
 
+  const reloadVisitorMessages = useCallback(async () => {
+    if (!visitorId) return;
+    try {
+      let combinedHistory: any[] = [];
+      try {
+        const { data: history } = await supabase
+          .from('chat_messages')
+          .select('sender_role, text, created_at')
+          .eq('user_id', visitorId)
+          .order('created_at', { ascending: true });
+        if (history) combinedHistory = history.map(h => ({ sender_role: h.sender_role, text: h.text, created_at: h.created_at || new Date().toISOString() }));
+      } catch (e) {}
+
+      try {
+        const fbRes = await fetch(`/api/fallback-messages/${visitorId}`);
+        if (fbRes.ok) {
+          const fbMessages = await fbRes.json();
+          fbMessages.forEach((fm: any) => {
+            if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
+              combinedHistory.push({
+                sender_role: fm.sender_role,
+                text: fm.text,
+                created_at: fm.created_at
+              });
+            }
+          });
+        }
+      } catch (e) {}
+
+      combinedHistory.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+      if (combinedHistory.length > 0) {
+        const formatted = combinedHistory.map(m => ({
+          role: m.sender_role as any,
+          text: m.text
+        }));
+        setMessages(formatted);
+      }
+    } catch (err) {
+      console.warn("Erro ao recarregar mensagens do visitante:", err);
+    }
+  }, [visitorId]);
+
   // 2. Setup de Realtime e Recuperação de Sessão
   useEffect(() => {
     if (!isOpen) return;
@@ -70,14 +113,40 @@ const PublicSupportChat: React.FC = () => {
           const uid = session.user.id;
           setVisitorId(uid);
           
-          const { data: history } = await supabase
-            .from('chat_messages')
-            .select('sender_role, text')
-            .eq('user_id', uid)
-            .order('created_at', { ascending: true });
-          
-          if (history && history.length > 0) {
-            const formatted = history.map(m => ({
+          let combinedHistory: any[] = [];
+          try {
+            const { data: history } = await supabase
+              .from('chat_messages')
+              .select('sender_role, text, created_at')
+              .eq('user_id', uid)
+              .order('created_at', { ascending: true });
+            if (history) combinedHistory = history.map(h => ({ sender_role: h.sender_role, text: h.text, created_at: h.created_at || new Date().toISOString() }));
+          } catch (err) {
+            console.warn("Erro ao obter historico publico do Supabase:", err);
+          }
+
+          try {
+            const fbRes = await fetch(`/api/fallback-messages/${uid}`);
+            if (fbRes.ok) {
+              const fbMessages = await fbRes.json();
+              fbMessages.forEach((fm: any) => {
+                if (!combinedHistory.some(h => h.text === fm.text && h.sender_role === fm.sender_role)) {
+                  combinedHistory.push({
+                    sender_role: fm.sender_role,
+                    text: fm.text,
+                    created_at: fm.created_at
+                  });
+                }
+              });
+            }
+          } catch (err) {
+            console.warn("Erro ao obter historico publico do fallback:", err);
+          }
+
+          combinedHistory.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+          if (combinedHistory.length > 0) {
+            const formatted = combinedHistory.map(m => ({
               role: m.sender_role as any,
               text: m.text
             }));
@@ -120,12 +189,21 @@ const PublicSupportChat: React.FC = () => {
           scrollToBottom();
         }
       })
+      .on('broadcast', { event: 'support_sync' }, () => {
+         console.log("[Visitor Sync] Sincronizando mensagens recebidas via broadcast!");
+         reloadVisitorMessages();
+      })
+      .on('broadcast', { event: 'support_resolved' }, () => {
+         console.log("[Visitor Sync] Suporte humano resolvido pelo admin!");
+         setIsHumanModeActive(false);
+         setShowHumanSupportStatus(false);
+      })
       .subscribe();
 
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [visitorId, isOpen, scrollToBottom]);
+  }, [visitorId, isOpen, scrollToBottom, reloadVisitorMessages]);
 
   const handleStartChat = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -183,6 +261,23 @@ const PublicSupportChat: React.FC = () => {
         console.warn("Falha física ao gerir ticket (prosseguindo):", dbErr);
       }
 
+      // Atualizar ticket no Fallback local
+      try {
+        await fetch('/api/fallback-tickets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            user_id: targetId, 
+            status: 'open', 
+            last_message: text,
+            user_name: userData.name.trim(),
+            user_email: cleanEmail
+          })
+        });
+      } catch (err) {
+        console.warn("Erro ao salvar ticket no fallback local:", err);
+      }
+
       // 3. Tentar gravar mensagem de chat
       try {
         const { error: msgErr } = await supabase.from('chat_messages').insert({
@@ -193,6 +288,17 @@ const PublicSupportChat: React.FC = () => {
         if (msgErr) console.warn("Aviso ao guardar mensagem de chat na DB (prosseguindo):", msgErr);
       } catch (dbErr) {
         console.warn("Falha física ao guardar mensagem de chat (prosseguindo):", dbErr);
+      }
+
+      // Gravar mensagem no Fallback local
+      try {
+        await fetch('/api/fallback-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: targetId, text: text, sender_role: 'user' })
+        });
+      } catch (err) {
+        console.warn("Erro ao salvar mensagem no fallback local:", err);
       }
       
       // 4. Tentar registar no histórico (app_banners)
@@ -227,6 +333,33 @@ const PublicSupportChat: React.FC = () => {
         });
       } catch (fcmErr) {
         console.warn('Erro ao disparar push de mensagem de visitante:', fcmErr);
+      }
+
+      // Enviar broadcast de sincronização
+      try {
+        const syncChannel = supabase.channel(`atrioswork_visitor_chat_${targetId}`);
+        syncChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            syncChannel.send({
+              type: 'broadcast',
+              event: 'support_sync',
+              payload: { user_id: targetId }
+            });
+            // Global
+            const globalChannel = supabase.channel('atrioswork_support_global_sync');
+            globalChannel.subscribe((st) => {
+              if (st === 'SUBSCRIBED') {
+                globalChannel.send({
+                  type: 'broadcast',
+                  event: 'support_request',
+                  payload: { user_id: targetId }
+                });
+              }
+            });
+          }
+        });
+      } catch (broadcastErr) {
+        console.warn("Erro ao enviar broadcast de visitante:", broadcastErr);
       }
       
       return true;
@@ -278,6 +411,36 @@ const PublicSupportChat: React.FC = () => {
 
       const aiText = response.text || "Pode repetir?";
       setMessages(prev => [...prev, { role: 'ai', text: aiText }]);
+
+      // Guardar mensagem AI no fallback local para manter histórico íntegro
+      if (visitorId) {
+        try {
+          await fetch('/api/fallback-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: visitorId, text: currentText, sender_role: 'user' })
+          });
+          await fetch('/api/fallback-messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: visitorId, text: aiText, sender_role: 'ai' })
+          });
+
+          // Broadcast
+          const syncChannel = supabase.channel(`atrioswork_visitor_chat_${visitorId}`);
+          syncChannel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              syncChannel.send({
+                type: 'broadcast',
+                event: 'support_sync',
+                payload: { user_id: visitorId }
+              });
+            }
+          });
+        } catch (err) {
+          console.warn("Erro ao salvar mensagens da IA no fallback local:", err);
+        }
+      }
     } catch (err) {
       setMessages(prev => [...prev, { role: 'ai', text: "IA ocupada. Deseja suporte humano?" }]);
     } finally {

@@ -776,6 +776,155 @@ async function startServer() {
     }
   });
 
+  // ----------------------------------------------------
+  // RESILIENT IN-MEMORY FALLBACK DATABASE FOR SUPPORT
+  // (Prevents system breakage due to broken Supabase triggers)
+  // ----------------------------------------------------
+  const fallbackTicketsPath = path.join(process.cwd(), "fallback-tickets.json");
+  const fallbackMessagesPath = path.join(process.cwd(), "fallback-messages.json");
+
+  function loadFallbackTickets(): any[] {
+    if (fs.existsSync(fallbackTicketsPath)) {
+      try {
+        return JSON.parse(fs.readFileSync(fallbackTicketsPath, "utf-8"));
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  function saveFallbackTickets(tickets: any[]) {
+    try {
+      fs.writeFileSync(fallbackTicketsPath, JSON.stringify(tickets, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error saving fallback tickets:", e);
+    }
+  }
+
+  function loadFallbackMessages(): any[] {
+    if (fs.existsSync(fallbackMessagesPath)) {
+      try {
+        return JSON.parse(fs.readFileSync(fallbackMessagesPath, "utf-8"));
+      } catch (e) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  function saveFallbackMessages(messages: any[]) {
+    try {
+      fs.writeFileSync(fallbackMessagesPath, JSON.stringify(messages, null, 2), "utf-8");
+    } catch (e) {
+      console.error("Error saving fallback messages:", e);
+    }
+  }
+
+  // Fallback API Endpoints
+  app.get("/api/fallback-tickets", (req, res) => {
+    try {
+      const tickets = loadFallbackTickets();
+      return res.json(tickets);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/fallback-tickets", (req, res) => {
+    try {
+      const { user_id, status, last_message, user_name, user_email } = req.body;
+      if (!user_id) {
+        return res.status(400).json({ error: "user_id é obrigatório." });
+      }
+
+      const tickets = loadFallbackTickets();
+      const existingIdx = tickets.findIndex(t => t.user_id === user_id);
+      const nowStr = new Date().toISOString();
+
+      if (existingIdx !== -1) {
+        tickets[existingIdx] = {
+          ...tickets[existingIdx],
+          status: status || tickets[existingIdx].status || 'open',
+          last_message: last_message || tickets[existingIdx].last_message,
+          updated_at: nowStr,
+          user_name: user_name || tickets[existingIdx].user_name,
+          user_email: user_email || tickets[existingIdx].user_email,
+        };
+      } else {
+        tickets.push({
+          id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+          user_id,
+          status: status || 'open',
+          last_message: last_message || '',
+          updated_at: nowStr,
+          user_name: user_name || 'Visitante/Utilizador',
+          user_email: user_email || '',
+        });
+      }
+
+      saveFallbackTickets(tickets);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/fallback-messages/:userId", (req, res) => {
+    try {
+      const { userId } = req.params;
+      const messages = loadFallbackMessages();
+      const filtered = messages.filter(m => m.user_id === userId);
+      return res.json(filtered);
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/fallback-messages", (req, res) => {
+    try {
+      const { user_id, text, sender_role } = req.body;
+      if (!user_id || !text || !sender_role) {
+        return res.status(400).json({ error: "user_id, text e sender_role são obrigatórios." });
+      }
+
+      const messages = loadFallbackMessages();
+      messages.push({
+        id: crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2),
+        user_id,
+        text,
+        sender_role,
+        created_at: new Date().toISOString()
+      });
+
+      saveFallbackMessages(messages);
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/fallback-resolve", (req, res) => {
+    try {
+      const { user_id } = req.body;
+      if (!user_id) {
+        return res.status(400).json({ error: "user_id é obrigatório." });
+      }
+
+      const tickets = loadFallbackTickets();
+      const existingIdx = tickets.findIndex(t => t.user_id === user_id);
+      if (existingIdx !== -1) {
+        tickets[existingIdx].status = 'resolved';
+        tickets[existingIdx].updated_at = new Date().toISOString();
+        saveFallbackTickets(tickets);
+      }
+
+      return res.json({ success: true });
+    } catch (err: any) {
+      return res.status(500).json({ error: err.message });
+    }
+  });
+
   // 🔵 6. CONFIGURAÇÃO DO MIDDLEWARE VITE E ARQUIVOS ESTÁTICOS DO CLIENTE
   // Servir arquivos de Service Worker com cabeçalhos anti-cache estritos para atualização instantânea no PWA/Navegador
   app.get(/^\/(sw-v3\.js|firebase-messaging-sw\.js)/, (req, res, next) => {
