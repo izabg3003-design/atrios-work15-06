@@ -35,7 +35,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const replyingRef = useRef(false);
-  const lastTicketId = useRef<string | null>(null);
+  const lastTicketUpdatedAt = useRef<string | null>(null);
   
   // Referência para o objeto de áudio persistente
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -112,10 +112,15 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
     
     if (active && active.length > 0) {
       const newest = active[0];
-      // Se detetar um ID novo que não é o que estamos a atender agora
-      if (isNewTrigger && newest.id !== lastTicketId.current && newest.user_id !== selectedUser?.id) {
-        lastTicketId.current = newest.id;
-        handleNewTicketAlert(newest);
+      if (isNewTrigger) {
+        // Se detetar uma atualização nova em qualquer ticket de suporte ativo que não estamos a atender no momento
+        if (newest.updated_at !== lastTicketUpdatedAt.current && newest.user_id !== selectedUser?.id) {
+          lastTicketUpdatedAt.current = newest.updated_at;
+          handleNewTicketAlert(newest);
+        }
+      } else {
+        // Sincroniza sem disparar o alarme (ex: carregamento inicial)
+        lastTicketUpdatedAt.current = newest.updated_at;
       }
     }
     
@@ -157,7 +162,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
         fetchTickets(true); 
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'support_tickets' }, () => { 
-        fetchTickets(); 
+        fetchTickets(true); 
       })
       .subscribe();
 
