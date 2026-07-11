@@ -465,10 +465,41 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   }, [user.id]);
 
   // Escutar inserções em tempo real no app_banners para administradores receberem alertas imediatos
+  // Escutar cadastros e alertas de sistema em tempo real via Broadcast e Postgres Changes no Supabase
   useEffect(() => {
     if (!user.id || !isAdmin) return;
 
-    const channel = supabase
+    // 1. Canal de Broadcast (Ultra-rápido para alertas em tempo real)
+    const broadcastChannel = supabase
+      .channel('atrioswork-admin-alerts')
+      .on('broadcast', { event: 'new_user_signup' }, (payload: any) => {
+        const { name, email } = payload.payload || {};
+        const title = '🆕 Novo Cadastro no App!';
+        const body = `O utilizador ${name || 'Novo Utilizador'} (${email || ''}) acabou de se cadastrar no AtriosWork.`;
+
+        // Tocar som de chime agradável de sistema
+        try {
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
+          audio.volume = 0.5;
+          audio.play().catch(() => {});
+        } catch (soundErr) {
+          console.warn('[Audio Alert] Falha ao tocar som:', soundErr);
+        }
+
+        // Exibir no pop-up flutuante do app
+        setNewPushAlert({
+          id: String(Date.now()),
+          title: title,
+          subtitle: body
+        });
+
+        // Disparar notificação do browser nativa se a permissão estiver concedida
+        triggerNativePush(title, body);
+      })
+      .subscribe();
+
+    // 2. Canal de Alterações de Base de Dados (app_banners)
+    const dbChannel = supabase
       .channel('admin-banners-realtime')
       .on(
         'postgres_changes',
@@ -498,7 +529,8 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       .subscribe();
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(broadcastChannel);
+      supabase.removeChannel(dbChannel);
     };
   }, [user.id, isAdmin]);
 

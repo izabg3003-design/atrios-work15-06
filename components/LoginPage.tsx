@@ -129,6 +129,28 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
         } catch (dbErr) {
           console.error('Erro ao registrar push no histórico:', dbErr);
         }
+
+        // Transmitir cadastro em tempo real via canal de Broadcast Supabase
+        try {
+          const channel = supabase.channel('atrioswork-admin-alerts');
+          channel.subscribe((status) => {
+            if (status === 'SUBSCRIBED') {
+              channel.send({
+                type: 'broadcast',
+                event: 'new_user_signup',
+                payload: {
+                  name: regData.name,
+                  email: regData.email,
+                  phone: regData.phone
+                }
+              }).then(() => {
+                setTimeout(() => supabase.removeChannel(channel), 1000);
+              });
+            }
+          });
+        } catch (broadcastErr) {
+          console.warn('Erro ao transmitir broadcast de novo cadastro:', broadcastErr);
+        }
         
         // Trigger push notification to admins about the new user registration
         try {
