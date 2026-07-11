@@ -57,6 +57,8 @@ if (isConfigured && supabase) {
       if (['chat_messages', 'support_tickets', 'app_banners'].includes(relation)) {
         const wrapBuilder = (builder: any): any => {
           if (!builder || typeof builder !== 'object') return builder;
+          if (builder.__isWrapped) return builder; // EVITA LOOP INFINITO DE ENVOLVIMENTO!
+          builder.__isWrapped = true;
           
           const originalThen = builder.then;
           if (typeof originalThen === 'function') {
@@ -64,15 +66,18 @@ if (isConfigured && supabase) {
               return originalThen.call(builder, (result: any) => {
                 if (result && result.error && (result.error.code === '42883' || (result.error.message && result.error.message.includes('net.http_post')))) {
                   console.log(`[Supabase Passive Interceptor] Capturado erro de Trigger do Supabase (falta de pg_net / net.http_post) ao gravar em '${relation}'. Simulando sucesso físico para evitar falhas no cliente.`);
-                  return onfulfilled({ data: [], error: null });
+                  if (typeof onfulfilled === 'function') return onfulfilled({ data: [], error: null });
+                  return { data: [], error: null };
                 }
-                return onfulfilled(result);
+                if (typeof onfulfilled === 'function') return onfulfilled(result);
+                return result;
               }, (err: any) => {
                 if (err && (err.code === '42883' || (err.message && err.message.includes('net.http_post')))) {
                   console.log(`[Supabase Passive Interceptor] Capturado erro de Trigger do Supabase (falta de pg_net / net.http_post) ao gravar em '${relation}'. Simulando sucesso físico para evitar falhas no cliente.`);
-                  return onfulfilled({ data: [], error: null });
+                  if (typeof onfulfilled === 'function') return onfulfilled({ data: [], error: null });
+                  return { data: [], error: null };
                 }
-                if (onrejected) return onrejected(err);
+                if (typeof onrejected === 'function') return onrejected(err);
                 throw err;
               });
             };
