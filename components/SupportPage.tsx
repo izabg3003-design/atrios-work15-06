@@ -45,7 +45,7 @@ const SupportPage: React.FC<Props> = ({ user, f, t }) => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const replyingRef = useRef(false);
   const lastTicketUpdatedAt = useRef<string | null>(null);
-  const isApiFallbackSupported = useRef(true);
+  const isApiFallbackSupported = useRef(typeof window !== 'undefined' && window.location.hostname !== 'atrioswork.pt' && window.location.hostname !== 'www.atrioswork.pt');
   
   // Referência para o objeto de áudio persistente
   const alarmAudioRef = useRef<HTMLAudioElement | null>(null);

@@ -30,7 +30,7 @@ const PublicSupportChat: React.FC = () => {
   const [showHumanSupportStatus, setShowHumanSupportStatus] = useState(false);
   const [isHumanModeActive, setIsHumanModeActive] = useState(false);
   const [visitorId, setVisitorId] = useState<string | null>(null);
-  const isApiFallbackSupported = useRef(true);
+  const isApiFallbackSupported = useRef(typeof window !== 'undefined' && window.location.hostname !== 'atrioswork.pt' && window.location.hostname !== 'www.atrioswork.pt');
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 

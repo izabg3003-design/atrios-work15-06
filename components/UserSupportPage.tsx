@@ -48,7 +48,7 @@ const UserSupportPage: React.FC<Props> = ({ user, t }) => {
   const hasInitialized = useRef(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const sendingRef = useRef(false);
-  const isApiFallbackSupported = useRef(true);
+  const isApiFallbackSupported = useRef(typeof window !== 'undefined' && window.location.hostname !== 'atrioswork.pt' && window.location.hostname !== 'www.atrioswork.pt');
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     setTimeout(() => {
