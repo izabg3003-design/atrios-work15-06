@@ -152,34 +152,21 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
           console.warn('Erro ao transmitir broadcast de novo cadastro:', broadcastErr);
         }
         
-        // Trigger push notification to admins about the new user registration
+        // Envia notificação simplificada e segura 100% via Backend
         try {
-          await fetch('/api/send-fcm-push', {
+          await fetch('/api/notify', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({
-              title: '🆕 Novo Cadastro no App!',
-              body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
-              audience: 'admin',
-              url: '/'
+              type: 'new_user',
+              name: regData.name,
+              email: regData.email
             })
           });
         } catch (apiErr) {
-          console.warn('Erro ao disparar push local de novo cadastro:', apiErr);
-        }
-
-        try {
-          await supabase.functions.invoke('send-fcm-push', {
-            body: {
-              title: '🆕 Novo Cadastro no App!',
-              body: `O utilizador ${regData.name} (${regData.email}) acabou de se cadastrar no AtriosWork.`,
-              audience: 'admin'
-            }
-          });
-        } catch (fcmErr) {
-          console.warn('Erro ao disparar push de novo cadastro:', fcmErr);
+          console.warn('Erro ao disparar notificação central de novo cadastro:', apiErr);
         }
         
         onLogin(regData.email);

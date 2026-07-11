@@ -370,6 +370,270 @@ async function startServer() {
     return res.status(201).json({ success: true });
   });
 
+  // ROTA SIMPLIFICADA E CENTRALIZADA: /api/notify (Desvia todas as notificações administrativas para Master/Admin de forma 100% backend)
+  app.post("/api/notify", async (req, res) => {
+    try {
+      const { type, title, body, userId, name, email } = req.body;
+
+      let resolvedTitle = title;
+      let resolvedBody = body;
+
+      if (type === "new_user") {
+        resolvedTitle = title || "🆕 Novo utilizador registado";
+        resolvedBody = body || `${name || email || "Um novo utilizador"} acabou de criar uma conta no AtriosWork.`;
+      }
+
+      if (!resolvedTitle || !resolvedBody) {
+        return res.status(400).json({
+          success: false,
+          error: "Campos 'title' e 'body' (ou 'type' válido como 'new_user') são obrigatórios."
+        });
+      }
+
+      console.log(`[Notify API] Processando notificação para administradores. Tipo: ${type || "geral"}. Título: "${resolvedTitle}"`);
+
+      // 1. Obter credenciais do Supabase
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseServiceKey) {
+        return res.status(400).json({
+          success: false,
+          error: "Credenciais do Supabase não configuradas nas variáveis de ambiente.",
+        });
+      }
+
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+      // 2. Obter perfis ativos do Supabase que contêm fcm_token
+      let profiles: any[] = [];
+      try {
+        const { data, error: dbError } = await supabase
+          .from("profiles")
+          .select("id, fcm_token, role, email")
+          .not("fcm_token", "is", null);
+
+        if (!dbError && data) {
+          profiles = data;
+        }
+      } catch (err: any) {
+        console.warn("[Notify API] Excepção ao buscar perfis do Supabase:", err.message || err);
+      }
+
+      // 3. Regras para filtrar administradores/masters
+      const isMasterEmail = (emailVal?: string) => {
+        const e = (emailVal || "").toLowerCase();
+        return e.includes("master@atrioswork.com") || 
+               e.includes("izarellebraga@gmail.com") || 
+               e.includes("master@digitalnexus.com");
+      };
+
+      const isAdminUser = (profile: any) => {
+        const emailVal = (profile.email || "").toLowerCase();
+        const roleVal = (profile.role || "").toLowerCase();
+        return isMasterEmail(emailVal) || roleVal === "admin" || roleVal === "master";
+      };
+
+      const adminProfiles = profiles.filter((p) => isAdminUser(p));
+
+      // 4. Separar fcm_tokens e subscrições Web Push
+      const fcmTokens: string[] = [];
+      const webPushSubscriptions: any[] = [];
+
+      adminProfiles.forEach((p) => {
+        const token = p.fcm_token;
+        if (!token || !token.trim()) return;
+
+        if (token.trim().startsWith("{")) {
+          try {
+            const sub = JSON.parse(token);
+            if (sub && sub.endpoint) {
+              webPushSubscriptions.push({
+                subscription: sub,
+                userId: p.id,
+              });
+              if (sub.fcmToken) {
+                fcmTokens.push(sub.fcmToken);
+              }
+            }
+          } catch (e) {
+            fcmTokens.push(token);
+          }
+        } else {
+          fcmTokens.push(token);
+        }
+      });
+
+      // Incorporar também assinaturas salvas localmente/Firestore para retrocompatibilidade
+      try {
+        const localSubs = await loadAllSubscriptions();
+        localSubs.forEach((ls) => {
+          if (!ls.subscription || !ls.subscription.endpoint) return;
+          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
+          if (!jaExiste) {
+            const matchingProfile = profiles?.find((p) => p.id === ls.userId);
+            const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
+            const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
+            const isMaster = isMasterEmail(userEmail) || userRole === "admin" || userRole === "master";
+
+            if (isMaster) {
+              webPushSubscriptions.push(ls);
+            }
+          }
+        });
+      } catch (err: any) {
+        console.warn("[Notify API] Erro ao carregar assinaturas locais:", err);
+      }
+
+      console.log(`[Notify API] Enviando notificação para ${fcmTokens.length} dispositivos FCM e ${webPushSubscriptions.length} assinaturas Web Push.`);
+
+      // Calcular links dinâmicos do domínio ativo do request
+      const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+      const host = req.get("host") || "atrioswork.pt";
+      const currentOrigin = `${protocol}://${host}`;
+      const iconUrl = `${currentOrigin}/logo_atualizado.jpg?v=20260314_v1`;
+      const absoluteTargetUrl = `${currentOrigin}/`;
+
+      let totalSent = 0;
+
+      // 🔵 DISPARO 1: Enviar via Web Push (VAPID)
+      const webPushPromises = webPushSubscriptions.map(async (ws) => {
+        const payload = JSON.stringify({
+          title: resolvedTitle,
+          body: resolvedBody,
+          url: absoluteTargetUrl,
+          notification: {
+            title: resolvedTitle,
+            body: resolvedBody,
+            icon: iconUrl,
+            badge: iconUrl,
+            vibrate: [100, 50, 100],
+            data: { url: absoluteTargetUrl },
+          },
+        });
+
+        try {
+          await webpush.sendNotification(ws.subscription, payload, {
+            headers: { "Urgency": "high" },
+            TTL: 86400
+          });
+          totalSent++;
+        } catch (err: any) {
+          if (err.statusCode === 410 || err.statusCode === 404) {
+            await deleteSubscriptionFromDatabase(ws.subscription.endpoint);
+          } else {
+            console.error("[Notify API VAPID] Erro ao enviar:", err.message || err);
+          }
+        }
+      });
+
+      // 🔵 DISPARO 2: Enviar via Firebase Cloud Messaging (FCM)
+      const fcmPromises = fcmTokens.map(async (token) => {
+        if (isFirebaseAdminInitialized) {
+          try {
+            await getMessaging().send({
+              token,
+              notification: { title: resolvedTitle, body: resolvedBody },
+              android: { priority: "high" },
+              apns: {
+                headers: { "apns-priority": "10", "apns-push-type": "alert" },
+                payload: { aps: { sound: "default", "content-available": 1 } },
+              },
+              webpush: {
+                headers: { Urgency: "high", TTL: "86400" },
+                notification: {
+                  title: resolvedTitle,
+                  body: resolvedBody,
+                  icon: iconUrl,
+                  badge: iconUrl,
+                  clickAction: absoluteTargetUrl,
+                  requireInteraction: true
+                },
+                fcmOptions: { link: absoluteTargetUrl },
+              },
+              data: { url: absoluteTargetUrl, click_action: absoluteTargetUrl },
+            });
+            totalSent++;
+            return;
+          } catch (fcmAdminErr: any) {
+            console.error(`[Notify API FCM Admin] Erro para o token ${token.substring(0, 15)}...:`, fcmAdminErr.message);
+          }
+        }
+
+        if (serviceAccountEnv) {
+          try {
+            const serviceAccount = JSON.parse(serviceAccountEnv);
+            const accessToken = getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
+            const projectId = serviceAccount.project_id;
+
+            const fcmResponse = await fetch(
+              `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${accessToken}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  message: {
+                    token,
+                    notification: { title: resolvedTitle, body: resolvedBody },
+                    android: {
+                      priority: "HIGH",
+                      notification: { notification_priority: "PRIORITY_HIGH", visibility: "PUBLIC", sound: "default" }
+                    },
+                    apns: {
+                      headers: { "apns-priority": "10", "apns-push-type": "alert" },
+                      payload: { aps: { sound: "default", "content-available": 1 } },
+                    },
+                    webpush: {
+                      headers: { Urgency: "high", TTL: "86400" },
+                      notification: {
+                        title: resolvedTitle,
+                        body: resolvedBody,
+                        icon: iconUrl,
+                        badge: iconUrl,
+                        click_action: absoluteTargetUrl,
+                        clickAction: absoluteTargetUrl,
+                        requireInteraction: true
+                      },
+                      fcm_options: { link: absoluteTargetUrl },
+                    },
+                    data: { url: absoluteTargetUrl, click_action: absoluteTargetUrl },
+                  },
+                }),
+              }
+            );
+
+            if (fcmResponse.ok) {
+              totalSent++;
+            } else {
+              const fcmErrResult = await fcmResponse.json();
+              console.error(`[Notify API FCM Fallback] Erro para o token ${token.substring(0, 15)}...:`, fcmErrResult);
+            }
+          } catch (fetchErr: any) {
+            console.error(`[Notify API FCM Fallback] Falha de rede para o token ${token.substring(0, 15)}...:`, fetchErr);
+          }
+        }
+      });
+
+      await Promise.all([...webPushPromises, ...fcmPromises]);
+
+      return res.json({
+        success: true,
+        sent: totalSent,
+        message: `Notificações enviadas com sucesso para ${totalSent} destinos.`
+      });
+
+    } catch (err: any) {
+      console.error("[Notify API] Erro catastrófico de disparo:", err);
+      return res.status(500).json({
+        success: false,
+        error: err.message || String(err)
+      });
+    }
+  });
+
   // ROTA: Envio de Push Inteligente (Suporta FCM de forma nativa/v1 + Web Push VAPID + Fallbacks)
   app.post("/api/send-fcm-push", async (req, res) => {
     try {
