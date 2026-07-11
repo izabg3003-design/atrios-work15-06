@@ -30,12 +30,6 @@ const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, 
     { id: 'vendor-detail' as AppState, icon: Award, label: 'Minha Rede', show: isVendor },
     { id: 'vendor-sales' as AppState, icon: ShoppingCart, label: 'Minhas Vendas', show: isVendor },
     
-    // Suporte (Staff ou Admin)
-    { id: 'support' as AppState, icon: LifeBuoy, label: 'Atendimento', show: isSupport || isAdmin },
-    
-    // Suporte (Usuário Comum)
-    { id: 'user-support' as AppState, icon: LifeBuoy, label: 'Suporte', show: !isAdmin && !isSupport && !isMaster && !isVendor },
-    
     { id: 'admin' as AppState, icon: ShieldCheck, label: 'AtriosWork Master', show: isAdmin },
     { id: 'settings' as AppState, icon: Settings, label: 'Perfil', show: true },
   ];
@@ -103,7 +97,7 @@ const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, 
                 )}
               </div>
               <span className={`text-[7px] font-black uppercase tracking-widest text-center whitespace-nowrap transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-40 scale-90'}`}>
-                {tab.id === 'dashboard' ? 'Log' : tab.id === 'accountant' ? 'Contas' : tab.id === 'admin' ? 'Master' : tab.id === 'part-time' ? 'Part-Time' : tab.id === 'reports' ? 'Relat.' : tab.id === 'user-support' || tab.id === 'support' ? 'Suporte' : tab.id === 'vendor-detail' ? 'Rede' : tab.id === 'vendor-sales' ? 'Vendas' : tab.label}
+                {tab.id === 'dashboard' ? 'Log' : tab.id === 'accountant' ? 'Contas' : tab.id === 'admin' ? 'Master' : tab.id === 'part-time' ? 'Part-Time' : tab.id === 'reports' ? 'Relat.' : tab.id === 'vendor-detail' ? 'Rede' : tab.id === 'vendor-sales' ? 'Vendas' : tab.label}
               </span>
               {isActive && (
                 <div className="absolute -top-1 w-6 h-0.5 bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></div>

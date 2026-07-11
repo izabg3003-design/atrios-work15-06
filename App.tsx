@@ -14,12 +14,9 @@ import SettingsPage from './components/SettingsPage';
 import AdminPage from './components/AdminPage';
 import VendorDetailPage from './components/VendorDetailPage';
 import VendorSalesPage from './components/VendorSalesPage';
-import SupportPage from './components/SupportPage';
-import UserSupportPage from './components/UserSupportPage';
 import PrivacyPage from './components/PrivacyPage';
 import TermsPage from './components/TermsPage';
 import AboutAtriosWorkPage from './components/AboutAtriosWorkPage';
-import PublicSupportChat from './components/PublicSupportChat';
 import PushNotificationManager from './components/PushNotificationManager';
 import { InstallAppModal } from './components/InstallAppModal';
 import { AppState, UserProfile, WorkRecord, Language, Currency } from './types';
@@ -341,7 +338,6 @@ const App: React.FC = () => {
         setUser(profile);
         if (profile.email?.toLowerCase()?.includes('master@atrioswork.com') || profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) setAppState('admin');
         else if (profile.role === 'vendor') setAppState('vendor-detail');
-        else if (profile.role === 'support') setAppState('support');
         else setAppState('dashboard');
         
         const { data: dbRecords } = await supabase.from('work_records').select('*').eq('user_id', userId);
@@ -493,10 +489,9 @@ const App: React.FC = () => {
       )}
       {appState === 'about-atrioswork' && <AboutAtriosWorkPage onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} />}
       
-      {user.id && <PublicSupportChat />}
       {user.id && <PushNotificationManager user={user} />}
 
-      {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales', 'support', 'user-support'].includes(appState) && (
+      {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">
           <Sidebar activeTab={appState} setActiveTab={handleTabChange} user={user} onLogout={handleLogout} t={t} hideValues={hideValues} togglePrivacy={() => setHideValues(!hideValues)} isPro={isPro} />
           <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-12 pt-6 md:pt-12 pb-40 md:pb-12 ml-0 md:ml-24 scroll-smooth">
@@ -630,8 +625,6 @@ const App: React.FC = () => {
               )}
               {appState === 'vendor-detail' && <VendorDetailPage vendorId={selectedVendorData || user.id!} currentUser={user} onBack={() => { setSelectedVendorData(null); setAppState('admin'); }} f={formatCurrency} isVendorSelf={!selectedVendorData} />}
               {appState === 'vendor-sales' && <VendorSalesPage user={user} adminOverrideVendor={adminOverrideVendor} onBackToAdmin={() => { setAdminOverrideVendor(null); setAppState('admin'); }} />}
-              {appState === 'support' && <SupportPage user={user} f={formatCurrency} t={t} />}
-              {appState === 'user-support' && <UserSupportPage user={user} t={t} />}
             </div>
           </main>
         </div>

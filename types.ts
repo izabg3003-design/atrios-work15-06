@@ -122,4 +122,4 @@ export interface FinanceSummary {
   totalTravelPayment?: number;
 }
 
-export type AppState = 'splash' | 'language-gate' | 'landing' | 'subscription' | 'login' | 'dashboard' | 'finance' | 'reports' | 'part-time' | 'settings' | 'admin' | 'accountant' | 'vendor-detail' | 'vendor-sales' | 'support' | 'user-support' | 'privacy' | 'terms' | 'about-atrioswork';
+export type AppState = 'splash' | 'language-gate' | 'landing' | 'subscription' | 'login' | 'dashboard' | 'finance' | 'reports' | 'part-time' | 'settings' | 'admin' | 'accountant' | 'vendor-detail' | 'vendor-sales' | 'privacy' | 'terms' | 'about-atrioswork';
