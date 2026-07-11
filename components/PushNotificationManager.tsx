@@ -162,56 +162,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               // 3. Registar como mostrado
               shownPushes.push(freshPush.id);
               localStorage.setItem('shown_push_notifications', JSON.stringify(shownPushes));
-              return; // Retornar para evitar sobreposição imediata
             }
-          }
-        }
-
-        // 4. Fallback Resiliente: Verificar tabela 'profiles' diretamente por novos usuários cadastrados nas últimas 24h
-        // Isso resolve perfeitamente a falha visual do balão caso o trigger ou inserção no app_banners falhe.
-        if (isAdmin) {
-          try {
-            const { data: recentProfiles, error: profError } = await supabase
-              .from('profiles')
-              .select('id, name, email, created_at')
-              .eq('role', 'user')
-              .order('created_at', { ascending: false })
-              .limit(10);
-
-            if (!profError && recentProfiles && recentProfiles.length > 0) {
-              const shownUsersRaw = localStorage.getItem('shown_registered_users') || '[]';
-              const shownUsers: string[] = JSON.parse(shownUsersRaw);
-              
-              const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-              const freshUsers = recentProfiles.filter(p => {
-                if (shownUsers.includes(p.id)) return false;
-                const createdAtDate = p.created_at ? new Date(p.created_at) : null;
-                return createdAtDate && createdAtDate > oneDayAgo;
-              });
-
-              if (freshUsers.length > 0) {
-                const newestUser = freshUsers[0];
-                const cleanTitle = '🆕 Novo Cadastro no App!';
-                const cleanBody = `O utilizador ${newestUser.name || 'Sem nome'} (${newestUser.email}) registou-se no AtriosWork.`;
-
-                // Mostrar notificação local se não tivermos FCM ativo
-                const hasFCMActive = isFirebaseConfigured && isPushSupported() && notificationPermission === 'granted';
-                if (!hasFCMActive) {
-                  triggerNativePush(cleanTitle, cleanBody);
-                }
-
-                setNewPushAlert({
-                  id: newestUser.id,
-                  title: cleanTitle,
-                  subtitle: cleanBody
-                });
-
-                shownUsers.push(newestUser.id);
-                localStorage.setItem('shown_registered_users', JSON.stringify(shownUsers));
-              }
-            }
-          } catch (profileCheckErr) {
-            console.warn('[Push Manager] Erro ao verificar cadastros recentes na tabela profiles:', profileCheckErr);
           }
         }
       } catch (err) {

@@ -154,7 +154,7 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
         
         // Envia notificação simplificada e segura 100% via Backend
         try {
-          const apiRes = await fetch('/api/notify', {
+          await fetch('/api/notify', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -165,25 +165,8 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
               email: regData.email
             })
           });
-          if (!apiRes.ok) {
-            throw new Error(`Servidor local retornou status ${apiRes.status}`);
-          }
         } catch (apiErr) {
-          console.warn('Erro ao disparar notificação via API local, recorrendo à Edge Function do Supabase:', apiErr);
-          try {
-            await supabase.functions.invoke('send-fcm-push', {
-              body: {
-                type: 'new_user',
-                name: regData.name,
-                email: regData.email,
-                audience: 'admin',
-                title: '🆕 Novo Utilizador Registado',
-                body: `O utilizador ${regData.name} (${regData.email}) registou-se no AtriosWork.`
-              }
-            });
-          } catch (edgeErr) {
-            console.error('Falha crítica ao acionar Edge Function de fallback:', edgeErr);
-          }
+          console.warn('Erro ao disparar notificação central de novo cadastro:', apiErr);
         }
         
         onLogin(regData.email);
