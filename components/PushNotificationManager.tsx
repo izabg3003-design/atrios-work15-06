@@ -301,15 +301,17 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           const currentKeyBuffer = subscription.options.applicationServerKey;
           const serverKeyBuffer = urlBase64ToUint8Array(publicKey);
           
-          let keysMatch = false;
+          let keysMatch = true; // Default to true para evitar descancelamento acidental de chaves válidas
           if (currentKeyBuffer) {
             const currentKeyArray = new Uint8Array(currentKeyBuffer);
-            keysMatch = currentKeyArray.length === serverKeyBuffer.length &&
-                        currentKeyArray.every((val, i) => val === serverKeyBuffer[i]);
+            if (currentKeyArray.length > 0) {
+              keysMatch = currentKeyArray.length === serverKeyBuffer.length &&
+                          currentKeyArray.every((val, i) => val === serverKeyBuffer[i]);
+            }
           }
 
           if (!keysMatch) {
-            console.log('[Push Manager] Chave VAPID alterada ou antiga detetada. Recriando subscrição...');
+            console.log('[Push Manager] Chave VAPID alterada detetada de forma inequívoca. Recriando subscrição...');
             try {
               await subscription.unsubscribe();
             } catch (unsubErr) {
