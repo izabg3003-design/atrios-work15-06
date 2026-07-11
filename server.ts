@@ -16,14 +16,6 @@ const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com"
 
 const keysFilePath = path.join(process.cwd(), "vapid-keys.json");
 
-// Helper global para verificar se o email pertence a um Master/Administrador do Sistema
-const isMasterEmail = (emailVal?: string): boolean => {
-  const e = (emailVal || "").toLowerCase().trim();
-  return e.includes("master@atrioswork.com") || 
-         e.includes("izarellebraga@gmail.com") || 
-         e.includes("master@digitalnexus.com");
-};
-
 async function initializeVapidKeys() {
   const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
@@ -220,53 +212,10 @@ function saveLocalSubscription(sub: any) {
   if (!endpoint) return;
 
   const index = subs.findIndex((s) => s.subscription?.endpoint === endpoint);
-  
-  let isAdminOwned = false;
-  let previousAdminData = null;
-  
   if (index >= 0) {
-    const existing = subs[index];
-    const existingEmail = (existing.email || "").toLowerCase();
-    const existingRole = (existing.role || "").toLowerCase();
-    const isExistingMaster = isMasterEmail(existingEmail) || existingRole === "admin" || existingRole === "master" || existing.isAdminOwned;
-    
-    if (isExistingMaster) {
-      isAdminOwned = true;
-      previousAdminData = {
-        userId: existing.userId,
-        email: existing.email,
-        role: existing.role
-      };
-    }
-  }
-
-  const newEmail = (sub.email || "").toLowerCase();
-  const newRole = (sub.role || "").toLowerCase();
-  const isNewMaster = isMasterEmail(newEmail) || newRole === "admin" || newRole === "master";
-  
-  if (isNewMaster) {
-    isAdminOwned = true;
-  }
-
-  const mergedSub = {
-    ...sub,
-    isAdminOwned,
-    createdAt: index >= 0 ? subs[index].createdAt : new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  // Se o novo utilizador não é admin, mas o anterior era, preservamos o vínculo do admin na assinatura
-  // para que os administradores não percam as notificações no seu navegador durante testes ou logout
-  if (!isNewMaster && previousAdminData) {
-    mergedSub.userId = previousAdminData.userId;
-    mergedSub.email = previousAdminData.email;
-    mergedSub.role = previousAdminData.role;
-  }
-
-  if (index >= 0) {
-    subs[index] = mergedSub;
+    subs[index] = { ...subs[index], ...sub, updatedAt: new Date().toISOString() };
   } else {
-    subs.push(mergedSub);
+    subs.push({ ...sub, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() });
   }
 
   try {
@@ -296,41 +245,15 @@ async function saveSubscriptionToDatabase(data: { subscription: any; userId: str
     try {
       const db = getFirestore();
       const safeId = Buffer.from(data.subscription.endpoint).toString("base64url");
-      
-      let finalData = {
+      await db.collection("web_push_subscriptions").doc(safeId).set({
         subscription: data.subscription,
         userId: data.userId || "unknown",
         companyId: data.companyId || "unknown",
         email: data.email || null,
         role: data.role || null,
-        isAdminOwned: false,
         updatedAt: FieldValue.serverTimestamp(),
-      };
-
-      const docRef = db.collection("web_push_subscriptions").doc(safeId);
-      const docSnap = await docRef.get();
-      if (docSnap.exists) {
-        const existing = docSnap.data();
-        if (existing) {
-          const existingEmail = (existing.email || "").toLowerCase();
-          const existingRole = (existing.role || "").toLowerCase();
-          const isExistingMaster = isMasterEmail(existingEmail) || existingRole === "admin" || existingRole === "master" || existing.isAdminOwned;
-          
-          const newEmail = (data.email || "").toLowerCase();
-          const newRole = (data.role || "").toLowerCase();
-          const isNewMaster = isMasterEmail(newEmail) || newRole === "admin" || newRole === "master";
-
-          if (isExistingMaster && !isNewMaster) {
-            finalData.userId = existing.userId;
-            finalData.email = existing.email;
-            finalData.role = existing.role;
-            finalData.isAdminOwned = true;
-          }
-        }
-      }
-
-      await docRef.set(finalData, { merge: true });
-      console.log(`[Firestore] Assinatura salva com sucesso para o usuário ${finalData.userId} (${finalData.email})`);
+      }, { merge: true });
+      console.log(`[Firestore] Assinatura salva com sucesso para o usuário ${data.userId} (${data.email})`);
     } catch (err) {
       console.error("[Firestore] Erro ao gravar assinatura de Web Push:", err);
     }
@@ -497,7 +420,14 @@ async function startServer() {
         console.warn("[Notify API] Excepção ao buscar perfis do Supabase:", err.message || err);
       }
 
-      // 3. Regras para filtrar administradores/masters baseados no helper global do sistema
+      // 3. Regras para filtrar administradores/masters
+      const isMasterEmail = (emailVal?: string) => {
+        const e = (emailVal || "").toLowerCase();
+        return e.includes("master@atrioswork.com") || 
+               e.includes("izarellebraga@gmail.com") || 
+               e.includes("master@digitalnexus.com");
+      };
+
       const isAdminUser = (profile: any) => {
         const emailVal = (profile.email || "").toLowerCase();
         const roleVal = (profile.role || "").toLowerCase();
