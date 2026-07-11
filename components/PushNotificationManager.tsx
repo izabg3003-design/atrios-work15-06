@@ -212,17 +212,19 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     if (!('Notification' in window)) return;
     
     if (Notification.permission === 'granted') {
-      // 1. Tentar por Service Worker (Ideal para disparar no ecran em segundo plano)
-      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+      // 1. Tentar por Service Worker (Ideal para disparar no ecran em segundo plano ou primeiro plano)
+      if (navigator.serviceWorker) {
         navigator.serviceWorker.ready.then(reg => {
           reg.showNotification(title, {
             body: body,
             icon: '/logo_atualizado.jpg?v=20260314_v1',
             badge: '/logo_atualizado.jpg?v=20260314_v1',
             vibrate: [200, 100, 200],
-            tag: 'atrioswork-alert'
+            tag: 'atrioswork-alert',
+            requireInteraction: true
           } as any);
-        }).catch(() => {
+        }).catch((err) => {
+          console.warn('[Push Manager] Falha ao disparar via SW, tentando construtor nativo:', err);
           // Fallback para Notificação normal de janela
           new Notification(title, {
             body: body,
@@ -451,9 +453,18 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
       const title = payload.notification?.title || 'Mensagem';
       const body = payload.notification?.body || '';
 
-      // O Service Worker (sw-v3.js) já exibe a notificação de sistema nativa automaticamente
-      // ao escutar o evento 'push'. Em primeiro plano, evitamos re-disparar a notificação
-      // de sistema para não duplicar, e apenas mostramos o banner interno do app.
+      // Tocar som de chime agradável de sistema
+      try {
+        const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
+        audio.volume = 0.5;
+        audio.play().catch(() => {});
+      } catch (soundErr) {
+        console.warn('[Audio Alert] Falha ao tocar som:', soundErr);
+      }
+
+      // Em primeiro plano (foreground), mostramos tanto o banner visual quanto disparados
+      // a notificação push nativa de sistema do navegador para máxima visibilidade e persistência.
+      triggerNativePush(title, body);
 
       // Atualizar Alerta Visual no App (banner flutuante superior)
       setNewPushAlert({
