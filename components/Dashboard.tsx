@@ -35,6 +35,9 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
   const [showPostLoginBanner, setShowPostLoginBanner] = useState(false);
   const [bannerData, setBannerData] = useState<AppBanner | null>(null);
 
+  // Lógica de alternância do banner de licença/upgrade
+  const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
+
   const [entry, setEntry] = useState('09:00');
   const [exit, setExit] = useState('18:00');
   const [isAbsent, setIsAbsent] = useState(false);
@@ -127,6 +130,96 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
       return `${h}h ${m}m ${s}s`;
     } catch { return null; }
   }, [user.subscription, now]);
+
+  const activeBanners = useMemo(() => {
+    const list = [];
+    if (isPro) {
+      // PRO Banners (Premium / Promotions / Active Masters)
+      // 1. Expiration Banner (only if daysRemaining is within 30 days)
+      if (daysRemaining !== null && daysRemaining <= 30) {
+        list.push({
+          id: 'pro_expiration',
+          type: 'orange',
+          title: `A sua licença expira em ${countdownText || ''}`,
+          subtitle: 'AtriosWork • Professional Cloud',
+          buttonText: 'Contactar Renovação',
+          icon: 'shield_alert',
+          onClick: onOpenPremium,
+        });
+      }
+      
+      // 2. Premium Image Banner
+      list.push({
+        id: 'pro_image_active',
+        type: 'image',
+        imageUrl: '/upgrade_banner_bg.jpg',
+        title: 'AtriosWork PRO Ativo',
+        subtitle: 'Aproveite todas as funcionalidades exclusivas, sincronização na nuvem e relatórios ilimitados.',
+        buttonText: 'Ver Benefícios',
+        icon: 'zap',
+        onClick: onOpenPremium,
+      });
+
+      // 3. Pro workspace banner
+      list.push({
+        id: 'pro_workspace',
+        type: 'gradient_indigo',
+        title: 'Ambiente Profissional Seguro',
+        subtitle: 'Os seus dados estão salvos em tempo real na nuvem com criptografia de alta segurança.',
+        buttonText: 'Mais Detalhes',
+        icon: 'activity',
+        onClick: onOpenPremium,
+      });
+    } else {
+      // FREE Banners (incentive messages to upgrade)
+      // 1. Upgrade Incentive Orange Banner
+      list.push({
+        id: 'free_upgrade_orange',
+        type: 'orange',
+        title: 'Evolua para o Plano PRO',
+        subtitle: 'Desbloqueie exportação de relatórios em PDF, declarações completas de contabilidade e lançamentos ilimitados.',
+        buttonText: 'Ativar Versão PRO',
+        icon: 'zap',
+        onClick: onOpenPremium,
+      });
+
+      // 2. Image Banner
+      list.push({
+        id: 'free_image_incentive',
+        type: 'image',
+        imageUrl: '/upgrade_banner_bg.jpg',
+        title: 'Sincronização & Produtividade',
+        subtitle: 'Mantenha os seus horários e férias organizados de forma profissional na cloud sem limitações.',
+        buttonText: 'Saber Mais',
+        icon: 'megaphone',
+        onClick: onOpenPremium,
+      });
+
+      // 3. Simple elegant blue-purple banner
+      list.push({
+        id: 'free_support_updates',
+        type: 'gradient_indigo',
+        title: 'Trabalhe Sem Limitações',
+        subtitle: 'No plano gratuito o limite é de 165 horas e 5 part-times. Faça o upgrade e desbloqueie tudo.',
+        buttonText: 'Quero PRO',
+        icon: 'trending_up',
+        onClick: onOpenPremium,
+      });
+    }
+    return list;
+  }, [isPro, daysRemaining, countdownText, onOpenPremium]);
+
+  // Rotate banner index every 7 seconds if more than 1 banner
+  useEffect(() => {
+    if (activeBanners.length <= 1) {
+      setCurrentBannerIndex(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setCurrentBannerIndex((prev) => (prev + 1) % activeBanners.length);
+    }, 7000);
+    return () => clearInterval(interval);
+  }, [activeBanners.length]);
 
   const days = useMemo(() => {
     return eachDayOfInterval({ 
@@ -319,23 +412,109 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
          <p className={`text-[9px] font-black ${isPro ? 'text-emerald-500/60' : 'text-amber-500/60'} uppercase tracking-[0.2em] font-mono`}>v16.0.4-{isPro ? 'PRO' : 'FREE'}</p>
       </div>
 
-      {daysRemaining !== null && daysRemaining <= 30 && (
-        <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-4 md:p-6 rounded-[2.5rem] border border-amber-400/30 shadow-[0_0_30px_rgba(245,158,11,0.2)] flex flex-col md:flex-row items-center justify-between gap-4 animate-soft">
-          <div className="flex items-center gap-4 text-white">
-             <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0 border border-white/30">
-                <ShieldAlert className="w-6 h-6" />
-             </div>
-             <div>
-                <h4 className="text-sm font-black uppercase tracking-widest leading-none">A sua licença expira em {countdownText}</h4>
-                <p className="text-[10px] font-bold text-white/80 mt-1 uppercase tracking-widest opacity-80 italic">AtriosWork • Professional Cloud</p>
-             </div>
-          </div>
-          <button 
-            onClick={onOpenPremium}
-            className="w-full md:w-auto px-8 py-3 bg-white text-amber-600 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 transition-all"
-          >
-            Contactar Renovação
-          </button>
+      {activeBanners.length > 0 && (
+        <div className="relative group no-print">
+          {/* Main Banner Slot */}
+          {(() => {
+            const banner = activeBanners[currentBannerIndex % activeBanners.length] || activeBanners[0];
+            const renderBannerIcon = (iconName: string) => {
+              switch (iconName) {
+                case 'shield_alert': return <ShieldAlert className="w-6 h-6" />;
+                case 'zap': return <Zap className="w-6 h-6" />;
+                case 'activity': return <Activity className="w-6 h-6" />;
+                case 'megaphone': return <Megaphone className="w-6 h-6" />;
+                case 'trending_up': return <TrendingUp className="w-6 h-6" />;
+                default: return <ShieldAlert className="w-6 h-6" />;
+              }
+            };
+
+            if (banner.type === 'image') {
+              return (
+                <div className="relative overflow-hidden p-4 md:p-6 rounded-[2.5rem] border border-white/10 shadow-2xl flex flex-col md:flex-row items-center justify-between gap-4 animate-soft min-h-[140px] md:min-h-[110px]">
+                  <img 
+                    src={banner.imageUrl} 
+                    alt="" 
+                    className="absolute inset-0 w-full h-full object-cover z-0 filter brightness-[0.4] contrast-110" 
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-r from-slate-950/90 via-slate-900/60 to-transparent z-10"></div>
+                  
+                  <div className="relative z-20 flex items-center gap-4 text-white">
+                    <div className="w-12 h-12 bg-white/10 backdrop-blur-md rounded-2xl flex items-center justify-center shrink-0 border border-white/20">
+                      {renderBannerIcon(banner.icon)}
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-black uppercase tracking-widest leading-none text-white">{banner.title}</h4>
+                      <p className="text-[10px] font-bold text-slate-300 mt-1 uppercase tracking-widest leading-relaxed max-w-xl">{banner.subtitle}</p>
+                    </div>
+                  </div>
+
+                  <button 
+                    onClick={banner.onClick}
+                    className="relative z-20 w-full md:w-auto px-8 py-3 bg-white text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 transition-all shrink-0"
+                  >
+                    {banner.buttonText}
+                  </button>
+                </div>
+              );
+            }
+
+            if (banner.type === 'gradient_indigo') {
+              return (
+                <div className="bg-gradient-to-r from-indigo-950 to-slate-900 p-4 md:p-6 rounded-[2.5rem] border border-indigo-500/20 shadow-[0_0_30px_rgba(99,102,241,0.15)] flex flex-col md:flex-row items-center justify-between gap-4 animate-soft min-h-[140px] md:min-h-[110px]">
+                  <div className="flex items-center gap-4 text-white">
+                     <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center shrink-0 border border-white/10">
+                        {renderBannerIcon(banner.icon)}
+                     </div>
+                     <div>
+                        <h4 className="text-sm font-black uppercase tracking-widest leading-none">{banner.title}</h4>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest leading-relaxed max-w-xl">{banner.subtitle}</p>
+                     </div>
+                  </div>
+                  <button 
+                    onClick={banner.onClick}
+                    className="w-full md:w-auto px-8 py-3 bg-indigo-600 text-white hover:bg-indigo-500 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 transition-all shrink-0"
+                  >
+                    {banner.buttonText}
+                  </button>
+                </div>
+              );
+            }
+
+            // Default 'orange' style
+            return (
+              <div className="bg-gradient-to-r from-amber-600 to-amber-500 p-4 md:p-6 rounded-[2.5rem] border border-amber-400/30 shadow-[0_0_30px_rgba(245,158,11,0.2)] flex flex-col md:flex-row items-center justify-between gap-4 animate-soft min-h-[140px] md:min-h-[110px]">
+                <div className="flex items-center gap-4 text-white">
+                   <div className="w-12 h-12 bg-white/20 rounded-2xl flex items-center justify-center shrink-0 border border-white/30">
+                      {renderBannerIcon(banner.icon)}
+                   </div>
+                   <div>
+                      <h4 className="text-sm font-black uppercase tracking-widest leading-none">{banner.title}</h4>
+                      <p className="text-[10px] font-bold text-white/80 mt-1 uppercase tracking-widest opacity-80 italic">{banner.subtitle}</p>
+                   </div>
+                </div>
+                <button 
+                  onClick={banner.onClick}
+                  className="w-full md:w-auto px-8 py-3 bg-white text-amber-600 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 transition-all shrink-0"
+                >
+                  {banner.buttonText}
+                </button>
+              </div>
+            );
+          })()}
+
+          {/* Quick manual selection indicators */}
+          {activeBanners.length > 1 && (
+            <div className="flex justify-center gap-1.5 mt-2.5">
+              {activeBanners.map((_, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setCurrentBannerIndex(idx)}
+                  className={`w-1.5 h-1.5 rounded-full transition-all duration-300 ${idx === currentBannerIndex ? 'bg-amber-500 w-3' : 'bg-slate-800 hover:bg-slate-600'}`}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
