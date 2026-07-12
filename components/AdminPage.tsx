@@ -327,6 +327,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [scheduledTime, setScheduledTime] = useState('');
   const [pushHistoryTab, setPushHistoryTab] = useState<'sent' | 'scheduled' | 'received'>('received');
   const [localReceivedPushes, setLocalReceivedPushes] = useState<any[]>([]);
+  const [localSentPushes, setLocalSentPushes] = useState<any[]>([]);
+  const [localScheduledPushes, setLocalScheduledPushes] = useState<any[]>([]);
 
   useEffect(() => {
     const loadLocalPushes = () => {
@@ -335,6 +337,18 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         setLocalReceivedPushes(JSON.parse(raw));
       } catch (e) {
         console.warn('Erro ao carregar histórico local de pushes:', e);
+      }
+      try {
+        const rawSent = localStorage.getItem('local_sent_pushes_history') || '[]';
+        setLocalSentPushes(JSON.parse(rawSent));
+      } catch (e) {
+        console.warn('Erro ao carregar histórico local de enviados:', e);
+      }
+      try {
+        const rawSched = localStorage.getItem('local_scheduled_pushes_history') || '[]';
+        setLocalScheduledPushes(JSON.parse(rawSched));
+      } catch (e) {
+        console.warn('Erro ao carregar histórico local de agendados:', e);
       }
     };
     loadLocalPushes();
@@ -743,19 +757,33 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         }
 
         const pushRecord = {
+          id: 'local_sched_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9),
           title: `[SCHEDULED] ${newPushTitle.trim()}`,
           highlight: newPushBody.trim(),
           subtitle: newPushAudience, // Guardamos a audiência original para ser disparada
           cta_text: 'Abrir App',
           cta_link: testDate.toISOString(), // Guardamos o timestamp ISO no cta_link
-          theme_color: 'amber',
+          theme_color: 'amber' as const,
           is_active: false, // Inativo por padrão para não aparecer para os usuários antes do tempo
-          user_type: 'push_scheduled',
-          image_url: null
+          user_type: 'push_scheduled' as const,
+          image_url: undefined,
+          created_at: new Date().toISOString()
         };
 
+        // Salvar em localStorage
         try {
-          const { error } = await supabase.from('app_banners').insert([pushRecord]);
+          const rawSched = localStorage.getItem('local_scheduled_pushes_history') || '[]';
+          const list = JSON.parse(rawSched);
+          list.unshift(pushRecord);
+          localStorage.setItem('local_scheduled_pushes_history', JSON.stringify(list));
+          setLocalScheduledPushes(list);
+        } catch (localErr) {
+          console.warn("Erro ao salvar agendamento local:", localErr);
+        }
+
+        try {
+          const { id, ...dbPushRecord } = pushRecord;
+          const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
           if (error) {
             console.warn("Aviso ao salvar agendamento no Supabase (prosseguindo):", error);
             if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
@@ -780,19 +808,33 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
       // Marcamos o banner como [PUSH] no título ou colocamos o tipo 'push_notification'
       const pushRecord = {
+        id: 'local_sent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9),
         title: `[PUSH] ${newPushTitle.trim()}`,
         highlight: newPushBody.trim(),
         subtitle: 'Notificação AtriosWork Push',
         cta_text: 'Abrir App',
         cta_link: '/',
-        theme_color: 'amber',
+        theme_color: 'amber' as const,
         is_active: true,
-        user_type: newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free'),
-        image_url: null
+        user_type: (newPushAudience === 'all' ? 'push_notification' : (newPushAudience === 'premium' ? 'premium' : 'free')) as any,
+        image_url: undefined,
+        created_at: new Date().toISOString()
       };
 
+      // Salvar em localStorage
       try {
-        const { error } = await supabase.from('app_banners').insert([pushRecord]);
+        const rawSent = localStorage.getItem('local_sent_pushes_history') || '[]';
+        const list = JSON.parse(rawSent);
+        list.unshift(pushRecord);
+        localStorage.setItem('local_sent_pushes_history', JSON.stringify(list));
+        setLocalSentPushes(list);
+      } catch (localErr) {
+        console.warn("Erro ao salvar push enviado local:", localErr);
+      }
+
+      try {
+        const { id, ...dbPushRecord } = pushRecord;
+        const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
         if (error) {
           console.warn("Aviso ao registrar histórico no Supabase (continuando com o envio do Push):", error);
           if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
@@ -1089,8 +1131,18 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     if (!itemToDelete) return;
     setIsDeleting(true);
     try {
-      if (itemToDelete.type === 'banner') await supabase.from('app_banners').delete().eq('id', itemToDelete.id);
-      else {
+      if (itemToDelete.type === 'banner') {
+        await supabase.from('app_banners').delete().eq('id', itemToDelete.id);
+        
+        // Remove from local storage fallback lists as well
+        const filteredSent = localSentPushes.filter(p => p.id !== itemToDelete.id);
+        setLocalSentPushes(filteredSent);
+        localStorage.setItem('local_sent_pushes_history', JSON.stringify(filteredSent));
+
+        const filteredSched = localScheduledPushes.filter(p => p.id !== itemToDelete.id);
+        setLocalScheduledPushes(filteredSched);
+        localStorage.setItem('local_scheduled_pushes_history', JSON.stringify(filteredSched));
+      } else {
         if (itemToDelete.type === 'vendor') await supabase.from('vendors').delete().eq('id', itemToDelete.id);
         await supabase.from('profiles').delete().eq('id', itemToDelete.id);
       }
@@ -1590,6 +1642,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                       const titleU = p.title.toUpperCase();
                       const subU = (p.subtitle || '').toUpperCase();
                       const userType = (p.user_type || '').toLowerCase();
+                      
+                      // Explicitly exclude any that are sent or scheduled push notifications
+                      if (titleU.includes('[PUSH]') || titleU.includes('[SCHEDULED]')) return false;
+                      if (userType === 'push_notification' || userType === 'push_scheduled') return false;
+
                       return userType === 'push_system' ||
                              titleU.includes('[SYSTEM]') ||
                              titleU.includes('[SYSTEM_PUSH]') ||
@@ -1604,19 +1661,37 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                              subU.includes('SUPORTE');
                     });
 
-                    // Filter scheduled pushes from database
-                    const scheduledDbPushes = banners.filter(p => {
+                    // Filter scheduled pushes from database and merge with local scheduled
+                    const dbScheduled = banners.filter(p => {
                       const titleU = p.title.toUpperCase();
                       const userType = (p.user_type || '').toLowerCase();
                       return userType === 'push_scheduled' || titleU.includes('[SCHEDULED]');
                     });
 
-                    // Filter sent pushes (all pushes that are NOT system and NOT scheduled)
-                    const sentDbPushes = banners.filter(p => {
+                    const scheduledDbPushes = [...dbScheduled];
+                    localScheduledPushes.forEach(lp => {
+                      const isDup = scheduledDbPushes.some(db => 
+                        db.title.toLowerCase().trim() === lp.title.toLowerCase().trim() && 
+                        db.highlight.toLowerCase().trim() === lp.highlight.toLowerCase().trim()
+                      );
+                      if (!isDup) {
+                        scheduledDbPushes.push(lp);
+                      }
+                    });
+
+                    // Sort scheduled pushes by date/time
+                    scheduledDbPushes.sort((a, b) => {
+                      const dateA = new Date(a.cta_link || a.created_at || 0).getTime();
+                      const dateB = new Date(b.cta_link || b.created_at || 0).getTime();
+                      return dateB - dateA;
+                    });
+
+                    // Filter sent pushes from database and merge with local sent pushes
+                    const dbSent = banners.filter(p => {
                       const titleU = p.title.toUpperCase();
                       const userType = (p.user_type || '').toLowerCase();
                       const isSys = systemReceivedDbPushes.some(sys => sys.id === p.id);
-                      const isSched = scheduledDbPushes.some(sc => sc.id === p.id);
+                      const isSched = dbScheduled.some(sc => sc.id === p.id);
                       if (isSys || isSched) return false;
 
                       return titleU.includes('[PUSH]') || 
@@ -1625,6 +1700,19 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                              userType === 'free' || 
                              p.subtitle === 'Notificação AtriosWork Push';
                     });
+
+                    const sentDbPushes = [...dbSent];
+                    localSentPushes.forEach(lp => {
+                      const isDup = sentDbPushes.some(db => 
+                        db.title.toLowerCase().trim() === lp.title.toLowerCase().trim() && 
+                        db.highlight.toLowerCase().trim() === lp.highlight.toLowerCase().trim()
+                      );
+                      if (!isDup) {
+                        sentDbPushes.push(lp);
+                      }
+                    });
+
+                    sentDbPushes.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
                     const dbMapped = systemReceivedDbPushes.map(p => ({
                       id: p.id,
