@@ -1604,6 +1604,28 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                              subU.includes('SUPORTE');
                     });
 
+                    // Filter scheduled pushes from database
+                    const scheduledDbPushes = banners.filter(p => {
+                      const titleU = p.title.toUpperCase();
+                      const userType = (p.user_type || '').toLowerCase();
+                      return userType === 'push_scheduled' || titleU.includes('[SCHEDULED]');
+                    });
+
+                    // Filter sent pushes (all pushes that are NOT system and NOT scheduled)
+                    const sentDbPushes = banners.filter(p => {
+                      const titleU = p.title.toUpperCase();
+                      const userType = (p.user_type || '').toLowerCase();
+                      const isSys = systemReceivedDbPushes.some(sys => sys.id === p.id);
+                      const isSched = scheduledDbPushes.some(sc => sc.id === p.id);
+                      if (isSys || isSched) return false;
+
+                      return titleU.includes('[PUSH]') || 
+                             userType === 'push_notification' || 
+                             userType === 'premium' || 
+                             userType === 'free' || 
+                             p.subtitle === 'Notificação AtriosWork Push';
+                    });
+
                     const dbMapped = systemReceivedDbPushes.map(p => ({
                       id: p.id,
                       title: p.title.replace('[SYSTEM]', '').replace('[PUSH]', '').replace('[SYSTEM_PUSH]', '').trim(),
@@ -1667,12 +1689,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                               {mergedReceivedPushes.length} Recebidos
                             </span>
                           ) : pushHistoryTab === 'sent' ? (
-                            <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-slate-500 uppercase tracking-wider font-mono">
-                              {banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length} Enviadas
+                            <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-blue-400 uppercase tracking-wider font-mono">
+                              {sentDbPushes.length} Enviados
                             </span>
                           ) : (
                             <span className="px-3 py-1 bg-slate-900 rounded-full text-[8px] font-black text-amber-500/80 uppercase tracking-wider font-mono">
-                              {banners.filter(p => (p.user_type as string) === 'push_scheduled').length} Agendados
+                              {scheduledDbPushes.length} Agendados
                             </span>
                           )}
                         </div>
@@ -1744,98 +1766,94 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                               })
                             )
                           ) : pushHistoryTab === 'sent' ? (
-                            banners.filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification').length === 0 ? (
+                            sentDbPushes.length === 0 ? (
                               <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
                                 <BellRing className="w-10 h-10 text-slate-750 animate-pulse" />
                                 <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhuma Notificação Transmitida</p>
                               </div>
                             ) : (
-                              banners
-                                .filter(p => p.title.toUpperCase().includes('[PUSH]') || (p.user_type as string) === 'push_notification')
-                                .map((push) => {
-                                  const displayTitle = push.title.replace('[PUSH]', '').replace('[push]', '').trim();
-                                  const displayAudience = (push.user_type as string) === 'push_notification' || push.user_type === 'all' ? 'TODOS' : 
-                                                          (push.user_type === 'premium' ? 'PRO' : 'GRÁTIS');
-                                  
-                                  return (
-                                    <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
-                                      <div className="space-y-1 min-w-0 flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
-                                            displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                                            displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                            'bg-slate-800 text-slate-400'
-                                          }`}>
-                                            {displayAudience}
-                                          </span>
-                                          <span className="text-[8px] font-mono text-slate-600 font-bold">
-                                            {push.created_at ? new Date(push.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
-                                          </span>
-                                        </div>
-                                        <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
-                                        <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight || push.subtitle}</p>
+                              sentDbPushes.map((push) => {
+                                const displayTitle = push.title.replace('[PUSH]', '').replace('[push]', '').trim();
+                                const displayAudience = (push.user_type as string) === 'push_notification' || push.user_type === 'all' ? 'TODOS' : 
+                                                        (push.user_type === 'premium' ? 'PRO' : 'GRÁTIS');
+                                
+                                return (
+                                  <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
+                                    <div className="space-y-1 min-w-0 flex-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
+                                          displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
+                                          displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                          'bg-slate-800 text-slate-400'
+                                        }`}>
+                                          {displayAudience}
+                                        </span>
+                                        <span className="text-[8px] font-mono text-slate-600 font-bold">
+                                          {push.created_at ? new Date(push.created_at).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'Recent'}
+                                        </span>
                                       </div>
-                                      
-                                      <button
-                                        type="button"
-                                        onClick={() => setItemToDelete({ id: push.id, name: displayTitle, type: 'banner' })}
-                                        className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                        title="Remover Notificação"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
+                                      <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none mt-1">{displayTitle}</h5>
+                                      <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight || push.subtitle}</p>
                                     </div>
-                                  );
-                                })
+                                    
+                                    <button
+                                      type="button"
+                                      onClick={() => setItemToDelete({ id: push.id, name: displayTitle, type: 'banner' })}
+                                      className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                      title="Remover Notificação"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })
                             )
                           ) : (
-                            banners.filter(p => (p.user_type as string) === 'push_scheduled').length === 0 ? (
+                            scheduledDbPushes.length === 0 ? (
                               <div className="h-full flex flex-col items-center justify-center p-8 text-center space-y-3 font-sans">
                                 <Calendar className="w-10 h-10 text-slate-750 animate-pulse" />
                                 <p className="text-[10px] font-black text-slate-600 uppercase tracking-wider">Nenhum Agendamento Ativo</p>
                               </div>
                             ) : (
-                              banners
-                                .filter(p => (p.user_type as string) === 'push_scheduled')
-                                .map((push) => {
-                                  const displayTitle = push.title.replace('[SCHEDULED]', '').trim();
-                                  const displayAudience = push.subtitle === 'all' ? 'TODOS' : (push.subtitle === 'premium' ? 'PRO' : 'GRÁTIS');
-                                  
-                                  let schedDateStr = '---';
-                                  try {
-                                    schedDateStr = new Date(push.cta_link).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-                                  } catch (e) {}
+                              scheduledDbPushes.map((push) => {
+                                const displayTitle = push.title.replace('[SCHEDULED]', '').trim();
+                                const displayAudience = push.subtitle === 'all' ? 'TODOS' : (push.subtitle === 'premium' ? 'PRO' : 'GRÁTIS');
+                                
+                                let schedDateStr = '---';
+                                try {
+                                  schedDateStr = new Date(push.cta_link).toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                                } catch (e) {}
 
-                                  return (
-                                    <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
-                                      <div className="space-y-1 min-w-0 flex-1">
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                                            AGENDADO: {schedDateStr}
-                                          </span>
-                                          <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
-                                            displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
-                                            displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
-                                            'bg-slate-800 text-slate-400'
-                                          }`}>
-                                            {displayAudience}
-                                          </span>
-                                        </div>
-                                        <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none">{displayTitle}</h5>
-                                        <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight}</p>
+                                return (
+                                  <div key={push.id} className="p-4 bg-slate-900 rounded-2xl border border-white/5 flex gap-3 justify-between items-start hover:border-slate-800 transition-all group font-sans">
+                                    <div className="space-y-1 min-w-0 flex-1">
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                                          AGENDADO: {schedDateStr}
+                                        </span>
+                                        <span className={`px-2 py-0.5 rounded-[0.5rem] text-[7px] font-black uppercase tracking-wider ${
+                                          displayAudience === 'TODOS' ? 'bg-indigo-500/10 text-indigo-400 border border-indigo-500/20' :
+                                          displayAudience === 'PRO' ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20' :
+                                          'bg-slate-800 text-slate-400'
+                                        }`}>
+                                          {displayAudience}
+                                        </span>
                                       </div>
-                                      
-                                      <button
-                                        type="button"
-                                        onClick={() => setItemToDelete({ id: push.id, name: `Agendamento: ${displayTitle}`, type: 'banner' })}
-                                        className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                        title="Remover Agendamento"
-                                      >
-                                        <Trash2 className="w-3.5 h-3.5" />
-                                      </button>
+                                      <h5 className="text-[10px] font-black text-white truncate uppercase tracking-widest leading-none mt-1">{displayTitle}</h5>
+                                      <p className="text-[9px] font-bold text-slate-500 leading-relaxed">{push.highlight}</p>
                                     </div>
-                                  );
-                                })
+                                    
+                                    <button
+                                      type="button"
+                                      onClick={() => setItemToDelete({ id: push.id, name: `Agendamento: ${displayTitle}`, type: 'banner' })}
+                                      className="p-2 text-slate-500 hover:text-rose-400 rounded-xl hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                      title="Remover Agendamento"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                );
+                              })
                             )
                           )}
                         </div>
