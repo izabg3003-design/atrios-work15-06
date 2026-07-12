@@ -6,18 +6,17 @@ const supabaseServiceKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXB
 const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 async function testRecipients() {
-  console.log("Checking profiles with fcm_token...");
+  console.log("Checking ALL profiles...");
   const { data: profiles, error } = await supabase
     .from('profiles')
-    .select('id, email, role, fcm_token')
-    .not('fcm_token', 'is', null);
+    .select('id, email, role, fcm_token, name, created_at');
 
   if (error) {
     console.error("Error fetching profiles:", error);
   } else {
-    console.log("Profiles with tokens found:", profiles?.length);
+    console.log("Total profiles found:", profiles?.length);
     profiles?.forEach(p => {
-      console.log(`- ID: ${p.id}, Email: ${p.email}, Role: ${p.role}, Token length: ${p.fcm_token?.length}`);
+      console.log(`- ID: ${p.id}, Email: ${p.email}, Name: ${p.name}, Role: ${p.role}, Token: ${p.fcm_token ? p.fcm_token.substring(0, 30) + '...' : 'NULL'}`);
     });
   }
 }

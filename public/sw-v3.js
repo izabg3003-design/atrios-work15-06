@@ -89,6 +89,7 @@ self.addEventListener('push', (event) => {
     let title = 'AtriosWork';
     let body = 'Nova notificação do sistema!';
     let url = '/';
+    let tag = '';
 
     try {
       if (event.data) {
@@ -119,6 +120,13 @@ self.addEventListener('push', (event) => {
             rawData.url || 
             rawData.data?.notification?.url || 
             '/';
+
+      // Gerar ou extrair uma identificação (tag) única para evitar que o navegador agrupe ou silencie notificações subsequentes
+      tag = rawData.notification?.tag || 
+            rawData.tag || 
+            rawData.data?.tag || 
+            rawData.data?.notification?.tag || 
+            `push-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
@@ -134,6 +142,7 @@ self.addEventListener('push', (event) => {
         badge: iconUrl,
         vibrate: [200, 100, 200],
         data: url,
+        tag: tag, // Tag única para cada notificação
         actions: [
           { action: 'open', title: 'Ver App' }
         ]
@@ -147,7 +156,8 @@ self.addEventListener('push', (event) => {
         await self.registration.showNotification(title, {
           body: body,
           icon: iconUrl,
-          data: url
+          data: url,
+          tag: tag // Tag única também no fallback
         });
       }
     } catch (showErr) {

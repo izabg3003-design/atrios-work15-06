@@ -495,6 +495,7 @@ async function startServer() {
       const absoluteTargetUrl = `${currentOrigin}/`;
 
       let totalSent = 0;
+      const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
       // 🔵 DISPARO 1: Enviar via Web Push (VAPID)
       const webPushPromises = webPushSubscriptions.map(async (ws) => {
@@ -509,6 +510,7 @@ async function startServer() {
             badge: iconUrl,
             vibrate: [100, 50, 100],
             data: { url: absoluteTargetUrl },
+            tag: uniqueTag,
           },
         });
 
@@ -547,7 +549,8 @@ async function startServer() {
                   icon: iconUrl,
                   badge: iconUrl,
                   clickAction: absoluteTargetUrl,
-                  requireInteraction: true
+                  requireInteraction: true,
+                  tag: uniqueTag
                 },
                 fcmOptions: { link: absoluteTargetUrl },
               },
@@ -595,7 +598,8 @@ async function startServer() {
                         badge: iconUrl,
                         click_action: absoluteTargetUrl,
                         clickAction: absoluteTargetUrl,
-                        requireInteraction: true
+                        requireInteraction: true,
+                        tag: uniqueTag
                       },
                       fcm_options: { link: absoluteTargetUrl },
                     },

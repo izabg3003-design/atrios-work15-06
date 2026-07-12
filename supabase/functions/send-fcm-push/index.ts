@@ -240,6 +240,7 @@ serve(async (req) => {
     }
 
     let totalSent = 0;
+    const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
     // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
     const webPushPromises = [];
@@ -253,6 +254,7 @@ serve(async (req) => {
             badge: iconUrl,
             vibrate: [100, 50, 100],
             data: { url: absoluteTargetUrl },
+            tag: uniqueTag,
           },
         });
 
@@ -336,7 +338,8 @@ serve(async (req) => {
                           badge: iconUrl,
                           click_action: absoluteTargetUrl,
                           clickAction: absoluteTargetUrl,
-                          requireInteraction: true
+                          requireInteraction: true,
+                          tag: uniqueTag
                         },
                         fcm_options: {
                           link: absoluteTargetUrl,
