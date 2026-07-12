@@ -165,6 +165,72 @@ function getGoogleAccessToken(clientEmail: string, privateKey: string): string {
   return `${toSign}.${signature}`;
 }
 
+// Helper to get Firestore instance with custom databaseId if configured
+let cachedDbInstance: any = null;
+let useDefaultDatabase = false;
+
+function getFirestoreInstance() {
+  if (cachedDbInstance) {
+    return cachedDbInstance;
+  }
+
+  let dbId: string | undefined = undefined;
+  if (!useDefaultDatabase) {
+    try {
+      const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        dbId = config.firestoreDatabaseId;
+      }
+    } catch (err) {
+      console.warn("[Firebase Admin] Erro ao ler databaseId de firebase-applet-config.json:", err);
+    }
+  }
+  
+  try {
+    if (dbId) {
+      const apps = getApps();
+      const defaultApp = apps.length ? apps[0] : undefined;
+      cachedDbInstance = getFirestore(defaultApp, dbId);
+    } else {
+      cachedDbInstance = getFirestore();
+    }
+  } catch (err) {
+    console.warn("[Firebase Admin] Erro ao obter instância do Firestore com dbId, usando default:", err);
+    cachedDbInstance = getFirestore();
+  }
+  return cachedDbInstance;
+}
+
+// Resilient wrapper to run Firestore operations with automatic fallback to default database
+async function runFirestoreOp<T>(op: (db: any) => Promise<T>): Promise<T> {
+  const db = getFirestoreInstance();
+  try {
+    return await op(db);
+  } catch (err: any) {
+    const errMsg = err?.message || "";
+    const isNotFound = errMsg.includes("NOT_FOUND") || errMsg.includes("not found") || err?.code === 5;
+    
+    let dbId: string | undefined = undefined;
+    try {
+      const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+      if (fs.existsSync(configPath)) {
+        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        dbId = config.firestoreDatabaseId;
+      }
+    } catch (_) {}
+
+    if (isNotFound && dbId && !useDefaultDatabase) {
+      console.warn(`[Firestore] Banco de dados customizado '${dbId}' não encontrado (${errMsg}). Fazendo fallback automático para o banco de dados '(default)'...`);
+      useDefaultDatabase = true;
+      cachedDbInstance = null; // force regeneration
+      const fallbackDb = getFirestoreInstance();
+      return await op(fallbackDb);
+    }
+    throw err;
+  }
+}
+
 // 🔵 3. PERSISTÊNCIA AUXILIAR LOCAL DE ASSINATURAS (WEB PUSH / VAPID)
 const subsFilePath = path.join(process.cwd(), "web-push-subscriptions.json");
 
@@ -183,11 +249,13 @@ async function loadAllSubscriptions(): Promise<any[]> {
   const localSubs = loadLocalSubscriptions();
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestore();
-      const snapshot = await db.collection("web_push_subscriptions").get();
-      const firestoreSubs: any[] = [];
-      snapshot.forEach((doc) => {
-        firestoreSubs.push(doc.data());
+      const firestoreSubs = await runFirestoreOp(async (db) => {
+        const snapshot = await db.collection("web_push_subscriptions").get();
+        const subs: any[] = [];
+        snapshot.forEach((doc: any) => {
+          subs.push(doc.data());
+        });
+        return subs;
       });
       console.log(`[Push Server] Carregadas ${firestoreSubs.length} assinaturas do Firestore.`);
       
@@ -199,8 +267,8 @@ async function loadAllSubscriptions(): Promise<any[]> {
         }
       });
       return allSubs;
-    } catch (e) {
-      console.error("[Push Server] Erro ao carregar assinaturas do Firestore:", e);
+    } catch (e: any) {
+      console.warn("[Push Server] Aviso ao carregar assinaturas do Firestore (usando fallback local):", e?.message || e);
     }
   }
   return localSubs;
@@ -243,19 +311,20 @@ async function saveSubscriptionToDatabase(data: { subscription: any; userId: str
   // 2. Gravar no Firestore se o Firebase Admin estiver ativo
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestore();
       const safeId = Buffer.from(data.subscription.endpoint).toString("base64url");
-      await db.collection("web_push_subscriptions").doc(safeId).set({
-        subscription: data.subscription,
-        userId: data.userId || "unknown",
-        companyId: data.companyId || "unknown",
-        email: data.email || null,
-        role: data.role || null,
-        updatedAt: FieldValue.serverTimestamp(),
-      }, { merge: true });
+      await runFirestoreOp(async (db) => {
+        await db.collection("web_push_subscriptions").doc(safeId).set({
+          subscription: data.subscription,
+          userId: data.userId || "unknown",
+          companyId: data.companyId || "unknown",
+          email: data.email || null,
+          role: data.role || null,
+          updatedAt: FieldValue.serverTimestamp(),
+        }, { merge: true });
+      });
       console.log(`[Firestore] Assinatura salva com sucesso para o usuário ${data.userId} (${data.email})`);
-    } catch (err) {
-      console.error("[Firestore] Erro ao gravar assinatura de Web Push:", err);
+    } catch (err: any) {
+      console.warn("[Firestore] Aviso ao gravar assinatura de Web Push (resolvido por persistência local + Supabase):", err?.message || err);
     }
   }
 
@@ -283,12 +352,13 @@ async function deleteSubscriptionFromDatabase(endpoint: string) {
   // Remover do Firestore
   if (isFirebaseAdminInitialized) {
     try {
-      const db = getFirestore();
       const safeId = Buffer.from(endpoint).toString("base64url");
-      await db.collection("web_push_subscriptions").doc(safeId).delete();
+      await runFirestoreOp(async (db) => {
+        await db.collection("web_push_subscriptions").doc(safeId).delete();
+      });
       console.log("[Firestore] Assinatura inválida (410/404) removida do Firestore.");
-    } catch (err) {
-      console.error("[Firestore] Erro ao remover assinatura do Firestore:", err);
+    } catch (err: any) {
+      console.warn("[Firestore] Aviso ao remover assinatura do Firestore:", err?.message || err);
     }
   }
 

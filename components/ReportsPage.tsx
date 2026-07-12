@@ -4,6 +4,25 @@ import { UserProfile, WorkRecord, FinanceSummary } from '../types';
 import { format, parseISO } from 'date-fns';
 import { pt, enUS, es, fr, de, it } from 'date-fns/locale';
 
+const getPortugueseWeekday = (dateStr: string): string => {
+  try {
+    const d = parseISO(dateStr);
+    const day = d.getDay(); // 0 = Sunday, 1 = Monday, etc.
+    const weekdays = [
+      'Domingo',
+      'Segunda',
+      'Terça',
+      'Quarta',
+      'Quinta',
+      'Sexta',
+      'Sábado'
+    ];
+    return weekdays[day] || '';
+  } catch (e) {
+    return '';
+  }
+};
+
 interface Props {
   user: UserProfile;
   records: Record<string, WorkRecord>;
@@ -322,7 +341,12 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
 
                     return (
                       <tr key={date} className={`${rowBgClass} print:text-black`}>
-                        <td className="px-3 py-3 font-black text-slate-900 print:text-black">{format(parseISO(date), 'dd/MM/yy')}</td>
+                        <td className="px-3 py-3 font-black text-slate-900 print:text-black">
+                          <div>{format(parseISO(date), 'dd/MM/yy')}</div>
+                          <div className="text-[8px] font-black text-slate-400 uppercase tracking-wider leading-none mt-0.5 print:text-[5.5pt] print:text-black">
+                            {getPortugueseWeekday(date)}
+                          </div>
+                        </td>
                         <td className="px-2 py-3 text-center">
                           {isAbs ? (
                             <span className="text-red-700 font-black uppercase text-[8px] bg-red-200/50 px-2 py-1 rounded">Falta</span>
