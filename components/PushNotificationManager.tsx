@@ -3,6 +3,7 @@ import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Spa
 import { UserProfile } from '../types';
 import { supabase } from '../lib/supabase';
 import { messaging, getToken, isFirebaseConfigured, isPushSupported, onMessage } from '../lib/firebase';
+import { logReceivedPush } from '../src/utils/pushLogger';
 
 interface Props {
   user: UserProfile;
@@ -158,6 +159,10 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
                 title: cleanTitle,
                 subtitle: cleanBody
               });
+
+              // Registrar no histórico local de recebidos
+              const pushCategory = freshPush.user_type === 'push_system' || freshPush.title.includes('[SYSTEM]') ? 'system' : 'manual';
+              logReceivedPush(cleanTitle, cleanBody, pushCategory);
 
               // 3. Registar como mostrado
               shownPushes.push(freshPush.id);
@@ -459,6 +464,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         title: title,
         subtitle: body
       });
+
+      // Registrar no histórico de recebidos
+      logReceivedPush(title, body, title.includes('🆕') || title.toUpperCase().includes('CADASTRO') ? 'signup' : 'manual');
     });
 
     return () => unsubscribe();
@@ -493,6 +501,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
           subtitle: body
         });
 
+        // Registrar no histórico de recebidos
+        logReceivedPush(title, body, 'signup');
+
         // Disparar notificação do browser nativa se a permissão estiver concedida
         triggerNativePush(title, body);
       })
@@ -520,6 +531,10 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               title: cleanTitle,
               subtitle: cleanBody
             });
+
+            // Registrar no histórico de recebidos
+            const pushCategory = newBanner.user_type === 'push_system' || newBanner.title.includes('[SYSTEM]') ? 'system' : 'manual';
+            logReceivedPush(cleanTitle, cleanBody, pushCategory);
 
             // Disparar notificação do browser nativa se a permissão estiver concedida
             triggerNativePush(cleanTitle, cleanBody);

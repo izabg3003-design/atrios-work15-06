@@ -405,6 +405,24 @@ async function startServer() {
 
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+      // Salvar registro de sistema em app_banners para fins de histórico de recebidos
+      try {
+        const dbPushRecord = {
+          title: `[SYSTEM] ${resolvedTitle}`,
+          highlight: resolvedBody,
+          subtitle: `Sistema - ${type || 'Notificação'}`,
+          cta_text: 'Abrir App',
+          cta_link: '/',
+          theme_color: 'blue',
+          is_active: true,
+          user_type: 'push_system',
+          image_url: null
+        };
+        await supabase.from('app_banners').insert([dbPushRecord]);
+      } catch (dbErr) {
+        console.warn("[Notify API] Falha ao gravar histórico do sistema em app_banners:", dbErr);
+      }
+
       // 2. Obter perfis ativos do Supabase que contêm fcm_token
       let profiles: any[] = [];
       try {
@@ -747,6 +765,23 @@ async function startServer() {
       const isSys = isSystemNotification(title, body, audience, hasTargetUser);
       if (isSys) {
         console.log(`[Push Server] Notificação "${title}" classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA. Filtrando apenas para contas Master.`);
+        
+        // Registrar histórico do push de sistema na tabela app_banners
+        try {
+          await supabase.from('app_banners').insert([{
+            title: `[SYSTEM] ${title}`,
+            highlight: body,
+            subtitle: `Sistema - ${audience || 'Notificação'}`,
+            cta_text: 'Abrir App',
+            cta_link: url || '/',
+            theme_color: 'purple',
+            is_active: true,
+            user_type: 'push_system',
+            image_url: null
+          }]);
+        } catch (dbErr) {
+          console.warn("[FCM Server] Erro ao gravar histórico de push_system:", dbErr);
+        }
       }
 
       let filteredProfiles = profiles || [];
