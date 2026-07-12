@@ -45,7 +45,12 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
     setIsSaving(true);
     setSaveSuccess(false);
     try {
-      const success = await setUser(formUser);
+      const finalFormUser = { ...formUser };
+      if (finalFormUser.companyName && finalFormUser.companyName.trim() !== '' && (!finalFormUser.companyLockStatus || finalFormUser.companyLockStatus === 'unlocked')) {
+        finalFormUser.companyLockStatus = 'locked';
+        setFormUser(finalFormUser);
+      }
+      const success = await setUser(finalFormUser);
       if (success) {
         setSaveSuccess(true);
         setTimeout(() => setSaveSuccess(false), 3000);
@@ -218,6 +223,59 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
               <div className="space-y-2 md:col-span-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.displayName')}</label><input type="text" value={formUser.name} onChange={(e) => setFormUser(p => ({ ...p, name: e.target.value }))} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.taxId')}</label><input type="text" value={formUser.nif || ''} onChange={(e) => setFormUser(p => ({ ...p, nif: e.target.value }))} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.phone')}</label><input type="tel" value={formUser.phone || ''} onChange={(e) => setFormUser(p => ({ ...p, phone: e.target.value }))} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
+              
+              {/* Campo Empresa */}
+              <div className="space-y-2 md:col-span-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">Empresa</label>
+                <div className="flex flex-col md:flex-row gap-3">
+                  <div className="relative flex-1">
+                    <input 
+                      type="text" 
+                      value={formUser.companyName || ''} 
+                      disabled={formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock'}
+                      onChange={(e) => setFormUser(p => ({ ...p, companyName: e.target.value }))} 
+                      className={`w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold ${
+                        (formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock') ? 'opacity-60 cursor-not-allowed bg-slate-950/20' : ''
+                      }`}
+                      placeholder="Nome da empresa onde trabalha"
+                    />
+                    {(formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock') && (
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-rose-500 flex items-center gap-1.5">
+                        <Lock className="w-4 h-4" />
+                        <span className="text-[9px] font-black uppercase tracking-wider">Bloqueado</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {formUser.companyName && formUser.companyName.trim() !== '' && (
+                    <>
+                      {formUser.companyLockStatus === 'locked' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = { ...formUser, companyLockStatus: 'requested_unlock' as const };
+                            setFormUser(updated);
+                            setUser(updated).then(success => {
+                              if (success) {
+                                alert("Solicitação de desbloqueio enviada ao Administrador!");
+                              }
+                            });
+                          }}
+                          className="px-6 py-4 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/20 text-amber-400 rounded-2xl text-xs font-black uppercase tracking-wider transition-all"
+                        >
+                          Solicitar Desbloqueio
+                        </button>
+                      )}
+                      {formUser.companyLockStatus === 'requested_unlock' && (
+                        <div className="px-6 py-4 bg-slate-800/30 border border-slate-800 text-slate-400 rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-amber-500 animate-pulse" />
+                          Aguardando Desbloqueio
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
 

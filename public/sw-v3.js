@@ -71,12 +71,7 @@ self.addEventListener('fetch', (event) => {
     // Cache First for other static assets/resources
     event.respondWith(
       caches.match(event.request).then((response) => {
-        return response || fetch(event.request).then((networkResponse) => {
-          // Optional dynamic caching can be done here, or simply return the response directly
-          return networkResponse;
-        }).catch((err) => {
-          console.log(`Falha ao obter recurso fora de rede: ${event.request.url}`, err);
-        });
+        return response || fetch(event.request);
       })
     );
   }

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   ShieldCheck, Search, Loader2, RefreshCw, UserPlus, X, Trash2, ShieldAlert, 
   Phone, Hash, User, ShoppingCart, Mail, Settings2, Save, Euro, CheckCircle, 
-  Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Tag, UserPlus2, 
+  Fingerprint, BriefcaseBusiness, LifeBuoy, Eye, Clock, Lock, Unlock, Tag, UserPlus2, 
   Percent, CalendarDays, Activity, Settings, Megaphone, Plus, Power, Zap,
   Image as ImageIcon, Upload, ExternalLink, Database, Copy, Award, KeySquare, 
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile, Inbox
@@ -2182,6 +2182,28 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                  })()}
                                </div>
                                <p className="text-[9px] text-slate-500 uppercase font-black">{u.email}</p>
+                               {(u.companyName || u.settings?.companyName) && (
+                                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                   <span className="text-[8px] font-black uppercase tracking-wider bg-slate-950 text-slate-300 px-1.5 py-0.5 rounded border border-white/5">
+                                     Empresa: {u.companyName || u.settings?.companyName}
+                                   </span>
+                                   {(u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked') && (
+                                     <span className="text-[7px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-500 px-1 py-0.5 rounded border border-rose-500/10 flex items-center gap-0.5">
+                                       <Lock className="w-2.5 h-2.5" /> Bloqueado
+                                     </span>
+                                   )}
+                                   {(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') && (
+                                     <span className="text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-500 px-1 py-0.5 rounded border border-amber-500/10 flex items-center gap-0.5 animate-pulse">
+                                       <Clock className="w-2.5 h-2.5" /> Pedido Desbloqueio
+                                     </span>
+                                   )}
+                                   {(u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked') && (
+                                     <span className="text-[7px] font-black uppercase tracking-wider bg-green-500/10 text-green-500 px-1 py-0.5 rounded border border-green-500/10 flex items-center gap-0.5">
+                                       <Unlock className="w-2.5 h-2.5" /> Aberto
+                                     </span>
+                                   )}
+                                 </div>
+                               )}
                                {(() => {
                                  const activity = getUserActivityStatus(u);
                                  return (
@@ -2213,6 +2235,46 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                         </td>
                         <td className="px-10 py-6 text-right">
                           <div className="flex items-center justify-end gap-2">
+                            {/* Botão de desbloqueio de empresa para Master */}
+                            {isMaster && (u.companyName || u.settings?.companyName) && (
+                              <button 
+                                title={(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') ? "Aprovar Desbloqueio" : "Alternar Bloqueio da Empresa"} 
+                                onClick={async () => {
+                                  const curStatus = u.companyLockStatus || u.settings?.companyLockStatus || 'unlocked';
+                                  const nextStatus = curStatus === 'unlocked' ? 'locked' : 'unlocked';
+
+                                  const updatedU = {
+                                    ...u,
+                                    companyLockStatus: nextStatus,
+                                    settings: {
+                                      ...(u.settings || {}),
+                                      companyLockStatus: nextStatus
+                                    }
+                                  };
+
+                                  const success = await onUpdateProfile(updatedU);
+                                  if (success) {
+                                    setUsers(prev => prev.map(usr => usr.id === u.id ? updatedU : usr));
+                                    alert(nextStatus === 'unlocked' ? "Empresa desbloqueada com sucesso!" : "Empresa bloqueada com sucesso!");
+                                  } else {
+                                    alert("Falha ao atualizar o status de bloqueio.");
+                                  }
+                                }} 
+                                className={`p-2.5 rounded-xl border transition-all ${
+                                  (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock')
+                                    ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse hover:bg-amber-400'
+                                    : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked')
+                                    ? 'bg-rose-500/10 text-rose-500 border-rose-500/20 hover:bg-rose-500 hover:text-white'
+                                    : 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500 hover:text-white'
+                                }`}
+                              >
+                                {u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked' ? (
+                                  <Lock className="w-4 h-4" />
+                                ) : (
+                                  <Unlock className="w-4 h-4" />
+                                )}
+                              </button>
+                            )}
                             {isMaster && (
                               <button 
                                 title="Remover Restrições" 

@@ -152,6 +152,18 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       .filter(([d]) => d.startsWith(selectedMonth))
       .sort(([a],[b]) => a.localeCompare(b));
     const summary = calculateMonthSummary(monthRecordsEntries.map(([_, r]) => r));
+
+    // Calculate vacation days in current year
+    const selectedYear = selectedMonth.substring(0, 4);
+    const vacationDaysRegisteredInYear = Object.entries(records).filter(([date, rec]) => {
+      return date.startsWith(selectedYear) && rec.isVacation === true;
+    }).length;
+
+    const baseVacationDays = user.isFirstYearAtCompany 
+      ? Math.min(20, (user.contractMonthsCompleted || 0) * 2)
+      : 22;
+
+    const availableVacationDays = Math.max(0, baseVacationDays - vacationDaysRegisteredInYear);
     
     const ptSummary = monthRecordsEntries.reduce((acc, [_, r]) => {
       const hours = r.partTimeHours || 0;
@@ -204,26 +216,30 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
             {/* BLOCO FISCAL NO TOPO */}
             <div className="p-8 bg-slate-50 border border-slate-100 rounded-[2rem] print:bg-white print:border-black print:p-4 mb-8 print:mb-4">
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 print:mb-3">Informação Profissional e Fiscal (Portugal)</h4>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8 print:grid-cols-6 print:gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-6 print:grid-cols-7 print:gap-2">
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Colaborador</p><p className="text-xs font-black text-slate-900">{user.name}</p></div>
+                  <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Empresa</p><p className="text-xs font-black text-slate-900">{user.companyName || '---'}</p></div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">NIF (Contribuinte)</p><p className="text-xs font-black text-slate-900">{user.nif || '---'}</p></div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Valor Base Hora</p><p className="text-xs font-black text-slate-900">{f(user.hourlyRate)}</p></div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.03em] mb-1">Status</p><p className="text-xs font-black text-emerald-600 uppercase">{user.isFreelancer ? 'Recibos Verdes' : 'Contrato de Trabalho'}</p></div>
                   <div>
                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Ano de Contrato</p>
                     <p className="text-xs font-black text-slate-900">
-                      {user.isFirstYearAtCompany ? '1º Ano (Inicial)' : 'Mais de 1 Ano'}
+                      {user.isFirstYearAtCompany ? '1º Ano' : 'Mais de 1 Ano'}
                     </p>
                   </div>
                   <div>
                     <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Férias Disponíveis</p>
                     <div className="flex flex-col">
                       <p className="text-xs font-black text-amber-600">
-                        {user.isFirstYearAtCompany 
-                          ? `${Math.min(20, (user.contractMonthsCompleted || 0) * 2)} dias úteis`
-                          : '22 dias úteis'
-                        }
+                        {availableVacationDays} dias úteis
                       </p>
+                      <span className="text-[7px] font-bold text-slate-500 uppercase mt-0.5">
+                        {vacationDaysRegisteredInYear > 0 
+                          ? `${vacationDaysRegisteredInYear} gozados em ${selectedYear}`
+                          : `Nenhum gozado em ${selectedYear}`
+                        }
+                      </span>
                       {user.isFirstYearAtCompany && (
                         <span className="text-[7px] font-bold text-slate-500 uppercase mt-0.5">
                           {user.contractMonthsCompleted || 0}m completos • {(user.contractMonthsCompleted || 0) >= 6 ? 'Apto para gozo' : 'Elegível após 6m'}

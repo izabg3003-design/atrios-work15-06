@@ -52,6 +52,8 @@ export interface UserProfile {
   vat: { value: number; type: 'percentage' | 'fixed' };
   isFirstYearAtCompany?: boolean;
   contractMonthsCompleted?: number;
+  companyName?: string;
+  companyLockStatus?: 'unlocked' | 'locked' | 'requested_unlock';
   role: 'admin' | 'user' | 'vendor' | 'support';
   overtimeRates: {
     h1: number;
@@ -75,6 +77,8 @@ export interface UserProfile {
     last_seen_at?: string;
     isFirstYearAtCompany?: boolean;
     contractMonthsCompleted?: number;
+    companyName?: string;
+    companyLockStatus?: 'unlocked' | 'locked' | 'requested_unlock';
   };
   created_at?: string;
 }

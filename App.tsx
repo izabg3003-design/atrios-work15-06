@@ -49,7 +49,9 @@ const DEFAULT_USER: UserProfile = {
   vat: { value: 23, type: 'percentage' },
   role: 'user',
   overtimeRates: { h1: 50, h2: 75, h3: 100 },
-  settings: { language: 'pt-PT', currency: 'EUR' }
+  settings: { language: 'pt-PT', currency: 'EUR' },
+  companyName: '',
+  companyLockStatus: 'unlocked'
 };
 
 const PremiumModal: React.FC<{ isOpen: boolean; onClose: () => void; onUpgrade: () => void }> = ({ isOpen, onClose, onUpgrade }) => {
@@ -338,6 +340,8 @@ const App: React.FC = () => {
         // Populate vacation properties from settings to keep the rest of the app working
         profile.isFirstYearAtCompany = profile.settings?.isFirstYearAtCompany ?? profile.isFirstYearAtCompany ?? false;
         profile.contractMonthsCompleted = profile.settings?.contractMonthsCompleted ?? profile.contractMonthsCompleted ?? 0;
+        profile.companyName = profile.settings?.companyName ?? profile.companyName ?? '';
+        profile.companyLockStatus = profile.settings?.companyLockStatus ?? profile.companyLockStatus ?? 'unlocked';
 
         setUser(profile);
         if (profile.email?.toLowerCase()?.includes('master@atrioswork.com') || profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) setAppState('admin');
@@ -601,7 +605,9 @@ const App: React.FC = () => {
                 const settingsWithVacation = {
                   ...(updatedUser.settings || {}),
                   isFirstYearAtCompany: updatedUser.isFirstYearAtCompany,
-                  contractMonthsCompleted: updatedUser.contractMonthsCompleted
+                  contractMonthsCompleted: updatedUser.contractMonthsCompleted,
+                  companyName: updatedUser.companyName,
+                  companyLockStatus: updatedUser.companyLockStatus
                 };
                 const finalUpdatedUser = {
                   ...updatedUser,
@@ -610,6 +616,8 @@ const App: React.FC = () => {
                 const { id, email, created_at, ...updateData } = finalUpdatedUser;
                 delete (updateData as any).isFirstYearAtCompany;
                 delete (updateData as any).contractMonthsCompleted;
+                delete (updateData as any).companyName;
+                delete (updateData as any).companyLockStatus;
                 const { error } = await supabase.from('profiles').update(updateData).eq('id', user.id);
                 if (error) return false;
                 setUser(finalUpdatedUser);
@@ -625,7 +633,9 @@ const App: React.FC = () => {
                     const settingsWithVacation = {
                       ...(u.settings || {}),
                       isFirstYearAtCompany: u.isFirstYearAtCompany,
-                      contractMonthsCompleted: u.contractMonthsCompleted
+                      contractMonthsCompleted: u.contractMonthsCompleted,
+                      companyName: u.companyName,
+                      companyLockStatus: u.companyLockStatus
                     };
                     const finalU = {
                       ...u,
@@ -634,6 +644,8 @@ const App: React.FC = () => {
                     const { id, email, created_at, ...data } = finalU; 
                     delete (data as any).isFirstYearAtCompany;
                     delete (data as any).contractMonthsCompleted;
+                    delete (data as any).companyName;
+                    delete (data as any).companyLockStatus;
                     const { error } = await supabase.from('profiles').update(data).eq('id', u.id); 
                     if (error) return false; 
                     return true; 
