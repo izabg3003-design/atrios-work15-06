@@ -388,7 +388,21 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   // Verificação automática e disparo em background de notificações agendadas pendentes
   useEffect(() => {
     const checkAndDispatchScheduledPushes = async () => {
-      const scheduledPushes = banners.filter(b => b.user_type === 'push_scheduled');
+      // 1. Get database scheduled pushes
+      const dbScheduled = banners.filter(b => b.user_type === 'push_scheduled' || b.title.toUpperCase().includes('[SCHEDULED]'));
+      
+      // 2. Combine with localScheduledPushes (avoiding duplicates based on title and highlight)
+      const scheduledPushes = [...dbScheduled];
+      localScheduledPushes.forEach(lp => {
+        const isDup = scheduledPushes.some(db => 
+          db.title.toLowerCase().trim() === lp.title.toLowerCase().trim() && 
+          db.highlight.toLowerCase().trim() === lp.highlight.toLowerCase().trim()
+        );
+        if (!isDup) {
+          scheduledPushes.push(lp);
+        }
+      });
+
       if (scheduledPushes.length === 0) return;
 
       const currentTime = new Date();
@@ -482,19 +496,55 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             console.warn('[Scheduled Push] Edge Function offline:', fcmFuncErr);
           }
 
-          // Atualizar o registro do banner na tabela 'app_banners' de volta para ativo/enviado
-          const { error: updateErr } = await supabase
-            .from('app_banners')
-            .update({
-              title: `[PUSH] ${title}`,
-              user_type: audience === 'all' ? 'push_notification' : (audience === 'premium' ? 'premium' : 'free'),
-              is_active: true,
-              cta_link: '/',
-              created_at: new Date().toISOString()
-            })
-            .eq('id', push.id);
+          // Atualizar o registro do banner na tabela 'app_banners' de volta para ativo/enviado (se não for temporário local apenas)
+          if (push.id && !push.id.startsWith('local_sched_')) {
+            const { error: updateErr } = await supabase
+              .from('app_banners')
+              .update({
+                title: `[PUSH] ${title}`,
+                user_type: audience === 'all' ? 'push_notification' : (audience === 'premium' ? 'premium' : 'free'),
+                is_active: true,
+                cta_link: '/',
+                created_at: new Date().toISOString()
+              })
+              .eq('id', push.id);
 
-          if (updateErr) throw updateErr;
+            if (updateErr) console.warn("Erro ao atualizar status do banner no Supabase:", updateErr);
+          }
+
+          // Sempre remover o item do histórico de agendamentos locais e adicionar ao histórico de enviados locais
+          try {
+            const rawSched = localStorage.getItem('local_scheduled_pushes_history') || '[]';
+            let schedList = JSON.parse(rawSched);
+            schedList = schedList.filter((lp: any) => {
+              return lp.id !== push.id && 
+                     !(lp.title.toLowerCase().trim() === push.title.toLowerCase().trim() && 
+                       lp.highlight.toLowerCase().trim() === push.highlight.toLowerCase().trim());
+            });
+            localStorage.setItem('local_scheduled_pushes_history', JSON.stringify(schedList));
+            setLocalScheduledPushes(schedList);
+
+            // Adicionar ao histórico local de enviados
+            const sentRecord = {
+              id: 'local_sent_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9),
+              title: `[PUSH] ${title}`,
+              highlight: body,
+              subtitle: 'Notificação AtriosWork Push',
+              cta_text: 'Abrir App',
+              cta_link: '/',
+              theme_color: 'amber' as const,
+              is_active: true,
+              user_type: audience === 'all' ? 'push_notification' : (audience === 'premium' ? 'premium' : 'free'),
+              created_at: new Date().toISOString()
+            };
+            const rawSent = localStorage.getItem('local_sent_pushes_history') || '[]';
+            const sentList = JSON.parse(rawSent);
+            sentList.unshift(sentRecord);
+            localStorage.setItem('local_sent_pushes_history', JSON.stringify(sentList));
+            setLocalSentPushes(sentList);
+          } catch (localErr) {
+            console.warn("Erro ao atualizar localStorage após disparo:", localErr);
+          }
 
         } catch (err) {
           console.error(`[Scheduled Push] Erro ao disparar push ${push.id}:`, err);
@@ -510,7 +560,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       const interval = setInterval(checkAndDispatchScheduledPushes, 10000);
       return () => clearInterval(interval);
     }
-  }, [activeSubTab, banners, fcmServiceAccount]);
+  }, [activeSubTab, banners, fcmServiceAccount, localScheduledPushes]);
 
   const fetchData = async () => {
     setLoading(true);
