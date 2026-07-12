@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles } from 'lucide-react';
+import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles, Calendar } from 'lucide-react';
 import { UserProfile, Language, Currency } from '../types';
 import { supabase } from '../lib/supabase';
 
@@ -148,6 +148,64 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                 <p className="text-[8px] text-slate-500 font-bold uppercase tracking-widest leading-relaxed">
                   Com o modo IVA ativo, o sistema calculará automaticamente o imposto sobre o bruto faturado.
                 </p>
+              </div>
+           </div>
+
+           {/* Painel de Férias (Portugal) */}
+           <div className="bg-slate-800/20 border border-slate-800 p-8 rounded-[2.5rem] space-y-6 shadow-xl">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Calendar className="w-5 h-5 text-amber-400" />
+                  <h4 className="text-xs font-black text-white uppercase italic tracking-tighter">Férias (Portugal)</h4>
+                </div>
+                <button 
+                  onClick={() => setFormUser(p => ({ ...p, isFirstYearAtCompany: !p.isFirstYearAtCompany }))}
+                  className={`transition-all duration-300 ${formUser.isFirstYearAtCompany ? 'text-amber-500' : 'text-slate-600'}`}
+                >
+                  {formUser.isFirstYearAtCompany ? <ToggleRight className="w-8 h-8" /> : <ToggleLeft className="w-8 h-8" />}
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="text-[10px] text-slate-400 font-bold leading-normal uppercase tracking-wider">
+                    {formUser.isFirstYearAtCompany ? (
+                      <span>
+                        <strong className="text-amber-400">1º Ano de Contrato:</strong> Ganha <strong className="text-white">2 dias úteis</strong> por mês de contrato, até um máximo de <strong className="text-white">20 dias</strong>. Gozo elegível após 6 meses completos.
+                      </span>
+                    ) : (
+                      <span>
+                        <strong className="text-slate-200">Mais de 1 Ano:</strong> Direito ao período normal de <strong className="text-white">22 dias úteis</strong> de férias por ano, vencidos a 1 de janeiro.
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {formUser.isFirstYearAtCompany && (
+                  <div className="space-y-2 animate-[fadeIn_0.3s_ease-out]">
+                    <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1">Meses Completos de Contrato</label>
+                    <div className="relative">
+                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-500" />
+                      <input 
+                        type="number" 
+                        min="0"
+                        max="12"
+                        value={formUser.contractMonthsCompleted || 0} 
+                        onChange={e => {
+                          const val = Math.max(0, Math.min(12, Number(e.target.value)));
+                          setFormUser(p => ({ ...p, contractMonthsCompleted: val }));
+                        }}
+                        className="w-full bg-slate-950 border border-amber-500/20 rounded-xl pl-12 pr-4 py-3 text-white font-black text-sm outline-none focus:ring-1 focus:ring-amber-500/50" 
+                        placeholder="Ex: 6"
+                      />
+                    </div>
+                    <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed mt-2">
+                      Dias adquiridos: <span className="text-amber-400 font-black">{Math.min(20, (formUser.contractMonthsCompleted || 0) * 2)} dias úteis</span>.
+                      { (formUser.contractMonthsCompleted || 0) >= 6 ? " (Elegível para gozo de férias)" : " (Apenas elegível após completar 6 meses de contrato)" }
+                    </p>
+                  </div>
+                )}
               </div>
            </div>
         </div>

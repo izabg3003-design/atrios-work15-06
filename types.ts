@@ -50,6 +50,8 @@ export interface UserProfile {
   irs: { value: number; type: 'percentage' | 'fixed' };
   isFreelancer: boolean;
   vat: { value: number; type: 'percentage' | 'fixed' };
+  isFirstYearAtCompany?: boolean;
+  contractMonthsCompleted?: number;
   role: 'admin' | 'user' | 'vendor' | 'support';
   overtimeRates: {
     h1: number;
@@ -68,9 +70,11 @@ export interface UserProfile {
     master_global_discount?: number;
   };
   settings?: {
-    language: Language;
-    currency: Currency;
+    language?: Language;
+    currency?: Currency;
     last_seen_at?: string;
+    isFirstYearAtCompany?: boolean;
+    contractMonthsCompleted?: number;
   };
   created_at?: string;
 }

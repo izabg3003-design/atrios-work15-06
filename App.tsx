@@ -335,6 +335,10 @@ const App: React.FC = () => {
           profile.settings = updatedSettings;
         }
 
+        // Populate vacation properties from settings to keep the rest of the app working
+        profile.isFirstYearAtCompany = profile.settings?.isFirstYearAtCompany ?? profile.isFirstYearAtCompany ?? false;
+        profile.contractMonthsCompleted = profile.settings?.contractMonthsCompleted ?? profile.contractMonthsCompleted ?? 0;
+
         setUser(profile);
         if (profile.email?.toLowerCase()?.includes('master@atrioswork.com') || profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) setAppState('admin');
         else if (profile.role === 'vendor') setAppState('vendor-detail');
@@ -594,10 +598,21 @@ const App: React.FC = () => {
               {appState === 'accountant' && <AccountantPage user={user} records={records} t={t} f={formatCurrency} isPro={isPro} />}
               {appState === 'settings' && <SettingsPage user={user} setUser={async (updatedUser) => {
                 if (!user.id) return false;
-                const { id, email, created_at, ...updateData } = updatedUser;
+                const settingsWithVacation = {
+                  ...(updatedUser.settings || {}),
+                  isFirstYearAtCompany: updatedUser.isFirstYearAtCompany,
+                  contractMonthsCompleted: updatedUser.contractMonthsCompleted
+                };
+                const finalUpdatedUser = {
+                  ...updatedUser,
+                  settings: settingsWithVacation
+                };
+                const { id, email, created_at, ...updateData } = finalUpdatedUser;
+                delete (updateData as any).isFirstYearAtCompany;
+                delete (updateData as any).contractMonthsCompleted;
                 const { error } = await supabase.from('profiles').update(updateData).eq('id', user.id);
                 if (error) return false;
-                setUser(updatedUser);
+                setUser(finalUpdatedUser);
                 return true;
               }} t={t} hideValues={hideValues} isPro={isPro} />}
               {appState === 'admin' && (
@@ -607,7 +622,18 @@ const App: React.FC = () => {
                   onLogout={handleLogout} 
                   t={t} 
                   onUpdateProfile={async (u) => { 
-                    const { id, email, created_at, ...data } = u; 
+                    const settingsWithVacation = {
+                      ...(u.settings || {}),
+                      isFirstYearAtCompany: u.isFirstYearAtCompany,
+                      contractMonthsCompleted: u.contractMonthsCompleted
+                    };
+                    const finalU = {
+                      ...u,
+                      settings: settingsWithVacation
+                    };
+                    const { id, email, created_at, ...data } = finalU; 
+                    delete (data as any).isFirstYearAtCompany;
+                    delete (data as any).contractMonthsCompleted;
                     const { error } = await supabase.from('profiles').update(data).eq('id', u.id); 
                     if (error) return false; 
                     return true; 
