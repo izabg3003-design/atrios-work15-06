@@ -390,6 +390,121 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [user?.id, appState]);
 
+  // Real-time listener and polling for profile lock status and company name updates
+  useEffect(() => {
+    if (!user || !user.id || appState === 'landing' || appState === 'login') return;
+
+    const fetchLatestProfile = async () => {
+      try {
+        const { data: latestProfile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (latestProfile) {
+          const currentSettings = latestProfile.settings || {};
+          const isFirstYear = currentSettings.isFirstYearAtCompany ?? latestProfile.isFirstYearAtCompany ?? false;
+          const contractMonths = currentSettings.contractMonthsCompleted ?? latestProfile.contractMonthsCompleted ?? 0;
+          const companyName = currentSettings.companyName ?? latestProfile.companyName ?? '';
+          const companyLockStatus = currentSettings.companyLockStatus ?? latestProfile.companyLockStatus ?? 'unlocked';
+
+          setUser((prev: any) => {
+            if (!prev) return prev;
+
+            const wasLocked = prev.companyLockStatus === 'locked' || prev.companyLockStatus === 'requested_unlock';
+            const isNowUnlocked = companyLockStatus === 'unlocked';
+
+            if (wasLocked && isNowUnlocked) {
+              alert("A sua empresa foi desbloqueada para edição!");
+            }
+
+            if (
+              prev.companyLockStatus !== companyLockStatus ||
+              prev.companyName !== companyName ||
+              prev.isFirstYearAtCompany !== isFirstYear ||
+              prev.contractMonthsCompleted !== contractMonths ||
+              JSON.stringify(prev.settings) !== JSON.stringify(currentSettings)
+            ) {
+              return {
+                ...prev,
+                ...latestProfile,
+                isFirstYearAtCompany: isFirstYear,
+                contractMonthsCompleted: contractMonths,
+                companyName: companyName,
+                companyLockStatus: companyLockStatus,
+                settings: currentSettings
+              };
+            }
+            return prev;
+          });
+        }
+      } catch (err) {
+        console.warn("Erro ao obter perfil atualizado por polling:", err);
+      }
+    };
+
+    // Poll every 8 seconds
+    const interval = setInterval(fetchLatestProfile, 8000);
+
+    // Also do realtime subscription
+    let channel: any;
+    try {
+      channel = supabase
+        .channel(`profile-updates-${user.id}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'profiles',
+            filter: `id=eq.${user.id}`,
+          },
+          (payload: any) => {
+            const updatedProfile = payload.new;
+            if (updatedProfile) {
+              const currentSettings = updatedProfile.settings || {};
+              const isFirstYear = currentSettings.isFirstYearAtCompany ?? updatedProfile.isFirstYearAtCompany ?? false;
+              const contractMonths = currentSettings.contractMonthsCompleted ?? updatedProfile.contractMonthsCompleted ?? 0;
+              const companyName = currentSettings.companyName ?? updatedProfile.companyName ?? '';
+              const companyLockStatus = currentSettings.companyLockStatus ?? updatedProfile.companyLockStatus ?? 'unlocked';
+
+              setUser((prev: any) => {
+                if (!prev) return prev;
+
+                const wasLocked = prev.companyLockStatus === 'locked' || prev.companyLockStatus === 'requested_unlock';
+                const isNowUnlocked = companyLockStatus === 'unlocked';
+
+                if (wasLocked && isNowUnlocked) {
+                  alert("A sua empresa foi desbloqueada para edição!");
+                }
+
+                return {
+                  ...prev,
+                  ...updatedProfile,
+                  isFirstYearAtCompany: isFirstYear,
+                  contractMonthsCompleted: contractMonths,
+                  companyName: companyName,
+                  companyLockStatus: companyLockStatus,
+                  settings: currentSettings
+                };
+              });
+            }
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn("Erro ao iniciar canal realtime:", err);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (channel) {
+        supabase.removeChannel(channel);
+      }
+    };
+  }, [user?.id, appState]);
+
   useEffect(() => {
     if (!isConfigured) { setAppState('landing'); return; }
     const initAuth = async () => {
