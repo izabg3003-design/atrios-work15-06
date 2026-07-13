@@ -181,35 +181,64 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                       </span>
                     ) : (
                       <span>
-                        <strong className="text-slate-200">Mais de 1 Ano:</strong> Direito ao período normal de <strong className="text-white">22 dias úteis</strong> de férias por ano, vencidos a 1 de janeiro.
+                        <strong className="text-slate-200">Mais de 1 Ano:</strong> Ganha <strong className="text-white">1.83 dias úteis</strong> de férias por mês trabalhado no ano corrente, acumulando até um limite normal of <strong className="text-white">22 dias úteis</strong> por ano.
                       </span>
                     )}
                   </div>
                 </div>
 
-                {formUser.isFirstYearAtCompany && (
-                  <div className="space-y-2 animate-[fadeIn_0.3s_ease-out]">
-                    <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1">Meses Completos de Contrato</label>
-                    <div className="relative">
-                      <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-500" />
-                      <input 
-                        type="number" 
-                        min="0"
-                        max="12"
-                        value={formUser.contractMonthsCompleted || 0} 
-                        onChange={e => {
-                          const val = Math.max(0, Math.min(12, Number(e.target.value)));
-                          setFormUser(p => ({ ...p, contractMonthsCompleted: val }));
-                        }}
-                        className="w-full bg-slate-950 border border-amber-500/20 rounded-xl pl-12 pr-4 py-3 text-white font-black text-sm outline-none focus:ring-1 focus:ring-amber-500/50" 
-                        placeholder="Ex: 6"
-                      />
+                {(!formUser.companyName || formUser.companyName.trim() === '') ? (
+                  <div className="p-5 bg-amber-500/10 rounded-2xl border border-amber-500/20 space-y-2 text-center animate-[fadeIn_0.3s_ease-out]">
+                    <div className="text-[10px] text-amber-400 font-black uppercase tracking-widest">
+                      Férias Bloqueadas
                     </div>
-                    <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed mt-2">
-                      Dias adquiridos: <span className="text-amber-400 font-black">{Math.min(20, (formUser.contractMonthsCompleted || 0) * 2)} dias úteis</span>.
-                      { (formUser.contractMonthsCompleted || 0) >= 6 ? " (Elegível para gozo de férias)" : " (Apenas elegível após completar 6 meses de contrato)" }
+                    <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed">
+                      A contagem de dias de férias iniciará assim que registar o nome da sua empresa no campo abaixo.
                     </p>
                   </div>
+                ) : (
+                  <>
+                    {formUser.isFirstYearAtCompany && (
+                      <div className="space-y-2 animate-[fadeIn_0.3s_ease-out]">
+                        <label className="text-[9px] font-black text-amber-500 uppercase tracking-widest ml-1">Meses Completos de Contrato</label>
+                        <div className="relative">
+                          <Clock className="absolute left-4 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-amber-500" />
+                          <input 
+                            type="number" 
+                            min="0"
+                            max="12"
+                            value={formUser.contractMonthsCompleted || 0} 
+                            onChange={e => {
+                              const val = Math.max(0, Math.min(12, Number(e.target.value)));
+                              setFormUser(p => ({ ...p, contractMonthsCompleted: val }));
+                            }}
+                            className="w-full bg-slate-950 border border-amber-500/20 rounded-xl pl-12 pr-4 py-3 text-white font-black text-sm outline-none focus:ring-1 focus:ring-amber-500/50" 
+                            placeholder="Ex: 6"
+                          />
+                        </div>
+                        <p className="text-[8px] text-slate-400 font-bold uppercase tracking-widest leading-relaxed mt-2">
+                          Dias adquiridos: <span className="text-amber-400 font-black">{Math.min(20, (formUser.contractMonthsCompleted || 0) * 2)} dias úteis</span>.
+                          { (formUser.contractMonthsCompleted || 0) >= 6 ? " (Elegível para gozo de férias)" : " (Apenas elegível após completar 6 meses de contrato)" }
+                        </p>
+                      </div>
+                    )}
+
+                    {!formUser.isFirstYearAtCompany && (
+                      <div className="p-5 bg-slate-950/40 rounded-2xl border border-slate-800 space-y-2 animate-[fadeIn_0.3s_ease-out]">
+                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                          Ano Corrente: <span className="text-amber-400 font-black">{new Date().getFullYear()}</span> • Meses Decorridos: <span className="text-amber-400 font-black">{new Date().getMonth() + 1} meses</span>
+                        </div>
+                        <div className="text-[9px] text-slate-300 font-black uppercase tracking-widest">
+                          Dias adquiridos até ao momento: <span className="text-amber-400 font-black">
+                            {(new Date().getMonth() + 1) === 12 ? 22 : parseFloat(((new Date().getMonth() + 1) * 1.83).toFixed(1))} dias úteis
+                          </span>
+                        </div>
+                        <p className="text-[8px] text-slate-500 font-medium uppercase tracking-wider leading-relaxed mt-1">
+                          As férias são creditadas mensalmente ao ritmo de 1.83 dias por cada mês decorrido no ano.
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
            </div>
@@ -374,7 +403,7 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                     className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl pl-12 pr-4 py-4 text-white font-bold outline-none focus:ring-1 focus:ring-purple-500/50" 
                   />
                 </div>
-              </div>
+            </div>
             </div>
             {!isPro && (
               <div className="absolute inset-0 flex items-center justify-center bg-slate-950/40 backdrop-blur-[2px] z-10">

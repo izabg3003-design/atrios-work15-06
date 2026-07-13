@@ -159,9 +159,23 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       return date.startsWith(selectedYear) && rec.isVacation === true;
     }).length;
 
-    const baseVacationDays = user.isFirstYearAtCompany 
-      ? Math.min(20, (user.contractMonthsCompleted || 0) * 2)
-      : 22;
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonthNum = today.getMonth() + 1; // 1-12
+
+    let monthsPassed = 12;
+    const sYear = parseInt(selectedYear, 10);
+    if (sYear > currentYear) {
+      monthsPassed = 0;
+    } else if (sYear === currentYear) {
+      monthsPassed = currentMonthNum;
+    }
+
+    const baseVacationDays = (!user.companyName || user.companyName.trim() === '')
+      ? 0
+      : user.isFirstYearAtCompany 
+        ? Math.min(20, (user.contractMonthsCompleted || 0) * 2)
+        : (monthsPassed === 12 ? 22 : parseFloat((monthsPassed * 1.83).toFixed(1)));
 
     const availableVacationDays = Math.max(0, baseVacationDays - vacationDaysRegisteredInYear);
     
@@ -240,9 +254,13 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                           : `Nenhum gozado em ${selectedYear}`
                         }
                       </span>
-                      {user.isFirstYearAtCompany && (
+                      {user.isFirstYearAtCompany ? (
                         <span className="text-[7px] font-bold text-slate-500 uppercase mt-0.5">
                           {user.contractMonthsCompleted || 0}m completos • {(user.contractMonthsCompleted || 0) >= 6 ? 'Apto para gozo' : 'Elegível após 6m'}
+                        </span>
+                      ) : (
+                        <span className="text-[7px] font-bold text-slate-500 uppercase mt-0.5">
+                          Acumulado: {baseVacationDays} dias • {monthsPassed}m decorridos
                         </span>
                       )}
                     </div>
