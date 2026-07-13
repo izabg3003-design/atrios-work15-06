@@ -2187,11 +2187,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                    <span className="text-[8px] font-black uppercase tracking-wider bg-slate-950 text-slate-300 px-1.5 py-0.5 rounded border border-white/5">
                                      Empresa: {u.companyName || u.settings?.companyName}
                                    </span>
-                                   {(u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked') && (
-                                     <span className="text-[7px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-500 px-1 py-0.5 rounded border border-rose-500/10 flex items-center gap-0.5">
-                                       <Lock className="w-2.5 h-2.5" /> Bloqueado
-                                     </span>
-                                   )}
+
                                    {(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') && (
                                      <span className="text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-500 px-1 py-0.5 rounded border border-amber-500/10 flex items-center gap-0.5 animate-pulse">
                                        <Clock className="w-2.5 h-2.5" /> Pedido Desbloqueio
@@ -2237,6 +2233,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                           <div className="flex items-center justify-end gap-2">
                             {/* Botão de desbloqueio de empresa para Master */}
                             {isMaster && (u.companyName || u.settings?.companyName) && (
+                              u.companyLockStatus === 'requested_unlock' || 
+                              u.settings?.companyLockStatus === 'requested_unlock' || 
+                              u.companyLockStatus === 'unlocked' || 
+                              u.settings?.companyLockStatus === 'unlocked'
+                            ) && (
                               <button 
                                 title={(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') ? "Aprovar Desbloqueio" : "Alternar Bloqueio da Empresa"} 
                                 onClick={async () => {
