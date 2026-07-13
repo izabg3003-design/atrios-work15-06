@@ -34,6 +34,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
   // Lógica do Banner Modelo 2 (Pós-login)
   const [showPostLoginBanner, setShowPostLoginBanner] = useState(false);
   const [bannerData, setBannerData] = useState<AppBanner | null>(null);
+  const [dbBanners, setDbBanners] = useState<AppBanner[]>([]);
 
   // Lógica de alternância do banner de licença/upgrade
   const [currentBannerIndex, setCurrentBannerIndex] = useState(0);
@@ -76,13 +77,18 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
           );
           
           if (filteredBanners.length > 0) {
+            setDbBanners(filteredBanners);
             // Pega o banner mais recente para este tipo de usuário
             setBannerData(filteredBanners[0]);
             
             // Mostrar após 800ms de entrar no dashboard
             const timer = setTimeout(() => setShowPostLoginBanner(true), 800);
             return () => clearTimeout(timer);
+          } else {
+            setDbBanners([]);
           }
+        } else {
+          setDbBanners([]);
         }
       } catch (e) {
         console.warn("AtriosWork Post-Login Banner: Erro ao carregar.");
@@ -90,7 +96,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
     };
 
     fetchPostLoginBanner();
-  }, []);
+  }, [isPro]);
 
   const daysRemaining = useMemo(() => {
     try {
@@ -133,6 +139,28 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
 
   const activeBanners = useMemo(() => {
     const list = [];
+
+    // Adicionar os Banners Dinâmicos criados e gerenciados via Painel de Administração
+    dbBanners.forEach((b) => {
+      list.push({
+        id: `db_${b.id}`,
+        type: b.image_url ? 'image' : 'gradient_custom',
+        imageUrl: b.image_url || undefined,
+        theme_color: b.theme_color || 'purple',
+        title: b.title,
+        subtitle: b.subtitle || '',
+        buttonText: b.cta_text || 'Saber Mais',
+        icon: 'megaphone' as const,
+        onClick: () => {
+          if (b.cta_link) {
+            window.open(b.cta_link, '_blank');
+          } else if (onOpenPremium) {
+            onOpenPremium();
+          }
+        },
+      });
+    });
+
     if (isPro) {
       // PRO Banners (Premium / Promotions / Active Masters)
       // 1. Expiration Banner (only if daysRemaining is within 30 days)
@@ -207,7 +235,7 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
       });
     }
     return list;
-  }, [isPro, daysRemaining, countdownText, onOpenPremium]);
+  }, [isPro, daysRemaining, countdownText, onOpenPremium, dbBanners]);
 
   // Rotate banner index every 7 seconds if more than 1 banner
   useEffect(() => {
@@ -452,6 +480,45 @@ const Dashboard: React.FC<Props> = ({ user, records, onAddRecord, onDeleteRecord
                   <button 
                     onClick={banner.onClick}
                     className="relative z-20 w-full md:w-auto px-8 py-3 bg-white text-slate-950 rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 transition-all shrink-0"
+                  >
+                    {banner.buttonText}
+                  </button>
+                </div>
+              );
+            }
+
+            if (banner.type === 'gradient_custom') {
+              const theme = banner.theme_color || 'purple';
+              const fromColor = theme === 'emerald' ? 'from-emerald-950' :
+                                theme === 'purple' ? 'from-purple-950' :
+                                theme === 'amber' ? 'from-amber-950' :
+                                theme === 'rose' ? 'from-rose-950' :
+                                'from-blue-950';
+              const borderCol = theme === 'emerald' ? 'border-emerald-500/20 shadow-[0_0_30px_rgba(16,185,129,0.15)]' :
+                                theme === 'purple' ? 'border-purple-500/20 shadow-[0_0_30px_rgba(168,85,247,0.15)]' :
+                                theme === 'amber' ? 'border-amber-500/20 shadow-[0_0_30px_rgba(245,158,11,0.15)]' :
+                                theme === 'rose' ? 'border-rose-500/20 shadow-[0_0_30px_rgba(244,63,94,0.15)]' :
+                                'border-blue-500/20 shadow-[0_0_30px_rgba(59,130,246,0.15)]';
+              const btnBg = theme === 'emerald' ? 'bg-emerald-600 hover:bg-emerald-500' :
+                            theme === 'purple' ? 'bg-purple-600 hover:bg-purple-500' :
+                            theme === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
+                            theme === 'rose' ? 'bg-rose-600 hover:bg-rose-500' :
+                            'bg-blue-600 hover:bg-blue-500';
+
+              return (
+                <div className={`bg-gradient-to-r ${fromColor} to-slate-900 p-4 md:p-6 rounded-[2.5rem] border ${borderCol} flex flex-col md:flex-row items-center justify-between gap-4 animate-soft min-h-[140px] md:min-h-[110px]`}>
+                  <div className="flex items-center gap-4 text-white">
+                     <div className="w-12 h-12 bg-white/5 rounded-2xl flex items-center justify-center shrink-0 border border-white/10">
+                        {renderBannerIcon(banner.icon)}
+                     </div>
+                     <div>
+                        <h4 className="text-sm font-black uppercase tracking-widest leading-none">{banner.title}</h4>
+                        <p className="text-[10px] font-bold text-slate-400 mt-1 uppercase tracking-widest leading-relaxed max-w-xl">{banner.subtitle}</p>
+                     </div>
+                  </div>
+                  <button 
+                    onClick={banner.onClick}
+                    className={`w-full md:w-auto px-8 py-3 ${btnBg} text-white rounded-xl text-[10px] font-black uppercase tracking-[0.2em] shadow-lg hover:scale-105 transition-all shrink-0`}
                   >
                     {banner.buttonText}
                   </button>
