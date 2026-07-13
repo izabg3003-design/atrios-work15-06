@@ -263,6 +263,24 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       setActiveSubTab('analytics');
     }
   }, [isMaster]);
+
+  // Sincronização em tempo real de alterações de perfil (por exemplo, bloqueio/desbloqueio de empresa)
+  useEffect(() => {
+    const channel = supabase.channel('admin-profiles-realtime')
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+        if (payload.new) {
+          const updated = payload.new as UserProfile;
+          setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, ...updated } : u));
+          setSupportStaff(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s));
+          setVendors(prev => prev.map(v => v.id === updated.id ? { ...v, profile: { ...(v.profile || {}), ...updated } } : v));
+        }
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);
   const [supportStaff, setSupportStaff] = useState<UserProfile[]>([]);
@@ -2198,6 +2216,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                        <Unlock className="w-2.5 h-2.5" /> Aberto
                                      </span>
                                    )}
+                                   {(u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus) && (
+                                     <span className="text-[7px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-500 px-1 py-0.5 rounded border border-rose-500/10 flex items-center gap-0.5">
+                                       <Lock className="w-2.5 h-2.5" /> Bloqueado
+                                     </span>
+                                   )}
                                  </div>
                                )}
                                {(() => {
@@ -2233,11 +2256,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                           <div className="flex items-center justify-end gap-2">
                             {/* Botão de desbloqueio de empresa para Master */}
                             {isMaster && (u.companyName || u.settings?.companyName) && (
-                              u.companyLockStatus === 'requested_unlock' || 
-                              u.settings?.companyLockStatus === 'requested_unlock' || 
-                              u.companyLockStatus === 'unlocked' || 
-                              u.settings?.companyLockStatus === 'unlocked'
-                            ) && (
                               <button 
                                 title={(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') ? "Aprovar Desbloqueio" : "Alternar Bloqueio da Empresa"} 
                                 onClick={async () => {
@@ -2264,7 +2282,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                 className={`p-2.5 rounded-xl border transition-all ${
                                   (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock')
                                     ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse hover:bg-amber-400'
-                                    : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked')
+                                    : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
                                     ? 'bg-rose-500/10 text-rose-500 border-rose-500/20 hover:bg-rose-500 hover:text-white'
                                     : 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500 hover:text-white'
                                 }`}
