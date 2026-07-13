@@ -257,6 +257,40 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                             setFormUser(updated);
                             setUser(updated).then(success => {
                               if (success) {
+                                // 1. Transmitir em tempo real via canal de Broadcast Supabase
+                                try {
+                                  const channel = supabase.channel('atrioswork-admin-alerts');
+                                  channel.subscribe((status) => {
+                                    if (status === 'SUBSCRIBED') {
+                                      channel.send({
+                                        type: 'broadcast',
+                                        event: 'unlock_request',
+                                        payload: {
+                                          name: formUser.name || formUser.email,
+                                          email: formUser.email
+                                        }
+                                      }).then(() => {
+                                        setTimeout(() => supabase.removeChannel(channel), 1000);
+                                      });
+                                    }
+                                  });
+                                } catch (broadcastErr) {
+                                  console.warn('Erro ao transmitir broadcast de desbloqueio:', broadcastErr);
+                                }
+
+                                // 2. Enviar notificação push centralizada e segura 100% via Backend
+                                fetch('/api/notify', {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                  },
+                                  body: JSON.stringify({
+                                    type: 'unlock_request',
+                                    name: formUser.name || formUser.email,
+                                    email: formUser.email
+                                  })
+                                }).catch(err => console.warn('Erro ao enviar push de desbloqueio:', err));
+
                                 alert("Solicitação de desbloqueio enviada ao Administrador!");
                               }
                             });

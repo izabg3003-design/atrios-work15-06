@@ -507,6 +507,33 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         // Disparar notificação do browser nativa se a permissão estiver concedida
         triggerNativePush(title, body);
       })
+      .on('broadcast', { event: 'unlock_request' }, (payload: any) => {
+        const { name, email } = payload.payload || {};
+        const title = '🔓 Pedido de Desbloqueio!';
+        const body = `O utilizador ${name || 'Utilizador'} (${email || ''}) solicitou o desbloqueio da empresa.`;
+
+        // Tocar som de chime agradável de sistema
+        try {
+          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
+          audio.volume = 0.5;
+          audio.play().catch(() => {});
+        } catch (soundErr) {
+          console.warn('[Audio Alert] Falha ao tocar som:', soundErr);
+        }
+
+        // Exibir no pop-up flutuante do app
+        setNewPushAlert({
+          id: String(Date.now()),
+          title: title,
+          subtitle: body
+        });
+
+        // Registrar no histórico de recebidos
+        logReceivedPush(title, body, 'unlock');
+
+        // Disparar notificação do browser nativa se a permissão estiver concedida
+        triggerNativePush(title, body);
+      })
       .subscribe();
 
     // 2. Canal de Alterações de Base de Dados (app_banners)
@@ -521,8 +548,13 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         },
         (payload: any) => {
           const newBanner = payload.new;
-          if (newBanner && (newBanner.title?.includes('[PUSH]') || newBanner.user_type === 'push_notification')) {
-            const cleanTitle = newBanner.title.replace('[PUSH]', '').trim();
+          if (newBanner && (
+            newBanner.title?.includes('[PUSH]') || 
+            newBanner.title?.includes('[SYSTEM]') || 
+            newBanner.user_type === 'push_notification' || 
+            newBanner.user_type === 'push_system'
+          )) {
+            const cleanTitle = newBanner.title.replace('[PUSH]', '').replace('[SYSTEM]', '').trim();
             const cleanBody = newBanner.highlight || '';
             
             // Exibir no pop-up flutuante do app

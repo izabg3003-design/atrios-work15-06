@@ -453,6 +453,11 @@ async function startServer() {
         resolvedBody = body || `${name || email || "Um novo utilizador"} acabou de criar uma conta no AtriosWork.`;
       }
 
+      if (type === "unlock_request") {
+        resolvedTitle = title || "🔓 Solicitação de Desbloqueio";
+        resolvedBody = body || `${name || email || "Um utilizador"} solicitou o desbloqueio da empresa no AtriosWork.`;
+      }
+
       if (!resolvedTitle || !resolvedBody) {
         return res.status(400).json({
           success: false,
