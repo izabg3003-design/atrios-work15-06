@@ -250,6 +250,19 @@ const generateVendorCode = () => {
   return 'AW-' + Math.random().toString(36).substr(2, 5).toUpperCase();
 };
 
+const normalizeProfile = (p: any): UserProfile => {
+  if (!p) return p;
+  const settings = p.settings || {};
+  return {
+    ...p,
+    companyName: settings.companyName ?? p.companyName ?? '',
+    companyStartDate: settings.companyStartDate ?? p.companyStartDate ?? undefined,
+    companyLockStatus: settings.companyLockStatus ?? p.companyLockStatus ?? 'unlocked',
+    isFirstYearAtCompany: settings.isFirstYearAtCompany ?? p.isFirstYearAtCompany ?? false,
+    contractMonthsCompleted: settings.contractMonthsCompleted ?? p.contractMonthsCompleted ?? 0
+  };
+};
+
 const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, onViewVendorSales, t, onUpdateProfile, hideValues }) => {
   const isMaster = useMemo(() => {
     const email = currentUser?.email?.toLowerCase() || '';
@@ -269,10 +282,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     const channel = supabase.channel('admin-profiles-realtime')
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
         if (payload.new) {
-          const updated = payload.new as UserProfile;
-          setUsers(prev => prev.map(u => u.id === updated.id ? { ...u, ...updated } : u));
-          setSupportStaff(prev => prev.map(s => s.id === updated.id ? { ...s, ...updated } : s));
-          setVendors(prev => prev.map(v => v.id === updated.id ? { ...v, profile: { ...(v.profile || {}), ...updated } } : v));
+          const updated = normalizeProfile(payload.new);
+          setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+          setSupportStaff(prev => prev.map(s => s.id === updated.id ? updated : s));
+          setVendors(prev => prev.map(v => v.id === updated.id ? { ...v, profile: updated } : v));
         }
       })
       .subscribe();
@@ -585,14 +598,18 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     try {
       if (activeSubTab === 'users') {
         const { data } = await supabase.from('profiles').select('*').neq('role', 'vendor').neq('role', 'support').not('email', 'ilike', '%master@atrioswork.com%').not('email', 'ilike', '%izarellebraga@gmail.com%').not('email', 'ilike', '%master@digitalnexus.com%');
-        setUsers(data || []);
+        const mapped = (data || []).map(u => normalizeProfile(u));
+        setUsers(mapped);
       } else if (activeSubTab === 'vendors') {
         const { data: vData } = await supabase.from('vendors').select('*');
         const { data: pData } = await supabase.from('profiles').select('*').in('id', vData?.map(v => v.id) || []);
-        setVendors(vData?.map(v => ({ ...v, profile: pData?.find(p => p.id === v.id) })) || []);
+        setVendors(vData?.map(v => {
+          const rawProfile = pData?.find(p => p.id === v.id);
+          return { ...v, profile: rawProfile ? normalizeProfile(rawProfile) : undefined };
+        }) || []);
       } else if (activeSubTab === 'support') {
         const { data } = await supabase.from('profiles').select('*').eq('role', 'support');
-        setSupportStaff(data || []);
+        setSupportStaff((data || []).map(s => normalizeProfile(s)));
       } else if (activeSubTab === 'banners' || activeSubTab === 'notifications') {
         const { data, error } = await supabase.from('app_banners').select('*').order('created_at', { ascending: false });
         if (error && error.code === '42P01') {
