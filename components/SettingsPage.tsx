@@ -26,12 +26,36 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
   const [isUpdatingPass, setIsUpdatingPass] = useState(false);
   const [passUpdateSuccess, setPassUpdateSuccess] = useState(false);
 
+  const calculateMonthsBetween = (startDateStr: string, endDate: Date) => {
+    const start = new Date(startDateStr);
+    const end = endDate;
+    if (isNaN(start.getTime())) return 0;
+    
+    let months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth());
+    if (end.getDate() < start.getDate()) {
+      months--;
+    }
+    return Math.max(0, months);
+  };
+
   useEffect(() => { 
     setFormUser({
       ...user,
       overtimeRates: user.overtimeRates || { h1: 50, h2: 75, h3: 100 }
     }); 
   }, [user]);
+
+  useEffect(() => {
+    if (formUser.companyStartDate) {
+      const months = calculateMonthsBetween(formUser.companyStartDate, new Date());
+      setFormUser(p => {
+        if (p.contractMonthsCompleted === undefined || p.contractMonthsCompleted !== months) {
+          return { ...p, contractMonthsCompleted: months };
+        }
+        return p;
+      });
+    }
+  }, [formUser.companyStartDate]);
 
   const getAtriosWorkId = () => {
     if (hideValues) return "••••••••";
@@ -223,21 +247,51 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                       </div>
                     )}
 
-                    {!formUser.isFirstYearAtCompany && (
-                      <div className="p-5 bg-slate-950/40 rounded-2xl border border-slate-800 space-y-2 animate-[fadeIn_0.3s_ease-out]">
-                        <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
-                          Ano Corrente: <span className="text-amber-400 font-black">{new Date().getFullYear()}</span> • Meses Decorridos: <span className="text-amber-400 font-black">{new Date().getMonth() + 1} meses</span>
+                    {!formUser.isFirstYearAtCompany && (() => {
+                      const today = new Date();
+                      const currentYear = today.getFullYear();
+                      const currentMonthNum = today.getMonth() + 1;
+                      let monthsPassed = currentMonthNum;
+                      
+                      if (formUser.companyStartDate) {
+                        const start = new Date(formUser.companyStartDate);
+                        if (!isNaN(start.getTime())) {
+                          const startYear = start.getFullYear();
+                          const startMonth = start.getMonth() + 1;
+                          
+                          if (currentYear === startYear) {
+                            if (currentMonthNum < startMonth) {
+                              monthsPassed = 0;
+                            } else {
+                              monthsPassed = currentMonthNum - startMonth + 1;
+                            }
+                          } else if (currentYear < startYear) {
+                            monthsPassed = 0;
+                          }
+                        }
+                      }
+                      
+                      return (
+                        <div className="p-5 bg-slate-950/40 rounded-2xl border border-slate-800 space-y-2 animate-[fadeIn_0.3s_ease-out]">
+                          <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">
+                            Ano Corrente: <span className="text-amber-400 font-black">{currentYear}</span> • Meses Decorridos: <span className="text-amber-400 font-black">{monthsPassed} meses</span>
+                          </div>
+                          <div className="text-[9px] text-slate-300 font-black uppercase tracking-widest">
+                            Dias adquiridos até ao momento: <span className="text-amber-400 font-black">
+                              {monthsPassed === 12 ? 22 : parseFloat((monthsPassed * 1.83).toFixed(1))} dias úteis
+                            </span>
+                          </div>
+                          {formUser.companyStartDate && (
+                            <p className="text-[8px] text-amber-500/80 font-bold uppercase tracking-widest leading-relaxed mt-1">
+                              Contados a partir de {new Date(formUser.companyStartDate + 'T12:00:00').toLocaleDateString('pt-PT')}
+                            </p>
+                          )}
+                          <p className="text-[8px] text-slate-500 font-medium uppercase tracking-wider leading-relaxed mt-1">
+                            As férias são creditadas mensalmente ao ritmo de 1.83 dias por cada mês decorrido no ano.
+                          </p>
                         </div>
-                        <div className="text-[9px] text-slate-300 font-black uppercase tracking-widest">
-                          Dias adquiridos até ao momento: <span className="text-amber-400 font-black">
-                            {(new Date().getMonth() + 1) === 12 ? 22 : parseFloat(((new Date().getMonth() + 1) * 1.83).toFixed(1))} dias úteis
-                          </span>
-                        </div>
-                        <p className="text-[8px] text-slate-500 font-medium uppercase tracking-wider leading-relaxed mt-1">
-                          As férias são creditadas mensalmente ao ritmo de 1.83 dias por cada mês decorrido no ano.
-                        </p>
-                      </div>
-                    )}
+                      );
+                    })()}
                   </>
                 )}
               </div>
@@ -262,7 +316,18 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                       type="text" 
                       value={formUser.companyName || ''} 
                       disabled={formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock'}
-                      onChange={(e) => setFormUser(p => ({ ...p, companyName: e.target.value }))} 
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setFormUser(p => {
+                          const updated = { ...p, companyName: val };
+                          if (val && val.trim() !== '' && !updated.companyStartDate) {
+                            updated.companyStartDate = new Date().toISOString().split('T')[0];
+                          } else if (!val || val.trim() === '') {
+                            updated.companyStartDate = undefined;
+                          }
+                          return updated;
+                        });
+                      }} 
                       className={`w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold ${
                         (formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock') ? 'opacity-60 cursor-not-allowed bg-slate-950/20' : ''
                       }`}
@@ -339,6 +404,27 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                   )}
                 </div>
               </div>
+
+              {/* Data de Início na Empresa */}
+              {formUser.companyName && formUser.companyName.trim() !== '' && (
+                <div className="space-y-2 md:col-span-2 animate-[fadeIn_0.3s_ease-out]">
+                  <label className="text-[10px] font-black text-slate-500 uppercase ml-1">
+                    Data de Início na Empresa (Contagem de Férias)
+                  </label>
+                  <input 
+                    type="date" 
+                    value={formUser.companyStartDate || ''} 
+                    disabled={formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock'}
+                    onChange={(e) => setFormUser(p => ({ ...p, companyStartDate: e.target.value }))} 
+                    className={`w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold ${
+                      (formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock') ? 'opacity-60 cursor-not-allowed bg-slate-950/20' : ''
+                    }`}
+                  />
+                  <p className="text-[8px] text-slate-400 font-bold uppercase tracking-wider leading-relaxed mt-1">
+                    Insira a data em que começou a trabalhar nesta empresa. A contagem dos seus dias de férias baseia-se exatamente nesta data de início.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
 

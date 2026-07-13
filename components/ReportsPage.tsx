@@ -155,6 +155,7 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
 
     // Calculate vacation days in current year
     const selectedYear = selectedMonth.substring(0, 4);
+    const viewMonthNum = parseInt(selectedMonth.substring(5, 7), 10); // 1-12
     const vacationDaysRegisteredInYear = Object.entries(records).filter(([date, rec]) => {
       return date.startsWith(selectedYear) && rec.isVacation === true;
     }).length;
@@ -171,10 +172,42 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
       monthsPassed = currentMonthNum;
     }
 
+    // Adjust based on companyStartDate if present
+    let contractMonthsCompleted = user.contractMonthsCompleted || 0;
+    if (user.companyName && user.companyName.trim() !== '' && user.companyStartDate) {
+      const start = new Date(user.companyStartDate);
+      if (!isNaN(start.getTime())) {
+        const startYear = start.getFullYear();
+        const startMonth = start.getMonth() + 1;
+
+        if (user.isFirstYearAtCompany) {
+          // Calculate months of work from start date up to the selected month
+          const viewDate = new Date(sYear, viewMonthNum - 1, 1);
+          const months = (viewDate.getFullYear() - start.getFullYear()) * 12 + (viewDate.getMonth() - start.getMonth()) + 1;
+          contractMonthsCompleted = Math.max(0, months);
+        } else {
+          if (sYear < startYear) {
+            monthsPassed = 0;
+          } else if (sYear === startYear) {
+            if (viewMonthNum < startMonth) {
+              monthsPassed = 0;
+            } else {
+              const targetLimit = (sYear === currentYear) ? currentMonthNum : 12;
+              const endMonth = Math.min(targetLimit, viewMonthNum);
+              monthsPassed = Math.max(0, endMonth - startMonth + 1);
+            }
+          } else {
+            const targetLimit = (sYear === currentYear) ? currentMonthNum : 12;
+            monthsPassed = Math.min(targetLimit, viewMonthNum);
+          }
+        }
+      }
+    }
+
     const baseVacationDays = (!user.companyName || user.companyName.trim() === '')
       ? 0
       : user.isFirstYearAtCompany 
-        ? Math.min(20, (user.contractMonthsCompleted || 0) * 2)
+        ? Math.min(20, (contractMonthsCompleted || 0) * 2)
         : (monthsPassed === 12 ? 22 : parseFloat((monthsPassed * 1.83).toFixed(1)));
 
     const availableVacationDays = Math.max(0, baseVacationDays - vacationDaysRegisteredInYear);

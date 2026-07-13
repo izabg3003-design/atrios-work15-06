@@ -341,6 +341,7 @@ const App: React.FC = () => {
         profile.isFirstYearAtCompany = profile.settings?.isFirstYearAtCompany ?? profile.isFirstYearAtCompany ?? false;
         profile.contractMonthsCompleted = profile.settings?.contractMonthsCompleted ?? profile.contractMonthsCompleted ?? 0;
         profile.companyName = profile.settings?.companyName ?? profile.companyName ?? '';
+        profile.companyStartDate = profile.settings?.companyStartDate ?? profile.companyStartDate ?? undefined;
         profile.companyLockStatus = profile.settings?.companyLockStatus ?? profile.companyLockStatus ?? 'unlocked';
 
         setUser(profile);
@@ -722,6 +723,7 @@ const App: React.FC = () => {
                   isFirstYearAtCompany: updatedUser.isFirstYearAtCompany,
                   contractMonthsCompleted: updatedUser.contractMonthsCompleted,
                   companyName: updatedUser.companyName,
+                  companyStartDate: updatedUser.companyStartDate,
                   companyLockStatus: updatedUser.companyLockStatus
                 };
                 const finalUpdatedUser = {
@@ -732,6 +734,7 @@ const App: React.FC = () => {
                 delete (updateData as any).isFirstYearAtCompany;
                 delete (updateData as any).contractMonthsCompleted;
                 delete (updateData as any).companyName;
+                delete (updateData as any).companyStartDate;
                 delete (updateData as any).companyLockStatus;
                 const { error } = await supabase.from('profiles').update(updateData).eq('id', user.id);
                 if (error) return false;

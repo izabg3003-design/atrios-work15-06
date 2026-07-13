@@ -53,6 +53,7 @@ export interface UserProfile {
   isFirstYearAtCompany?: boolean;
   contractMonthsCompleted?: number;
   companyName?: string;
+  companyStartDate?: string;
   companyLockStatus?: 'unlocked' | 'locked' | 'requested_unlock';
   role: 'admin' | 'user' | 'vendor' | 'support';
   overtimeRates: {
@@ -78,6 +79,7 @@ export interface UserProfile {
     isFirstYearAtCompany?: boolean;
     contractMonthsCompleted?: number;
     companyName?: string;
+    companyStartDate?: string;
     companyLockStatus?: 'unlocked' | 'locked' | 'requested_unlock';
   };
   created_at?: string;

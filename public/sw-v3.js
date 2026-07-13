@@ -8,35 +8,54 @@ const ASSETS_TO_CACHE = [
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      // Use a resilient, asset-by-asset logic so that a single 404 or transient failure
-      // doesn't block or crash the Service Worker installation
-      return Promise.allSettled(
-        ASSETS_TO_CACHE.map(url => 
-          cache.add(url).catch(err => console.warn(`Falha ao colocar no cache durante instalação: ${url}`, err))
-        )
-      );
-    }).then(() => self.skipWaiting())
+    (async () => {
+      try {
+        const cache = await caches.open(CACHE_NAME);
+        await Promise.allSettled(
+          ASSETS_TO_CACHE.map(async (url) => {
+            try {
+              await cache.add(url);
+            } catch (err) {
+              console.warn(`Falha ao colocar no cache durante instalação: ${url}`, err);
+            }
+          })
+        );
+      } catch (e) {
+        console.warn('[SW] Cache open failed during install:', e);
+      }
+      await self.skipWaiting();
+    })()
   );
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
-    caches.keys().then((cacheNames) => {
-      return Promise.all(
-        cacheNames.map((cacheName) => {
-          if (cacheName !== CACHE_NAME) {
-            return caches.delete(cacheName);
-          }
-        })
-      );
-    }).then(() => self.clients.claim())
+    (async () => {
+      try {
+        const cacheNames = await caches.keys();
+        await Promise.all(
+          cacheNames.map((cacheName) => {
+            if (cacheName !== CACHE_NAME) {
+              return caches.delete(cacheName);
+            }
+          })
+        );
+      } catch (e) {
+        console.warn('[SW] Cache keys failed during activate:', e);
+      }
+      await self.clients.claim();
+    })()
   );
 });
 
 self.addEventListener('fetch', (event) => {
   // Ignorar chamadas de API de forma estrita para evitar interceptação ou caches falsos
   if (event.request.url.includes('/api/')) {
+    return;
+  }
+
+  // Ignorar qualquer requisição para origens externas (ex: Supabase, Jivosite, Google APIs, etc.) para evitar erros de rede / Failed to fetch
+  if (!event.request.url.startsWith(self.location.origin)) {
     return;
   }
 
@@ -47,7 +66,7 @@ self.addEventListener('fetch', (event) => {
 
   // Check if we are navigating to an HTML page
   const isNavigate = event.request.mode === 'navigate' || 
-                    (event.request.method === 'GET' && event.request.headers.get('accept')?.includes('text/html'));
+                     (event.request.method === 'GET' && event.request.headers.get('accept')?.includes('text/html'));
 
   if (isNavigate) {
     // Network First: Always try to get the fresh HTML from the web so new deployments load immediately.
@@ -57,22 +76,44 @@ self.addEventListener('fetch', (event) => {
         .then((response) => {
           if (response.status === 200) {
             const responseClone = response.clone();
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(event.request, responseClone);
-            });
+            try {
+              caches.open(CACHE_NAME).then((cache) => {
+                cache.put(event.request, responseClone).catch(() => {});
+              }).catch(() => {});
+            } catch (e) {
+              console.warn('[SW] Cache storage access denied in this context:', e);
+            }
           }
           return response;
         })
-        .catch(() => {
-          return caches.match(event.request) || caches.match('/index.html') || caches.match('/');
+        .catch(async () => {
+          try {
+            const cachedResponse = await caches.match(event.request);
+            if (cachedResponse) return cachedResponse;
+            const indexResponse = await caches.match('/index.html');
+            if (indexResponse) return indexResponse;
+            const rootResponse = await caches.match('/');
+            if (rootResponse) return rootResponse;
+          } catch (e) {
+            console.warn('[SW] Cache fallback failed:', e);
+          }
+          // If no cache or cache throws, we can't do anything else, let browser handle or fail
         })
     );
   } else {
-    // Cache First for other static assets/resources
+    // Cache First for other static assets/resources with absolute safety fallback
     event.respondWith(
-      caches.match(event.request).then((response) => {
-        return response || fetch(event.request);
-      })
+      (async () => {
+        try {
+          const cachedResponse = await caches.match(event.request);
+          if (cachedResponse) {
+            return cachedResponse;
+          }
+        } catch (e) {
+          console.warn('[SW] Cache match threw exception:', e);
+        }
+        return fetch(event.request);
+      })()
     );
   }
 });
