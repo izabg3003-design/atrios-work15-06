@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v6.2';
+const CACHE_NAME = 'atrioswork-v6.3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -125,7 +125,8 @@ self.addEventListener('push', (event) => {
     let title = 'AtriosWork';
     let body = 'Nova notificação do sistema!';
     let url = '/';
-    let tag = '';
+    // Inicializar imediatamente com uma tag única baseada no tempo atual para garantir que nunca seja vazia ou duplicada
+    let tag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 
     try {
       if (event.data) {
@@ -138,31 +139,37 @@ self.addEventListener('push', (event) => {
         }
       }
 
-      // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data)
-      title = rawData.notification?.title || 
-              rawData.title || 
-              rawData.data?.title || 
-              rawData.data?.notification?.title || 
-              'AtriosWork';
-                  
-      body = rawData.notification?.body || 
-             rawData.body || 
-             rawData.data?.body || 
-             rawData.data?.notification?.body || 
-             'Nova notificação do sistema!';
-                 
-      url = rawData.notification?.data?.url ||
-            rawData.data?.url || 
-            rawData.url || 
-            rawData.data?.notification?.url || 
-            '/';
+      if (rawData && typeof rawData === 'object') {
+        const notif = rawData.notification || {};
+        const data = rawData.data || {};
+        const nestedNotif = data.notification || {};
 
-      // Gerar ou extrair uma identificação (tag) única para evitar que o navegador agrupe ou silencie notificações subsequentes
-      tag = rawData.notification?.tag || 
-            rawData.tag || 
-            rawData.data?.tag || 
-            rawData.data?.notification?.tag || 
-            `push-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data) de forma segura
+        title = notif.title || 
+                rawData.title || 
+                data.title || 
+                nestedNotif.title || 
+                'AtriosWork';
+                    
+        body = notif.body || 
+               rawData.body || 
+               data.body || 
+               nestedNotif.body || 
+               'Nova notificação do sistema!';
+                   
+        url = notif.data?.url ||
+              data.url || 
+              rawData.url || 
+              nestedNotif.url || 
+              '/';
+
+        // Usar a tag fornecida ou manter a tag única gerada dinamicamente para evitar agrupamentos indesejados
+        tag = notif.tag || 
+              rawData.tag || 
+              data.tag || 
+              nestedNotif.tag || 
+              tag;
+      }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
@@ -178,7 +185,8 @@ self.addEventListener('push', (event) => {
         badge: iconUrl,
         vibrate: [200, 100, 200],
         data: url,
-        tag: tag, // Tag única para cada notificação
+        tag: tag, // Tag única para cada notificação para que acumulem individualmente
+        requireInteraction: true, // Força a notificação a ficar visível até que o utilizador interaja (não desaparece sozinha)
         actions: [
           { action: 'open', title: 'Ver App' }
         ]
@@ -193,11 +201,22 @@ self.addEventListener('push', (event) => {
           body: body,
           icon: iconUrl,
           data: url,
-          tag: tag // Tag única também no fallback
+          tag: tag, // Tag única também no fallback
+          requireInteraction: true
         });
       }
     } catch (showErr) {
       console.error('[Service Worker] Erro fatal ao tentar disparar showNotification:', showErr);
+      try {
+        // Fallback absoluto e super simples para satisfazer o requisito de "user-visible-only" do Chrome/Safari e evitar punição de quota
+        await self.registration.showNotification(title || 'AtriosWork', {
+          body: body || 'Nova atualização no sistema.',
+          tag: tag || 'atrioswork-fail-safe',
+          requireInteraction: true
+        });
+      } catch (fatalErr) {
+        console.error('[Service Worker] Falha no fallback absoluto:', fatalErr);
+      }
     }
   })());
 });

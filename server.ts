@@ -597,7 +597,7 @@ async function startServer() {
 
       const adminProfiles = profiles.filter((p) => isAdminUser(p));
 
-      // 4. Separar fcm_tokens e subscrições Web Push
+      // 4. Separar fcm_tokens e subscrições Web Push de forma dedupicada
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
 
@@ -609,12 +609,14 @@ async function startServer() {
           try {
             const sub = JSON.parse(token);
             if (sub && sub.endpoint) {
-              webPushSubscriptions.push({
-                subscription: sub,
-                userId: p.id,
-              });
+              // Se houver um token FCM embutido, preferimos usar FCM para este dispositivo e ignoramos a subscrição VAPID para evitar notificações duplicadas que esgotam o orçamento do navegador
               if (sub.fcmToken) {
                 fcmTokens.push(sub.fcmToken);
+              } else {
+                webPushSubscriptions.push({
+                  subscription: sub,
+                  userId: p.id,
+                });
               }
             }
           } catch (e) {
@@ -949,7 +951,7 @@ async function startServer() {
         }
       }
 
-      // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON
+      // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON de forma deduplicada
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
 
@@ -962,13 +964,14 @@ async function startServer() {
           try {
             const sub = JSON.parse(token);
             if (sub && sub.endpoint) {
-              webPushSubscriptions.push({
-                subscription: sub,
-                userId: p.id,
-              });
-              // Se houver um token FCM embutido, adiciona também aos disparos de FCM para cobertura dupla
+              // Se houver um token FCM embutido, preferimos usar FCM para este dispositivo e ignoramos a subscrição VAPID para evitar notificações duplicadas que esgotam o orçamento do navegador
               if (sub.fcmToken) {
                 fcmTokens.push(sub.fcmToken);
+              } else {
+                webPushSubscriptions.push({
+                  subscription: sub,
+                  userId: p.id,
+                });
               }
             }
           } catch (e) {

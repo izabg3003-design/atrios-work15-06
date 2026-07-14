@@ -3,9 +3,9 @@
 <head>
     <!-- Self-Healing Chunk Loading Error & Service Worker Reset Catcher -->
     <script>
-      // One-time force clear for v6.0.7 to resolve any older active SW blocking API calls
+      // One-time force clear for v6.0.8 to resolve any older active SW blocking API calls
       (function() {
-        var cacheVersion = 'sw_cache_cleared_v6.0.7_g';
+        var cacheVersion = 'sw_cache_cleared_v6.0.8_h';
         if (!localStorage.getItem(cacheVersion)) {
           console.warn('Limpando service workers antigos e caches de forma preventiva...');
           localStorage.setItem(cacheVersion, 'true');
@@ -273,7 +273,7 @@
             let hasOld = false;
             for (let registration of registrations) {
               const scriptUrl = registration.active?.scriptURL || '';
-              if (scriptUrl && !scriptUrl.includes('v=6.0.7')) {
+              if (scriptUrl && !scriptUrl.includes('v=6.0.8')) {
                 registration.unregister().then(success => {
                   if (success) {
                     console.log('Service Worker antigo desregistrado com sucesso para atualização:', scriptUrl);
@@ -283,7 +283,7 @@
               }
             }
             
-            navigator.serviceWorker.register('/sw-v3.js?v=6.0.7', { scope: '/' }).then(reg => {
+            navigator.serviceWorker.register('/sw-v3.js?v=6.0.8', { scope: '/' }).then(reg => {
               console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
               if (hasOld) {
                 reg.update();
