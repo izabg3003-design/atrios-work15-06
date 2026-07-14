@@ -2217,29 +2217,29 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                  })()}
                                </div>
                                <p className="text-[9px] text-slate-500 uppercase font-black">{u.email}</p>
-                               {(u.companyName || u.settings?.companyName) && (
-                                 <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+                                 {(u.companyName || u.settings?.companyName) && (
                                    <span className="text-[8px] font-black uppercase tracking-wider bg-slate-950 text-slate-300 px-1.5 py-0.5 rounded border border-white/5">
                                      Empresa: {u.companyName || u.settings?.companyName}
                                    </span>
+                                 )}
 
-                                   {(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') && (
-                                     <span className="text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-500 px-1 py-0.5 rounded border border-amber-500/10 flex items-center gap-0.5 animate-pulse">
-                                       <Clock className="w-2.5 h-2.5" /> Pedido Desbloqueio
-                                     </span>
-                                   )}
-                                   {(u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked') && (
-                                     <span className="text-[7px] font-black uppercase tracking-wider bg-green-500/10 text-green-500 px-1 py-0.5 rounded border border-green-500/10 flex items-center gap-0.5">
-                                       <Unlock className="w-2.5 h-2.5" /> Aberto
-                                     </span>
-                                   )}
-                                   {(u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus) && (
-                                     <span className="text-[7px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-500 px-1 py-0.5 rounded border border-rose-500/10 flex items-center gap-0.5">
-                                       <Lock className="w-2.5 h-2.5" /> Bloqueado
-                                     </span>
-                                   )}
-                                 </div>
-                               )}
+                                 {(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') && (
+                                   <span className="text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-500 px-1 py-0.5 rounded border border-amber-500/10 flex items-center gap-0.5 animate-pulse">
+                                     <Clock className="w-2.5 h-2.5" /> Pedido Desbloqueio
+                                   </span>
+                                 )}
+                                 {(u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked') && (
+                                   <span className="text-[7px] font-black uppercase tracking-wider bg-green-500/10 text-green-500 px-1 py-0.5 rounded border border-green-500/10 flex items-center gap-0.5">
+                                     <Unlock className="w-2.5 h-2.5" /> Aberto
+                                   </span>
+                                 )}
+                                 {(u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus) && (
+                                   <span className="text-[7px] font-black uppercase tracking-wider bg-rose-500/10 text-rose-500 px-1 py-0.5 rounded border border-rose-500/10 flex items-center gap-0.5">
+                                     <Lock className="w-2.5 h-2.5" /> Bloqueado
+                                   </span>
+                                 )}
+                               </div>
                                {(() => {
                                  const activity = getUserActivityStatus(u);
                                  return (
@@ -2271,70 +2271,61 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                         </td>
                         <td className="px-10 py-6 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {/* Botão de desbloqueio de empresa para Master - Fixo ao lado do Raio */}
-                            {isMaster && (
-                              <button 
-                                disabled={!u.companyName && !u.settings?.companyName}
-                                title={(!u.companyName && !u.settings?.companyName) 
-                                  ? "Nenhuma empresa configurada" 
-                                  : (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') 
-                                    ? "Aprovar Desbloqueio da Empresa" 
-                                    : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
-                                      ? "Desbloquear Empresa" 
-                                      : "Bloquear Empresa"
-                                } 
-                                onClick={async () => {
-                                  if (!u.companyName && !u.settings?.companyName) return;
+                             {/* Botão de desbloqueio de empresa para Master - Fixo ao lado do Raio */}
+                             {isMaster && (
+                               <button 
+                                 title={(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') 
+                                   ? "Aprovar Desbloqueio da Empresa" 
+                                   : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
+                                     ? "Desbloquear Empresa" 
+                                     : "Bloquear Empresa"
+                                 } 
+                                 onClick={async () => {
+                                   // Buscar estado mais recente do banco de dados para evitar bugs de dessincronização
+                                   const { data: latestProfile } = await supabase
+                                     .from('profiles')
+                                     .select('*')
+                                     .eq('id', u.id)
+                                     .single();
 
-                                  // Buscar estado mais recente do banco de dados para evitar bugs de dessincronização
-                                  const { data: latestProfile } = await supabase
-                                    .from('profiles')
-                                    .select('*')
-                                    .eq('id', u.id)
-                                    .single();
+                                   const normalizedLatest = normalizeProfile(latestProfile);
+                                   const curStatus = normalizedLatest?.companyLockStatus || 'unlocked';
+                                   const nextStatus = curStatus === 'unlocked' ? 'locked' : 'unlocked';
 
-                                  const normalizedLatest = normalizeProfile(latestProfile);
-                                  const curStatus = normalizedLatest?.companyLockStatus || 'unlocked';
-                                  const nextStatus = curStatus === 'unlocked' ? 'locked' : 'unlocked';
+                                   const updatedU = {
+                                     ...u,
+                                     companyLockStatus: nextStatus,
+                                     settings: {
+                                       ...(u.settings || {}),
+                                       companyLockStatus: nextStatus
+                                     }
+                                   };
 
-                                  const updatedU = {
-                                    ...u,
-                                    companyLockStatus: nextStatus,
-                                    settings: {
-                                      ...(u.settings || {}),
-                                      companyLockStatus: nextStatus
-                                    }
-                                  };
-
-                                  const success = await onUpdateProfile(updatedU);
-                                  if (success) {
-                                    setUsers(prev => prev.map(usr => usr.id === u.id ? updatedU : usr));
-                                    alert(nextStatus === 'unlocked' ? "Empresa desbloqueada com sucesso!" : "Empresa bloqueada com sucesso!");
-                                  } else {
-                                    alert("Falha ao atualizar o status de bloqueio.");
-                                  }
-                                }} 
-                                className={`p-2.5 rounded-xl border transition-all ${
-                                  (!u.companyName && !u.settings?.companyName)
-                                    ? 'bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed opacity-40'
-                                    : (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock')
-                                      ? 'bg-green-500 text-slate-950 border-green-400 animate-pulse hover:bg-green-400'
-                                      : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
-                                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/20 hover:bg-rose-500 hover:text-white'
-                                        : 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500 hover:text-white'
-                                }`}
-                              >
-                                {(!u.companyName && !u.settings?.companyName) ? (
-                                  <Lock className="w-4 h-4" />
-                                ) : (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') ? (
-                                  <Unlock className="w-4 h-4" />
-                                ) : (u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked') ? (
-                                  <Unlock className="w-4 h-4" />
-                                ) : (
-                                  <Lock className="w-4 h-4" />
-                                )}
-                              </button>
-                            )}
+                                   const success = await onUpdateProfile(updatedU);
+                                   if (success) {
+                                     setUsers(prev => prev.map(usr => usr.id === u.id ? updatedU : usr));
+                                     alert(nextStatus === 'unlocked' ? "Empresa desbloqueada com sucesso!" : "Empresa bloqueada com sucesso!");
+                                   } else {
+                                     alert("Falha ao atualizar o status de bloqueio.");
+                                   }
+                                 }} 
+                                 className={`p-2.5 rounded-xl border transition-all ${
+                                   (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock')
+                                     ? 'bg-green-500 text-slate-950 border-green-400 animate-pulse hover:bg-green-400'
+                                     : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
+                                       ? 'bg-rose-500 text-white border-rose-400 hover:bg-rose-400'
+                                       : 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500 hover:text-white'
+                                 }`}
+                               >
+                                 {(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') ? (
+                                   <Unlock className="w-4 h-4" />
+                                 ) : (u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked') ? (
+                                   <Unlock className="w-4 h-4" />
+                                 ) : (
+                                   <Lock className="w-4 h-4" />
+                                 )}
+                               </button>
+                             )}
                             {isMaster && (
                               <button 
                                 title="Remover Restrições" 
