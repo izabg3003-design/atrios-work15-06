@@ -1200,7 +1200,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     if (!passwordResetUser || !passwordResetUser.id || !newPasswordInput.trim()) return;
     setIsResettingPassword(true);
     try {
-      const response = await fetch('/api/admin/update-user-password', {
+      const response = await fetch(`/api/admin/update-user-password?t=${Date.now()}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
