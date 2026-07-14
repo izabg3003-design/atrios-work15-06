@@ -1043,10 +1043,10 @@ async function startServer() {
       console.log(`[Push Server] Encontrados ${fcmTokens.length} dispositivos FCM e ${webPushSubscriptions.length} assinaturas Web Push (VAPID).`);
 
       let totalSent = 0;
-      const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
       // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
       const webPushPromises = webPushSubscriptions.map(async (ws) => {
+        const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
         const payload = JSON.stringify({
           title,
           body,
@@ -1082,6 +1082,7 @@ async function startServer() {
 
       // 🔵 DISPARO 2: Enviar notificações via Firebase Cloud Messaging (FCM)
       const fcmPromises = fcmTokens.map(async (token) => {
+        const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
         // Método A: Usar Firebase Admin SDK se inicializado
         if (isFirebaseAdminInitialized) {
           try {

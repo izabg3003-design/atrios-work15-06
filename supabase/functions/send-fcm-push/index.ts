@@ -242,12 +242,12 @@ serve(async (req) => {
     }
 
     let totalSent = 0;
-    const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
     // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
     const webPushPromises = [];
     if (vapidPublicKey && vapidPrivateKey && webPushSubscriptions.length > 0) {
       webPushPromises.push(...webPushSubscriptions.map(async (ws) => {
+        const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
         const payload = JSON.stringify({
           notification: {
             title,
@@ -290,6 +290,7 @@ serve(async (req) => {
           const projectId = serviceAccount.project_id;
 
           fcmPromises.push(...fcmTokens.map(async (token) => {
+            const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
             try {
               const fcmResponse = await fetch(
                 `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
