@@ -1212,7 +1212,15 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         })
       });
 
-      const data = await response.json();
+      let data: any = {};
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        data = await response.json();
+      } else {
+        const text = await response.text();
+        throw new Error(text || `Código de estado: ${response.status}`);
+      }
+
       if (response.ok && data.success) {
         const updatedUser = {
           ...passwordResetUser,
@@ -1231,7 +1239,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       }
     } catch (err: any) {
       console.error(err);
-      alert("Erro de ligação ao alterar senha.");
+      alert("Erro ao alterar senha: " + (err.message || err));
     } finally {
       setIsResettingPassword(false);
     }
@@ -2265,9 +2273,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                </div>
                                <div className="flex items-center gap-1.5 flex-wrap">
                                  <p className="text-[9px] text-slate-500 uppercase font-black">{u.email}</p>
-                                 {(u.password || u.settings?.password) && (
-                                   <span className="text-[8px] font-black uppercase tracking-wider bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/20 select-all" title="Chave de acesso">
+                                 {(u.password || u.settings?.password) ? (
+                                   <span className="text-[8px] font-black uppercase tracking-wider bg-purple-500/15 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/30 select-all" title="Chave de acesso registada">
                                      Senha: {u.password || u.settings?.password}
+                                   </span>
+                                 ) : (
+                                   <span className="text-[8px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-500/85 px-1.5 py-0.5 rounded border border-amber-500/20" title="A senha ainda não foi sincronizada. Clique no ícone de chave no canto direito para definir uma!">
+                                     Senha: não registada 🔑
                                    </span>
                                  )}
                                </div>
