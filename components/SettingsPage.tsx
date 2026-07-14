@@ -182,17 +182,47 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
 
            {/* Painel de Férias (Portugal) */}
            <div className="bg-slate-800/20 border border-slate-800 p-8 rounded-[2.5rem] space-y-6 shadow-xl">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Calendar className="w-5 h-5 text-amber-400" />
-                  <h4 className="text-xs font-black text-white uppercase italic tracking-tighter">Férias (Portugal)</h4>
+              <div className="flex items-center gap-3">
+                <Calendar className="w-5 h-5 text-amber-400" />
+                <h4 className="text-xs font-black text-white uppercase italic tracking-tighter">Férias (Portugal)</h4>
+              </div>
+
+              {/* Seletor Claro de Tempo de Empresa */}
+              <div className="space-y-2">
+                <label className="text-[10px] font-black text-slate-500 uppercase ml-1">
+                  Tempo de Empresa / Contrato
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setFormUser(p => ({ ...p, isFirstYearAtCompany: true }))}
+                    className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between h-24 ${
+                      formUser.isFirstYearAtCompany
+                        ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/5'
+                        : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="text-[10px] font-black uppercase tracking-wider">Menos de 1 Ano</span>
+                    <span className="text-[9px] font-medium leading-tight opacity-80 mt-1">
+                      Estou no meu 1º ano de contrato na empresa.
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setFormUser(p => ({ ...p, isFirstYearAtCompany: false }))}
+                    className={`p-4 rounded-2xl border text-left transition-all flex flex-col justify-between h-24 ${
+                      !formUser.isFirstYearAtCompany
+                        ? 'bg-amber-500/10 border-amber-500 text-white shadow-lg shadow-amber-500/5'
+                        : 'bg-slate-950/40 border-slate-800/80 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                    }`}
+                  >
+                    <span className="text-[10px] font-black uppercase tracking-wider">Mais de 1 Ano</span>
+                    <span className="text-[9px] font-medium leading-tight opacity-80 mt-1">
+                      Trabalho na empresa há mais de 1 ano completo.
+                    </span>
+                  </button>
                 </div>
-                <button 
-                  onClick={() => setFormUser(p => ({ ...p, isFirstYearAtCompany: !p.isFirstYearAtCompany }))}
-                  className={`transition-all duration-300 ${formUser.isFirstYearAtCompany ? 'text-amber-500' : 'text-slate-600'}`}
-                >
-                  {formUser.isFirstYearAtCompany ? <ToggleRight className="w-8 h-8" /> : <ToggleLeft className="w-8 h-8" />}
-                </button>
               </div>
 
               <div className="space-y-4">
