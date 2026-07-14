@@ -233,10 +233,28 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('/sw-v3.js?v=6.0.5', { scope: '/' }).then(reg => {
-            console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
-          }).catch(err => {
-            console.warn('Registro de SW ignorado ou falhou:', err.message);
+          navigator.serviceWorker.getRegistrations().then(registrations => {
+            let hasOld = false;
+            for (let registration of registrations) {
+              const scriptUrl = registration.active?.scriptURL || '';
+              if (scriptUrl && !scriptUrl.includes('v=6.0.6')) {
+                registration.unregister().then(success => {
+                  if (success) {
+                    console.log('Service Worker antigo desregistrado com sucesso para atualização:', scriptUrl);
+                    hasOld = true;
+                  }
+                });
+              }
+            }
+            
+            navigator.serviceWorker.register('/sw-v3.js?v=6.0.6', { scope: '/' }).then(reg => {
+              console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
+              if (hasOld) {
+                reg.update();
+              }
+            }).catch(err => {
+              console.warn('Registro de SW ignorado ou falhou:', err.message);
+            });
           });
         });
       }

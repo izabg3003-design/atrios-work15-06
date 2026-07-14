@@ -1217,6 +1217,9 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       try {
         data = JSON.parse(text);
       } catch (err) {
+        if (response.status === 200 && !text) {
+          throw new Error("O navegador retornou uma resposta vazia. Isto deve-se ao cache do Service Worker antigo no seu dispositivo. Por favor, faça um Recarregamento Forçado (Ctrl + F5 ou Shift + Recarregar) na página para limpar o cache e tente de seguida!");
+        }
         throw new Error(text || `Código de estado: ${response.status}`);
       }
 
