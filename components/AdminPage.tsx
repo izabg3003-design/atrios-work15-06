@@ -2271,12 +2271,30 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                         </td>
                         <td className="px-10 py-6 text-right">
                           <div className="flex items-center justify-end gap-2">
-                            {/* Botão de desbloqueio de empresa para Master */}
-                            {isMaster && (u.companyName || u.settings?.companyName) && (
+                            {/* Botão de desbloqueio de empresa para Master - Fixo ao lado do Raio */}
+                            {isMaster && (
                               <button 
-                                title={(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') ? "Aprovar Desbloqueio" : "Alternar Bloqueio da Empresa"} 
+                                disabled={!u.companyName && !u.settings?.companyName}
+                                title={(!u.companyName && !u.settings?.companyName) 
+                                  ? "Nenhuma empresa configurada" 
+                                  : (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') 
+                                    ? "Aprovar Desbloqueio da Empresa" 
+                                    : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
+                                      ? "Desbloquear Empresa" 
+                                      : "Bloquear Empresa"
+                                } 
                                 onClick={async () => {
-                                  const curStatus = u.companyLockStatus || u.settings?.companyLockStatus || 'unlocked';
+                                  if (!u.companyName && !u.settings?.companyName) return;
+
+                                  // Buscar estado mais recente do banco de dados para evitar bugs de dessincronização
+                                  const { data: latestProfile } = await supabase
+                                    .from('profiles')
+                                    .select('*')
+                                    .eq('id', u.id)
+                                    .single();
+
+                                  const normalizedLatest = normalizeProfile(latestProfile);
+                                  const curStatus = normalizedLatest?.companyLockStatus || 'unlocked';
                                   const nextStatus = curStatus === 'unlocked' ? 'locked' : 'unlocked';
 
                                   const updatedU = {
@@ -2297,17 +2315,23 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                   }
                                 }} 
                                 className={`p-2.5 rounded-xl border transition-all ${
-                                  (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock')
-                                    ? 'bg-amber-500 text-slate-950 border-amber-400 animate-pulse hover:bg-amber-400'
-                                    : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
-                                    ? 'bg-rose-500/10 text-rose-500 border-rose-500/20 hover:bg-rose-500 hover:text-white'
-                                    : 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500 hover:text-white'
+                                  (!u.companyName && !u.settings?.companyName)
+                                    ? 'bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed opacity-40'
+                                    : (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock')
+                                      ? 'bg-green-500 text-slate-950 border-green-400 animate-pulse hover:bg-green-400'
+                                      : (u.companyLockStatus === 'locked' || u.settings?.companyLockStatus === 'locked' || !u.companyLockStatus)
+                                        ? 'bg-rose-500/10 text-rose-500 border-rose-500/20 hover:bg-rose-500 hover:text-white'
+                                        : 'bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500 hover:text-white'
                                 }`}
                               >
-                                {u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked' ? (
+                                {(!u.companyName && !u.settings?.companyName) ? (
                                   <Lock className="w-4 h-4" />
-                                ) : (
+                                ) : (u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') ? (
                                   <Unlock className="w-4 h-4" />
+                                ) : (u.companyLockStatus === 'unlocked' || u.settings?.companyLockStatus === 'unlocked') ? (
+                                  <Unlock className="w-4 h-4" />
+                                ) : (
+                                  <Lock className="w-4 h-4" />
                                 )}
                               </button>
                             )}
