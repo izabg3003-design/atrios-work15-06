@@ -304,6 +304,7 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
             <h4 className="text-sm font-black text-white uppercase tracking-widest flex items-center gap-3"><Hash className="w-5 h-5 text-purple-400" />{t('settings.idAndContact')}</h4>
             <div className="grid md:grid-cols-2 gap-6">
               <div className="space-y-2 md:col-span-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.displayName')}</label><input type="text" value={formUser.name} onChange={(e) => setFormUser(p => ({ ...p, name: e.target.value }))} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
+              <div className="space-y-2 md:col-span-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">E-mail do Usuário</label><input type="email" value={formUser.email || ''} onChange={(e) => setFormUser(p => ({ ...p, email: e.target.value }))} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" placeholder="usuario@email.com" /></div>
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.taxId')}</label><input type="text" value={formUser.nif || ''} onChange={(e) => setFormUser(p => ({ ...p, nif: e.target.value }))} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
               <div className="space-y-2"><label className="text-[10px] font-black text-slate-500 uppercase ml-1">{t('settings.phone')}</label><input type="tel" value={formUser.phone || ''} onChange={(e) => setFormUser(p => ({ ...p, phone: e.target.value }))} className="w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" /></div>
               
@@ -404,6 +405,25 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                   )}
                 </div>
               </div>
+
+              {/* NIF da Empresa */}
+              {formUser.companyName && formUser.companyName.trim() !== '' && (
+                <div className="space-y-2 md:col-span-2 animate-[fadeIn_0.3s_ease-out]">
+                  <label className="text-[10px] font-black text-slate-500 uppercase ml-1">
+                    NIF da Empresa
+                  </label>
+                  <input 
+                    type="text" 
+                    value={formUser.companyNif || ''} 
+                    disabled={formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock'}
+                    onChange={(e) => setFormUser(p => ({ ...p, companyNif: e.target.value }))} 
+                    className={`w-full bg-slate-950/50 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold ${
+                      (formUser.companyLockStatus === 'locked' || formUser.companyLockStatus === 'requested_unlock') ? 'opacity-60 cursor-not-allowed bg-slate-950/20' : ''
+                    }`}
+                    placeholder="Ex: 512345678"
+                  />
+                </div>
+              )}
 
               {/* Data de Início na Empresa */}
               {formUser.companyName && formUser.companyName.trim() !== '' && (

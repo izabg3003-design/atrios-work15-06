@@ -258,6 +258,7 @@ const normalizeProfile = (p: any): UserProfile => {
     companyName: settings.companyName ?? p.companyName ?? '',
     companyStartDate: settings.companyStartDate ?? p.companyStartDate ?? undefined,
     companyLockStatus: settings.companyLockStatus ?? p.companyLockStatus ?? 'unlocked',
+    companyNif: settings.companyNif ?? p.companyNif ?? '',
     isFirstYearAtCompany: settings.isFirstYearAtCompany ?? p.isFirstYearAtCompany ?? false,
     contractMonthsCompleted: settings.contractMonthsCompleted ?? p.contractMonthsCompleted ?? 0
   };
