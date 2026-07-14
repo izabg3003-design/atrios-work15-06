@@ -3,6 +3,42 @@
 <head>
     <!-- Self-Healing Chunk Loading Error & Service Worker Reset Catcher -->
     <script>
+      // One-time force clear for v6.0.6 to resolve any older active SW blocking API calls
+      (function() {
+        var cacheVersion = 'sw_cache_cleared_v6.0.6_f';
+        if (!localStorage.getItem(cacheVersion)) {
+          console.warn('Limpando service workers antigos e caches de forma preventiva...');
+          localStorage.setItem(cacheVersion, 'true');
+          var reloaded = false;
+          if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.getRegistrations().then(function(registrations) {
+              if (registrations && registrations.length > 0) {
+                for (var i = 0; i < registrations.length; i++) {
+                  registrations[i].unregister();
+                }
+                if (!reloaded) {
+                  reloaded = true;
+                  setTimeout(function() { window.location.reload(true); }, 250);
+                }
+              }
+            });
+          }
+          if ('caches' in window) {
+            caches.keys().then(function(names) {
+              if (names && names.length > 0) {
+                for (var i = 0; i < names.length; i++) {
+                  caches.delete(names[i]);
+                }
+                if (!reloaded) {
+                  reloaded = true;
+                  setTimeout(function() { window.location.reload(true); }, 250);
+                }
+              }
+            });
+          }
+        }
+      })();
+
       window.addEventListener('error', function(e) {
         if (e.message && (
           e.message.indexOf('Failed to fetch dynamically imported module') > -1 ||
