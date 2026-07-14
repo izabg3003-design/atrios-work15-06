@@ -399,6 +399,74 @@ async function startServer() {
 
   app.use(express.json());
 
+  // ROTA: Atualizar senha de utilizador via Supabase Admin (para Master)
+  app.post("/api/admin/update-user-password", async (req, res) => {
+    const { userId, newPassword, adminEmail } = req.body;
+    if (!userId || !newPassword || !adminEmail) {
+      return res.status(400).json({ success: false, error: "Parâmetros em falta." });
+    }
+
+    const emailLower = adminEmail.toLowerCase();
+    const isMaster = emailLower.includes('master@atrioswork.com') || 
+                     emailLower.includes('izarellebraga@gmail.com') || 
+                     emailLower.includes('master@digitalnexus.com');
+
+    if (!isMaster) {
+      return res.status(403).json({ success: false, error: "Apenas administradores Master podem alterar senhas." });
+    }
+
+    try {
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseServiceKey) {
+        return res.status(500).json({ success: false, error: "Chave do Supabase em falta no servidor." });
+      }
+
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+
+      const { error: authError } = await supabaseAdmin.auth.admin.updateUserById(
+        userId,
+        { password: newPassword }
+      );
+
+      if (authError) {
+        throw authError;
+      }
+
+      const { data: profile } = await supabaseAdmin
+        .from('profiles')
+        .select('settings')
+        .eq('id', userId)
+        .single();
+
+      const currentSettings = profile?.settings || {};
+      const updatedSettings = {
+        ...currentSettings,
+        password: newPassword
+      };
+
+      const { error: profileError } = await supabaseAdmin
+        .from('profiles')
+        .update({ settings: updatedSettings })
+        .eq('id', userId);
+
+      if (profileError) {
+        throw profileError;
+      }
+
+      return res.json({ success: true, message: "Senha alterada com sucesso." });
+    } catch (err: any) {
+      console.error("[UPDATE PASSWORD ERROR]:", err);
+      return res.status(500).json({ success: false, error: err.message || "Erro desconhecido ao alterar senha." });
+    }
+  });
+
   // ROTA: Obter a chave pública VAPID do servidor
   app.get("/api/push/public-key", (req, res) => {
     return res.json({ publicKey: vapidPublicKey });

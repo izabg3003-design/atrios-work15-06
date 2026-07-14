@@ -304,6 +304,9 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
   const [searchTerm, setSearchTerm] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [promotingUser, setPromotingUser] = useState<UserProfile | null>(null);
+  const [passwordResetUser, setPasswordResetUser] = useState<UserProfile | null>(null);
+  const [newPasswordInput, setNewPasswordInput] = useState('');
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   
   const [showAddUser, setShowAddUser] = useState(false);
   const [showAddVendor, setShowAddVendor] = useState(false);
@@ -1189,6 +1192,48 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       alert(`Erro ao promover: ${e.message}`);
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleUpdateUserPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!passwordResetUser || !passwordResetUser.id || !newPasswordInput.trim()) return;
+    setIsResettingPassword(true);
+    try {
+      const response = await fetch('/api/admin/update-user-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          userId: passwordResetUser.id,
+          newPassword: newPasswordInput.trim(),
+          adminEmail: currentUser?.email
+        })
+      });
+
+      const data = await response.json();
+      if (response.ok && data.success) {
+        const updatedUser = {
+          ...passwordResetUser,
+          password: newPasswordInput.trim(),
+          settings: {
+            ...(passwordResetUser.settings || {}),
+            password: newPasswordInput.trim()
+          }
+        };
+        setUsers(prev => prev.map(u => u.id === passwordResetUser.id ? updatedUser : u));
+        alert("Senha redefinida com sucesso para o utilizador!");
+        setPasswordResetUser(null);
+        setNewPasswordInput('');
+      } else {
+        alert("Erro ao alterar senha: " + (data.error || "Tente novamente."));
+      }
+    } catch (err: any) {
+      console.error(err);
+      alert("Erro de ligação ao alterar senha.");
+    } finally {
+      setIsResettingPassword(false);
     }
   };
 
@@ -2349,6 +2394,18 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                 <Zap className="w-4 h-4" />
                               </button>
                             )}
+                            {isMaster && (
+                              <button 
+                                title="Definir/Redefinir Senha de Acesso" 
+                                onClick={() => {
+                                  setPasswordResetUser(u);
+                                  setNewPasswordInput(u.password || u.settings?.password || '');
+                                }} 
+                                className="p-2.5 bg-purple-500/10 text-purple-400 border border-purple-500/20 rounded-xl hover:bg-purple-600 hover:text-white transition-all"
+                              >
+                                <KeySquare className="w-4 h-4" />
+                              </button>
+                            )}
                             <button title={!isSuspended ? "Desativar" : "Ativar"} onClick={() => handleToggleUserStatus(u)} disabled={updatingId === u.id} className={`p-2.5 rounded-xl transition-all ${!isSuspended ? 'bg-slate-950 text-slate-500' : 'bg-green-600/20 text-green-500'}`}>
                               <Power className={`w-4 h-4 ${updatingId === u.id ? 'animate-spin' : ''}`} />
                             </button>
@@ -2401,6 +2458,53 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                   ))}
                </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: REDEFINIR SENHA */}
+      {passwordResetUser && (
+        <div className="fixed inset-0 z-[1100] flex items-center justify-center p-6 backdrop-blur-xl bg-slate-950/90">
+          <div className="bg-slate-900 border border-purple-500/30 w-full max-w-md rounded-[3rem] overflow-hidden shadow-2xl animate-[modalScale_0.3s_ease-out]">
+            <div className="p-8 bg-purple-600/10 border-b border-purple-500/20 flex justify-between items-center">
+              <div className="flex items-center gap-3">
+                 <KeySquare className="w-6 h-6 text-purple-400" />
+                 <h3 className="text-xl font-black text-white italic uppercase tracking-tighter">Alterar <span className="text-purple-400">Senha</span></h3>
+              </div>
+              <button onClick={() => { setPasswordResetUser(null); setNewPasswordInput(''); }} className="text-slate-500 hover:text-white transition-colors"><X className="w-6 h-6" /></button>
+            </div>
+            
+            <form onSubmit={handleUpdateUserPassword} className="p-10 space-y-6">
+               <div className="space-y-2">
+                 <p className="text-xs text-slate-400 font-medium leading-relaxed">
+                   Está a alterar a senha de acesso de <strong>{passwordResetUser.name}</strong> ({passwordResetUser.email}).
+                 </p>
+                 <p className="text-[10px] text-amber-500 font-black uppercase">
+                   ⚠️ Atenção: Esta alteração atualizará a senha no Supabase Auth e na base de dados imediatamente!
+                 </p>
+               </div>
+
+               <div className="space-y-2">
+                 <label className="text-[10px] font-black uppercase tracking-wider text-slate-400">Nova Senha de Acesso</label>
+                 <input 
+                   type="text" 
+                   required
+                   value={newPasswordInput}
+                   onChange={(e) => setNewPasswordInput(e.target.value)}
+                   className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-5 py-4 text-white font-bold text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-all placeholder:text-slate-600"
+                   placeholder="Introduza a nova senha"
+                 />
+               </div>
+
+               <button 
+                 type="submit"
+                 disabled={isResettingPassword || !newPasswordInput.trim()}
+                 className="w-full py-4 bg-purple-600 border border-purple-400 rounded-2xl text-white font-black uppercase text-xs tracking-widest hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+               >
+                 {isResettingPassword ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+                 Confirmar Nova Senha
+               </button>
+            </form>
           </div>
         </div>
       )}
