@@ -70,13 +70,18 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
     setSaveSuccess(false);
     try {
       const finalFormUser = { ...formUser };
+      let wasUnlockedAndNowLocked = false;
       if (finalFormUser.companyName && finalFormUser.companyName.trim() !== '' && (!finalFormUser.companyLockStatus || finalFormUser.companyLockStatus === 'unlocked')) {
         finalFormUser.companyLockStatus = 'locked';
         setFormUser(finalFormUser);
+        wasUnlockedAndNowLocked = true;
       }
       const success = await setUser(finalFormUser);
       if (success) {
         setSaveSuccess(true);
+        if (wasUnlockedAndNowLocked) {
+          alert("Alterações da empresa guardadas com sucesso! Por segurança, os dados da empresa foram bloqueados novamente de forma automática.");
+        }
         setTimeout(() => setSaveSuccess(false), 3000);
       } else {
         throw new Error("Cloud Sync Failed");
