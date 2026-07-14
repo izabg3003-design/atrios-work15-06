@@ -6,19 +6,12 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 async function inspectColumns() {
-  console.log("Inspecting columns of 'app_banners'...");
-  const { data, error } = await supabase.rpc('get_table_columns', { table_name: 'app_banners' });
-  if (error) {
-    console.error("RPC failed, trying query to information_schema...");
-    // Let's run a raw query using a custom rpc or just fetch a single row and see keys
-    const { data: row, error: rowError } = await supabase.from('app_banners').select('*').limit(1);
-    if (rowError) {
-      console.error("Row query failed:", rowError);
-    } else {
-      console.log("Columns present in first row:", row.length > 0 ? Object.keys(row[0]) : "No rows");
-    }
+  console.log("Inspecting columns of 'profiles'...");
+  const { data: rows, error: rowError } = await supabase.from('profiles').select('id, email').limit(5);
+  if (rowError) {
+    console.error("Row query failed:", rowError);
   } else {
-    console.log("Columns from RPC:", data);
+    console.log("Real profiles:", rows);
   }
 }
 

@@ -1212,11 +1212,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         })
       });
 
+      const text = await response.text();
       let data: any = {};
       try {
-        data = await response.json();
+        data = JSON.parse(text);
       } catch (err) {
-        const text = await response.text().catch(() => "");
         throw new Error(text || `Código de estado: ${response.status}`);
       }
 
