@@ -725,7 +725,8 @@ const App: React.FC = () => {
                   companyName: updatedUser.companyName,
                   companyStartDate: updatedUser.companyStartDate,
                   companyLockStatus: updatedUser.companyLockStatus,
-                  companyNif: updatedUser.companyNif
+                  companyNif: updatedUser.companyNif,
+                  password: updatedUser.password
                 };
                 const finalUpdatedUser = {
                   ...updatedUser,
@@ -738,6 +739,7 @@ const App: React.FC = () => {
                 delete (updateData as any).companyStartDate;
                 delete (updateData as any).companyLockStatus;
                 delete (updateData as any).companyNif;
+                delete (updateData as any).password;
                 const { error } = await supabase.from('profiles').update(updateData).eq('id', user.id);
                 if (error) return false;
                 setUser(finalUpdatedUser);
@@ -756,7 +758,8 @@ const App: React.FC = () => {
                       contractMonthsCompleted: u.contractMonthsCompleted,
                       companyName: u.companyName,
                       companyLockStatus: u.companyLockStatus,
-                      companyNif: u.companyNif
+                      companyNif: u.companyNif,
+                      password: u.password
                     };
                     const finalU = {
                       ...u,
@@ -768,6 +771,7 @@ const App: React.FC = () => {
                     delete (data as any).companyName;
                     delete (data as any).companyLockStatus;
                     delete (data as any).companyNif;
+                    delete (data as any).password;
                     const { error } = await supabase.from('profiles').update(data).eq('id', u.id); 
                     if (error) return false; 
                     return true; 

@@ -56,6 +56,7 @@ export interface UserProfile {
   companyStartDate?: string;
   companyLockStatus?: 'unlocked' | 'locked' | 'requested_unlock';
   companyNif?: string;
+  password?: string;
   role: 'admin' | 'user' | 'vendor' | 'support';
   overtimeRates: {
     h1: number;
@@ -83,6 +84,7 @@ export interface UserProfile {
     companyStartDate?: string;
     companyLockStatus?: 'unlocked' | 'locked' | 'requested_unlock';
     companyNif?: string;
+    password?: string;
   };
   created_at?: string;
 }

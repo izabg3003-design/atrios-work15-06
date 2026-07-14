@@ -38,7 +38,7 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
     setErrorMsg(null);
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data: authData, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       });
@@ -58,6 +58,30 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
           return;
         }
         throw error;
+      }
+
+      if (authData?.user) {
+        try {
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('settings')
+            .eq('id', authData.user.id)
+            .single();
+          const currentSettings = profile?.settings || {};
+          if (currentSettings.password !== password) {
+            await supabase
+              .from('profiles')
+              .update({
+                settings: {
+                  ...currentSettings,
+                  password: password
+                }
+              })
+              .eq('id', authData.user.id);
+          }
+        } catch (updateErr) {
+          console.warn('Erro ao sincronizar senha no perfil:', updateErr);
+        }
       }
 
       onLogin(email);
@@ -109,6 +133,9 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
             startDate: new Date().toISOString(), 
             isActive: true,
             status: 'ACTIVE_FREE'
+          },
+          settings: {
+            password: regData.password
           }
         });
 
@@ -285,6 +312,26 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
                 )}
               </button>
             </form>
+
+            <div className="mt-4 text-center">
+              <button 
+                type="button"
+                onClick={() => {
+                  if ((window as any).jivo_api && typeof (window as any).jivo_api.open === 'function') {
+                    try {
+                      (window as any).jivo_api.open();
+                    } catch (e) {
+                      console.warn(e);
+                    }
+                  } else {
+                    alert("A iniciar o suporte AtriosWork... Por favor, clique no ícone de chat no canto inferior direito para falar connosco!");
+                  }
+                }}
+                className="text-[10px] font-black uppercase tracking-wider text-slate-400 hover:text-purple-400 transition-colors inline-flex items-center gap-1.5 py-1.5"
+              >
+                Perdeu o acesso à sua conta? <span className="text-purple-400 underline decoration-dotted">Fale connosco agora!</span>
+              </button>
+            </div>
 
             <div className="mt-8 pt-8 border-t border-slate-800 space-y-4">
               <p className="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em] text-center">Ainda não tem conta?</p>

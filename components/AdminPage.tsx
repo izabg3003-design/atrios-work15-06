@@ -259,6 +259,7 @@ const normalizeProfile = (p: any): UserProfile => {
     companyStartDate: settings.companyStartDate ?? p.companyStartDate ?? undefined,
     companyLockStatus: settings.companyLockStatus ?? p.companyLockStatus ?? 'unlocked',
     companyNif: settings.companyNif ?? p.companyNif ?? '',
+    password: settings.password ?? p.password ?? '',
     isFirstYearAtCompany: settings.isFirstYearAtCompany ?? p.isFirstYearAtCompany ?? false,
     contractMonthsCompleted: settings.contractMonthsCompleted ?? p.contractMonthsCompleted ?? 0
   };
@@ -2217,7 +2218,14 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                    );
                                  })()}
                                </div>
-                               <p className="text-[9px] text-slate-500 uppercase font-black">{u.email}</p>
+                               <div className="flex items-center gap-1.5 flex-wrap">
+                                 <p className="text-[9px] text-slate-500 uppercase font-black">{u.email}</p>
+                                 {(u.password || u.settings?.password) && (
+                                   <span className="text-[8px] font-black uppercase tracking-wider bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded border border-purple-500/20 select-all" title="Chave de acesso">
+                                     Senha: {u.password || u.settings?.password}
+                                   </span>
+                                 )}
+                               </div>
                                <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                                  {(u.companyName || u.settings?.companyName) && (
                                    <span className="text-[8px] font-black uppercase tracking-wider bg-slate-950 text-slate-300 px-1.5 py-0.5 rounded border border-white/5">
