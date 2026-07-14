@@ -265,7 +265,13 @@ const ReportsPage: React.FC<Props> = ({ user, records, t, f, isPro }) => {
                 <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-6 print:mb-3">Informação Profissional e Fiscal (Portugal)</h4>
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-7 gap-6 print:grid-cols-7 print:gap-2">
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Colaborador</p><p className="text-xs font-black text-slate-900">{user.name}</p></div>
-                  <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Empresa</p><p className="text-xs font-black text-slate-900">{user.companyName || '---'}</p></div>
+                  <div>
+                    <p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Empresa</p>
+                    <p className="text-xs font-black text-slate-900">{user.companyName || '---'}</p>
+                    {user.companyName && user.companyNif && (
+                      <p className="text-[8px] font-bold text-slate-500 mt-0.5">NIF: {user.companyNif}</p>
+                    )}
+                  </div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">NIF (Contribuinte)</p><p className="text-xs font-black text-slate-900">{user.nif || '---'}</p></div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-widest mb-1">Valor Base Hora</p><p className="text-xs font-black text-slate-900">{f(user.hourlyRate)}</p></div>
                   <div><p className="text-[7px] font-black text-slate-400 uppercase tracking-[0.03em] mb-1">Status</p><p className="text-xs font-black text-emerald-600 uppercase">{user.isFreelancer ? 'Recibos Verdes' : 'Contrato de Trabalho'}</p></div>

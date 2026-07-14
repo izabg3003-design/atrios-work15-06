@@ -2224,6 +2224,11 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                                      Empresa: {u.companyName || u.settings?.companyName}
                                    </span>
                                  )}
+                                 {(u.companyNif || u.settings?.companyNif) && (
+                                   <span className="text-[8px] font-black uppercase tracking-wider bg-slate-950/70 text-slate-400 px-1.5 py-0.5 rounded border border-white/5">
+                                     NIF: {u.companyNif || u.settings?.companyNif}
+                                   </span>
+                                 )}
 
                                  {(u.companyLockStatus === 'requested_unlock' || u.settings?.companyLockStatus === 'requested_unlock') && (
                                    <span className="text-[7px] font-black uppercase tracking-wider bg-amber-500/10 text-amber-500 px-1 py-0.5 rounded border border-amber-500/10 flex items-center gap-0.5 animate-pulse">
