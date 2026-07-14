@@ -757,6 +757,7 @@ const App: React.FC = () => {
                       isFirstYearAtCompany: u.isFirstYearAtCompany,
                       contractMonthsCompleted: u.contractMonthsCompleted,
                       companyName: u.companyName,
+                      companyStartDate: u.companyStartDate,
                       companyLockStatus: u.companyLockStatus,
                       companyNif: u.companyNif,
                       password: u.password
@@ -769,11 +770,15 @@ const App: React.FC = () => {
                     delete (data as any).isFirstYearAtCompany;
                     delete (data as any).contractMonthsCompleted;
                     delete (data as any).companyName;
+                    delete (data as any).companyStartDate;
                     delete (data as any).companyLockStatus;
                     delete (data as any).companyNif;
                     delete (data as any).password;
                     const { error } = await supabase.from('profiles').update(data).eq('id', u.id); 
-                    if (error) return false; 
+                    if (error) {
+                      console.error('[Admin Update Profile Error]:', error);
+                      return false; 
+                    }
                     return true; 
                   }} 
                   hideValues={hideValues}

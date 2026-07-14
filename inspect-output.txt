@@ -1,0 +1,7 @@
+Fetching user: jefersongoes36@gmail.com 
+User keys: ["id","name","email","nif","niss","photo","hourlyRate","defaultEntry","defaultExit","socialSecurity","irs","isFreelancer","vat","role","overtimeRates","subscription","updated_at","phone","settings","vendor_code","fcm_token","status"]
+User settings: {"currency":"EUR","language":"pt-PT","password":"123456","companyName":"Louri Blocos","last_seen_at":"2026-07-14T21:45:17.565Z","companyStartDate":"2026-07-14","companyLockStatus":"requested_unlock","isFirstYearAtCompany":false,"contractMonthsCompleted":0}
+User companyLockStatus directly: undefined
+Attempting to update profile table for ID: 06aec166-14fa-41a0-990c-b7ce4838c94e
+Keys of data being updated: ["name","email","nif","niss","photo","hourlyRate","defaultEntry","defaultExit","socialSecurity","irs","isFreelancer","vat","role","overtimeRates","subscription","updated_at","phone","settings","vendor_code","fcm_token","status"]
+✅ UPDATE SUCCEEDED! Result keys: ["id","name","email","nif","niss","photo","hourlyRate","defaultEntry","defaultExit","socialSecurity","irs","isFreelancer","vat","role","overtimeRates","subscription","updated_at","phone","settings","vendor_code","fcm_token","status"]
