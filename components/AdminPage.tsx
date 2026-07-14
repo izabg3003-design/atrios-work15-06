@@ -1213,11 +1213,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       });
 
       let data: any = {};
-      const contentType = response.headers.get("content-type");
-      if (contentType && contentType.includes("application/json")) {
+      try {
         data = await response.json();
-      } else {
-        const text = await response.text();
+      } catch (err) {
+        const text = await response.text().catch(() => "");
         throw new Error(text || `Código de estado: ${response.status}`);
       }
 
