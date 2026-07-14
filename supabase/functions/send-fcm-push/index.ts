@@ -213,12 +213,14 @@ serve(async (req) => {
         try {
           const parsed = JSON.parse(trimmed);
           if (parsed && parsed.endpoint) {
-            webPushSubscriptions.push({
-              subscription: parsed,
-              userId: null,
-            });
+            // EVITAR DUPLICAÇÃO: Se houver um token FCM embutido, usamos APENAS o FCM e não adicionamos a subscrição VAPID para evitar notificações duplicadas
             if (parsed.fcmToken) {
               fcmTokens.push(parsed.fcmToken);
+            } else {
+              webPushSubscriptions.push({
+                subscription: parsed,
+                userId: null,
+              });
             }
           } else if (parsed && parsed.fcmToken) {
             fcmTokens.push(parsed.fcmToken);

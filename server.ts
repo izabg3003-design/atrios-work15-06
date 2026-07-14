@@ -635,6 +635,12 @@ async function startServer() {
           const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
           if (!jaExiste) {
             const matchingProfile = profiles?.find((p) => p.id === ls.userId);
+
+            // EVITAR DUPLICAÇÃO: Se o perfil do usuário já possui fcm_token ativo no Supabase, evitamos processar a assinatura VAPID local obsoleta
+            if (matchingProfile && matchingProfile.fcm_token) {
+              return;
+            }
+
             const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
             const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
             const isMaster = isMasterEmail(userEmail) || userRole === "admin" || userRole === "master";
@@ -993,6 +999,11 @@ async function startServer() {
           // 1. Tentar associar usando dados de perfis se disponíveis
           const matchingProfile = profiles?.find((p) => p.id === ls.userId);
           
+          // EVITAR DUPLICAÇÃO: Se o perfil do usuário já possui fcm_token ativo no Supabase, evitamos processar a assinatura VAPID local obsoleta
+          if (matchingProfile && matchingProfile.fcm_token) {
+            return;
+          }
+          
           // 2. Determinar de forma independente as informações do utilizador (usando perfil do Supabase ou dados embutidos na assinatura)
           const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
           const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
@@ -1032,6 +1043,7 @@ async function startServer() {
       console.log(`[Push Server] Encontrados ${fcmTokens.length} dispositivos FCM e ${webPushSubscriptions.length} assinaturas Web Push (VAPID).`);
 
       let totalSent = 0;
+      const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
       // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
       const webPushPromises = webPushSubscriptions.map(async (ws) => {
@@ -1046,6 +1058,7 @@ async function startServer() {
             badge: iconUrl,
             vibrate: [100, 50, 100],
             data: { url: absoluteTargetUrl },
+            tag: uniqueTag,
           },
         });
 
@@ -1110,7 +1123,8 @@ async function startServer() {
                   icon: iconUrl,
                   badge: iconUrl,
                   clickAction: absoluteTargetUrl,
-                  requireInteraction: true
+                  requireInteraction: true,
+                  tag: uniqueTag
                 },
                 fcmOptions: {
                   link: absoluteTargetUrl,
@@ -1182,7 +1196,8 @@ async function startServer() {
                         badge: iconUrl,
                         click_action: absoluteTargetUrl,
                         clickAction: absoluteTargetUrl,
-                        requireInteraction: true
+                        requireInteraction: true,
+                        tag: uniqueTag
                       },
                       fcm_options: { link: absoluteTargetUrl },
                     },

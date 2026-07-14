@@ -225,7 +225,8 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
             icon: '/logo_atualizado.jpg?v=20260314_v1',
             badge: '/logo_atualizado.jpg?v=20260314_v1',
             vibrate: [200, 100, 200],
-            tag: 'atrioswork-alert'
+            tag: `push-alert-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
+            requireInteraction: true
           } as any);
         }).catch(() => {
           // Fallback para Notificação normal de janela

@@ -163,12 +163,8 @@ self.addEventListener('push', (event) => {
               nestedNotif.url || 
               '/';
 
-        // Usar a tag fornecida ou manter a tag única gerada dinamicamente para evitar agrupamentos indesejados
-        tag = notif.tag || 
-              rawData.tag || 
-              data.tag || 
-              nestedNotif.tag || 
-              tag;
+        // Garantir que a tag seja absolutamente única para evitar agrupamentos ou substituições indesejadas
+        tag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
       }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
