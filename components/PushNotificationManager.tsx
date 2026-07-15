@@ -477,109 +477,122 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   // Escutar cadastros e alertas de sistema em tempo real via Broadcast e Postgres Changes no Supabase
   useEffect(() => {
     if (!user.id || !isAdmin) return;
+    if (!supabase || typeof supabase.channel !== 'function') return;
 
-    // 1. Canal de Broadcast (Ultra-rápido para alertas em tempo real)
-    const broadcastChannel = supabase
-      .channel('atrioswork-admin-alerts')
-      .on('broadcast', { event: 'new_user_signup' }, (payload: any) => {
-        const { name, email } = payload.payload || {};
-        const title = '🆕 Novo Cadastro no App!';
-        const body = `O utilizador ${name || 'Novo Utilizador'} (${email || ''}) acabou de se cadastrar no AtriosWork.`;
+    try {
+      // 1. Canal de Broadcast (Ultra-rápido para alertas em tempo real)
+      const broadcastChannel = supabase.channel('atrioswork-admin-alerts');
+      if (broadcastChannel && typeof broadcastChannel.on === 'function') {
+        broadcastChannel
+          .on('broadcast', { event: 'new_user_signup' }, (payload: any) => {
+            const { name, email } = payload.payload || {};
+            const title = '🆕 Novo Cadastro no App!';
+            const body = `O utilizador ${name || 'Novo Utilizador'} (${email || ''}) acabou de se cadastrar no AtriosWork.`;
 
-        // Tocar som de chime agradável de sistema
-        try {
-          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
-          audio.volume = 0.5;
-          audio.play().catch(() => {});
-        } catch (soundErr) {
-          console.warn('[Audio Alert] Falha ao tocar som:', soundErr);
-        }
+            // Tocar som de chime agradável de sistema
+            try {
+              const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
+              audio.volume = 0.5;
+              audio.play().catch(() => {});
+            } catch (soundErr) {
+              console.warn('[Audio Alert] Falha ao tocar som:', soundErr);
+            }
 
-        // Exibir no pop-up flutuante do app
-        setNewPushAlert({
-          id: String(Date.now()),
-          title: title,
-          subtitle: body
-        });
-
-        // Registrar no histórico de recebidos
-        logReceivedPush(title, body, 'signup');
-
-        // Disparar notificação do browser nativa se a permissão estiver concedida
-        triggerNativePush(title, body);
-      })
-      .on('broadcast', { event: 'unlock_request' }, (payload: any) => {
-        const { name, email } = payload.payload || {};
-        const title = '🔓 Pedido de Desbloqueio!';
-        const body = `O utilizador ${name || 'Utilizador'} (${email || ''}) solicitou o desbloqueio da empresa.`;
-
-        // Tocar som de chime agradável de sistema
-        try {
-          const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
-          audio.volume = 0.5;
-          audio.play().catch(() => {});
-        } catch (soundErr) {
-          console.warn('[Audio Alert] Falha ao tocar som:', soundErr);
-        }
-
-        // Exibir no pop-up flutuante do app
-        setNewPushAlert({
-          id: String(Date.now()),
-          title: title,
-          subtitle: body
-        });
-
-        // Registrar no histórico de recebidos
-        logReceivedPush(title, body, 'unlock');
-
-        // Disparar notificação do browser nativa se a permissão estiver concedida
-        triggerNativePush(title, body);
-      })
-      .subscribe();
-
-    // 2. Canal de Alterações de Base de Dados (app_banners)
-    const dbChannel = supabase
-      .channel('admin-banners-realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'app_banners'
-        },
-        (payload: any) => {
-          const newBanner = payload.new;
-          if (newBanner && (
-            newBanner.title?.includes('[PUSH]') || 
-            newBanner.title?.includes('[SYSTEM]') || 
-            newBanner.user_type === 'push_notification' || 
-            newBanner.user_type === 'push_system'
-          )) {
-            const cleanTitle = newBanner.title.replace('[PUSH]', '').replace('[SYSTEM]', '').trim();
-            const cleanBody = newBanner.highlight || '';
-            
             // Exibir no pop-up flutuante do app
             setNewPushAlert({
-              id: String(newBanner.id || Date.now()),
-              title: cleanTitle,
-              subtitle: cleanBody
+              id: String(Date.now()),
+              title: title,
+              subtitle: body
             });
 
             // Registrar no histórico de recebidos
-            const pushCategory = newBanner.user_type === 'push_system' || newBanner.title.includes('[SYSTEM]') ? 'system' : 'manual';
-            logReceivedPush(cleanTitle, cleanBody, pushCategory);
+            logReceivedPush(title, body, 'signup');
 
             // Disparar notificação do browser nativa se a permissão estiver concedida
-            triggerNativePush(cleanTitle, cleanBody);
-          }
-        }
-      )
-      .subscribe();
+            triggerNativePush(title, body);
+          })
+          .on('broadcast', { event: 'unlock_request' }, (payload: any) => {
+            const { name, email } = payload.payload || {};
+            const title = '🔓 Pedido de Desbloqueio!';
+            const body = `O utilizador ${name || 'Utilizador'} (${email || ''}) solicitou o desbloqueio da empresa.`;
 
-    return () => {
-      supabase.removeChannel(broadcastChannel);
-      supabase.removeChannel(dbChannel);
-    };
+            // Tocar som de chime agradável de sistema
+            try {
+              const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-84.wav');
+              audio.volume = 0.5;
+              audio.play().catch(() => {});
+            } catch (soundErr) {
+              console.warn('[Audio Alert] Falha ao tocar som:', soundErr);
+            }
+
+            // Exibir no pop-up flutuante do app
+            setNewPushAlert({
+              id: String(Date.now()),
+              title: title,
+              subtitle: body
+            });
+
+            // Registrar no histórico de recebidos
+            logReceivedPush(title, body, 'unlock');
+
+            // Disparar notificação do browser nativa se a permissão estiver concedida
+            triggerNativePush(title, body);
+          })
+          .subscribe();
+      }
+
+      // 2. Canal de Alterações de Base de Dados (app_banners)
+      const dbChannel = supabase.channel('admin-banners-realtime');
+      if (dbChannel && typeof dbChannel.on === 'function') {
+        dbChannel
+          .on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'app_banners'
+            },
+            (payload: any) => {
+              const newBanner = payload.new;
+              if (newBanner && (
+                newBanner.title?.includes('[PUSH]') || 
+                newBanner.title?.includes('[SYSTEM]') || 
+                newBanner.user_type === 'push_notification' || 
+                newBanner.user_type === 'push_system'
+              )) {
+                const cleanTitle = newBanner.title.replace('[PUSH]', '').replace('[SYSTEM]', '').trim();
+                const cleanBody = newBanner.highlight || '';
+                
+                // Exibir no pop-up flutuante do app
+                setNewPushAlert({
+                  id: String(newBanner.id || Date.now()),
+                  title: cleanTitle,
+                  subtitle: cleanBody
+                });
+
+                // Registrar no histórico de recebidos
+                const pushCategory = newBanner.user_type === 'push_system' || newBanner.title.includes('[SYSTEM]') ? 'system' : 'manual';
+                logReceivedPush(cleanTitle, cleanBody, pushCategory);
+
+                // Disparar notificação do browser nativa se a permissão estiver concedida
+                triggerNativePush(cleanTitle, cleanBody);
+              }
+            }
+          )
+          .subscribe();
+      }
+
+      return () => {
+        try {
+          if (typeof supabase.removeChannel === 'function') {
+            if (broadcastChannel) supabase.removeChannel(broadcastChannel);
+            if (dbChannel) supabase.removeChannel(dbChannel);
+          }
+        } catch (e) {}
+      };
+    } catch (realtimeErr) {
+      console.warn('[PushNotificationManager Realtime Setup Error]:', realtimeErr);
+    }
   }, [user.id, isAdmin]);
 
   // Pedir Permissão de Notificações

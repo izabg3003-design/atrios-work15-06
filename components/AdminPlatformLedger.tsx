@@ -172,25 +172,48 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
   useEffect(() => {
     syncGlobalLedger();
     
-    // Subscrição em tempo real para alterações na tabela work_records e profiles
-    const channel1 = supabase.channel('atrioswork_ops_live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'work_records' }, () => syncGlobalLedger(true))
-      .subscribe();
+    if (!supabase || typeof supabase.channel !== 'function') {
+      const poller = setInterval(() => {
+        syncGlobalLedger(true);
+      }, 4000);
+      return () => clearInterval(poller);
+    }
 
-    const channel2 = supabase.channel('atrioswork_profiles_live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => syncGlobalLedger(true))
-      .subscribe();
+    try {
+      const channel1 = supabase.channel('atrioswork_ops_live');
+      if (channel1 && typeof channel1.on === 'function') {
+        channel1
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'work_records' }, () => syncGlobalLedger(true))
+          .subscribe();
+      }
 
-    // Poller de redundância a cada 4 segundos para garantir atualização imediata sem depender do Realtime/RLS
-    const poller = setInterval(() => {
-      syncGlobalLedger(true);
-    }, 4000);
+      const channel2 = supabase.channel('atrioswork_profiles_live');
+      if (channel2 && typeof channel2.on === 'function') {
+        channel2
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => syncGlobalLedger(true))
+          .subscribe();
+      }
 
-    return () => { 
-      supabase.removeChannel(channel1); 
-      supabase.removeChannel(channel2);
-      clearInterval(poller);
-    };
+      const poller = setInterval(() => {
+        syncGlobalLedger(true);
+      }, 4000);
+
+      return () => { 
+        try {
+          if (typeof supabase.removeChannel === 'function') {
+            if (channel1) supabase.removeChannel(channel1); 
+            if (channel2) supabase.removeChannel(channel2);
+          }
+        } catch (e) {}
+        clearInterval(poller);
+      };
+    } catch (realtimeErr) {
+      console.warn('[AdminPlatformLedger Realtime Setup Error]:', realtimeErr);
+      const poller = setInterval(() => {
+        syncGlobalLedger(true);
+      }, 4000);
+      return () => clearInterval(poller);
+    }
   }, [syncGlobalLedger]);
 
   // Prepara os dados para os anéis de rodela

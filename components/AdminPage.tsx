@@ -112,131 +112,32 @@ async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string):
 }
 
 async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string): Promise<{ successCount: number; errors: string[] }> {
-  const currentOrigin = window.location.origin;
-  const iconUrl = `${currentOrigin}/logo_atualizado.jpg?v=20260314_v1`;
-
-  const actualTokensMap = new Map<string, string>(); // FCM token -> Original raw database string
-  
-  tokens.forEach((t) => {
-    if (!t || !t.trim()) return;
-    const trimmed = t.trim();
-    if (trimmed.startsWith("{")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed && parsed.fcmToken) {
-          actualTokensMap.set(parsed.fcmToken, trimmed);
-        }
-      } catch (e) {
-        // Se falhar o parse, tenta usar a string inteira como token se não parecer JSON
-      }
-    } else {
-      actualTokensMap.set(trimmed, trimmed);
-    }
-  });
-
-  const actualTokens = Array.from(actualTokensMap.keys());
-  if (actualTokens.length === 0) {
-    return { successCount: 0, errors: [] };
-  }
-  
-  const accessToken = await getGoogleAccessToken(clientEmail, privateKey);
-  let successCount = 0;
-  const errors: string[] = [];
-
-  const sendPromises = actualTokens.map(async (token) => {
-    const dbValue = actualTokensMap.get(token) || token;
-    try {
-      const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          message: {
-            token: token,
-            notification: {
-              title: title,
-              body: body,
-            },
-            android: {
-              priority: "high"
-            },
-            apns: {
-              headers: {
-                "apns-priority": "10"
-              },
-              payload: {
-                aps: {
-                  sound: "default"
-                }
-              }
-            },
-            webpush: {
-              headers: {
-                "Urgency": "high"
-              },
-              notification: {
-                title: title,
-                body: body,
-                icon: iconUrl,
-                badge: iconUrl,
-              },
-              fcmOptions: {
-                link: "/"
-              }
-            },
-            data: {
-              url: "/",
-              click_action: "/"
-            }
-          }
+  try {
+    const response = await fetch('/api/send-fcm-push', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title,
+        body,
+        forceServiceAccount: true,
+        customServiceAccount: JSON.stringify({
+          project_id: projectId,
+          client_email: clientEmail,
+          private_key: privateKey
         })
-      });
-
-      if (response.ok) {
-        successCount++;
-      } else {
-        const result = await response.json();
-        console.error(`Falha ao enviar FCM para o token ${token.substring(0, 15)}...:`, result);
-        const errMsg = result?.error?.message || JSON.stringify(result);
-        if (!errors.includes(errMsg)) {
-          errors.push(errMsg);
-        }
-
-        // Auto-limpeza de tokens obsoletos, expirados ou não registados no Firebase
-        const status = result?.error?.status;
-        const message = (result?.error?.message || '').toLowerCase();
-        if (
-          status === 'UNREGISTERED' || 
-          status === 'NOT_FOUND' || 
-          message.includes('not a valid fcm registration token') || 
-          message.includes('unregistered') || 
-          message.includes('not-registered') ||
-          message.includes('not found')
-        ) {
-          console.warn(`Limpando token FCM obsoleto do banco de dados: ${token.substring(0, 15)}...`);
-          try {
-            await supabase
-              .from('profiles')
-              .update({ fcm_token: null })
-              .eq('fcm_token', dbValue);
-          } catch (dbCleanErr) {
-            console.error("Erro ao remover token FCM obsoleto do Supabase:", dbCleanErr);
-          }
-        }
-      }
-    } catch (err: any) {
-      console.error(`Erro ao enviar FCM para o token ${token.substring(0, 15)}...:`, err);
-      const errMsg = err.message || String(err);
-      if (!errors.includes(errMsg)) {
-        errors.push(errMsg);
-      }
+      })
+    });
+    const data = await response.json();
+    if (response.ok && data.success) {
+      return { successCount: data.sent || tokens.length, errors: [] };
+    } else {
+      return { successCount: 0, errors: [data.error || "Erro no envio pelo servidor"] };
     }
-  });
-
-  await Promise.all(sendPromises);
-  return { successCount, errors };
+  } catch (err: any) {
+    return { successCount: 0, errors: [err.message || "Erro de rede ao conectar ao servidor de push"] };
+  }
 }
 
 const generateAtriosWorkId = () => {
@@ -281,20 +182,33 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
   // Sincronização em tempo real de alterações de perfil (por exemplo, bloqueio/desbloqueio de empresa)
   useEffect(() => {
-    const channel = supabase.channel('admin-profiles-realtime')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
-        if (payload.new) {
-          const updated = normalizeProfile(payload.new);
-          setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
-          setSupportStaff(prev => prev.map(s => s.id === updated.id ? updated : s));
-          setVendors(prev => prev.map(v => v.id === updated.id ? { ...v, profile: updated } : v));
-        }
-      })
-      .subscribe();
+    if (!supabase || typeof supabase.channel !== 'function') return;
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    try {
+      const channel = supabase.channel('admin-profiles-realtime');
+      if (channel && typeof channel.on === 'function') {
+        channel
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'profiles' }, (payload) => {
+            if (payload.new) {
+              const updated = normalizeProfile(payload.new);
+              setUsers(prev => prev.map(u => u.id === updated.id ? updated : u));
+              setSupportStaff(prev => prev.map(s => s.id === updated.id ? updated : s));
+              setVendors(prev => prev.map(v => v.id === updated.id ? { ...v, profile: updated } : v));
+            }
+          })
+          .subscribe();
+      }
+
+      return () => {
+        try {
+          if (typeof supabase.removeChannel === 'function' && channel) {
+            supabase.removeChannel(channel);
+          }
+        } catch (e) {}
+      };
+    } catch (realtimeErr) {
+      console.warn('[AdminPage Realtime Setup Error]:', realtimeErr);
+    }
   }, []);
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [vendors, setVendors] = useState<any[]>([]);

@@ -26,8 +26,8 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
   const [chartData, setChartData] = useState<any[]>([]);
   const [distributionData, setDistributionData] = useState<any[]>([]);
 
-  const fetchGlobalData = useCallback(async () => {
-    setLoading(true);
+  const fetchGlobalData = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const { data: vData } = await supabase.from('vendors').select('*');
       const { data: pData } = await supabase.from('profiles').select('*');
@@ -45,11 +45,25 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
       const globalDisc = (masterSub.master_global_discount ?? 5) / 100;
 
       if (pData) {
-        // Apenas role === 'user' conta como venda
-        const allSalesProfiles = pData.filter(p => p.vendor_code && p.vendor_code.toString().trim() !== '' && p.role === 'user');
+        // Incluir todos os usuários com papel 'user' que tenham assinatura paga ativa (PRO ou ACTIVE_PAID)
+        const allSalesProfiles = pData.filter(p => {
+          if (p.role !== 'user') return false;
+          let sub: any = {};
+          try {
+            sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
+          } catch (e) { sub = {}; }
+          
+          return p.status === 'PRO' || p.status === 'ACTIVE_PAID' || sub?.status === 'PRO' || sub?.status === 'ACTIVE_PAID';
+        });
         
         const salesCount = allSalesProfiles.length;
-        const uniqueCodes = Array.from(new Set(allSalesProfiles.map(p => p.vendor_code?.toString().trim().toUpperCase())));
+        
+        // Obter os códigos de parceiro únicos das vendas (excluindo os vazios)
+        const uniqueCodes = Array.from(new Set(
+          allSalesProfiles
+            .map(p => p.vendor_code?.toString().trim().toUpperCase())
+            .filter(code => code && code !== '')
+        ));
         
         let totalCommissionsPaid = 0;
         let totalDiscountsGiven = 0;
@@ -84,8 +98,21 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
             revenue: rev,
             comm: comm
           };
-        }).sort((a, b) => b.count - a.count);
+        });
 
+        // Adicionar Vendas Diretas (Sem Parceiro) se existirem no breakdown
+        const directSales = allSalesProfiles.filter(p => !p.vendor_code || p.vendor_code.toString().trim() === '');
+        if (directSales.length > 0) {
+          breakdown.push({
+            name: 'Vendas Diretas (Sem Parceiro)',
+            code: 'DIRETO',
+            count: directSales.length,
+            revenue: directSales.length * 9.90,
+            comm: 0
+          });
+        }
+
+        breakdown.sort((a, b) => b.count - a.count);
         setVendorSalesBreakdown(breakdown);
 
         const price = 9.90;
@@ -95,9 +122,9 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
 
         const totalRawRevenue = salesCount * price;
         const totalGrossReal = totalRawRevenue - totalDiscountsGiven;
-        const totalIva = totalRawRevenue * ivaRate;
-        const totalStripeFees = (totalRawRevenue * stripePercent) + (salesCount * stripeFlat);
-        const totalNetProfit = totalRawRevenue - (totalIva + totalStripeFees + totalCommissionsPaid + totalDiscountsGiven);
+        const totalIva = totalGrossReal * ivaRate;
+        const totalStripeFees = (totalGrossReal * stripePercent) + (salesCount * stripeFlat);
+        const totalNetProfit = totalGrossReal - (totalIva + totalStripeFees + totalCommissionsPaid);
         
         setStats({
           totalSales: salesCount,
@@ -137,6 +164,7 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
           
           const mComm = monthlySales.reduce((acc, sale) => {
             const code = sale.vendor_code?.toString().trim().toUpperCase();
+            if (!code) return acc;
             const knownVendor = vData?.find(v => v.code?.toString().trim().toUpperCase() === code);
             const rate = knownVendor?.commission_rate ?? globalComm;
             return acc + rate;
@@ -144,6 +172,7 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
 
           const mDisc = monthlySales.reduce((acc, sale) => {
             const code = sale.vendor_code?.toString().trim().toUpperCase();
+            if (!code) return acc;
             const knownVendor = vData?.find(v => v.code?.toString().trim().toUpperCase() === code);
             const vendorProfile = pData?.find(p => p.id === knownVendor?.id);
             let vSub: any = {};
@@ -152,10 +181,10 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
             return acc + (price * discRate);
           }, 0);
 
-          const mIva = mBruto * ivaRate;
-          const mFees = (mBruto * stripePercent) + (count * stripeFlat);
+          const mIva = (mBruto - mDisc) * ivaRate;
+          const mFees = ((mBruto - mDisc) * stripePercent) + (count * stripeFlat);
 
-          const mNet = mBruto - (mIva + mFees + mComm + mDisc);
+          const mNet = (mBruto - mDisc) - (mIva + mFees + mComm);
           return { name: m, lucro: Number(Math.max(0, mNet).toFixed(2)) };
         });
         setChartData(monthlyStats);
@@ -169,6 +198,50 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
 
   useEffect(() => {
     fetchGlobalData();
+
+    // Poller de redundância ativa a cada 4 segundos para garantir sincronismo total e imediato no painel master
+    const poller = setInterval(() => {
+      fetchGlobalData(true);
+    }, 4000);
+
+    if (!supabase || typeof supabase.channel !== 'function') {
+      return () => clearInterval(poller);
+    }
+
+    try {
+      const channelProfiles = supabase.channel('analytics-profiles-realtime');
+      if (channelProfiles && typeof channelProfiles.on === 'function') {
+        channelProfiles
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => {
+            fetchGlobalData(true);
+          })
+          .subscribe();
+      }
+
+      const channelVendors = supabase.channel('analytics-vendors-realtime');
+      if (channelVendors && typeof channelVendors.on === 'function') {
+        channelVendors
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'vendors' }, () => {
+            fetchGlobalData(true);
+          })
+          .subscribe();
+      }
+
+      return () => {
+        clearInterval(poller);
+        try {
+          if (typeof supabase.removeChannel === 'function') {
+            if (channelProfiles) supabase.removeChannel(channelProfiles);
+            if (channelVendors) supabase.removeChannel(channelVendors);
+          }
+        } catch (e) {
+          console.warn('[Realtime Analytics cleanup error]:', e);
+        }
+      };
+    } catch (realtimeErr) {
+      console.warn('[Realtime Analytics setup error]:', realtimeErr);
+      return () => clearInterval(poller);
+    }
   }, [fetchGlobalData]);
 
   const handlePrint = () => {
@@ -199,7 +272,7 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
           <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest leading-none">AtriosWork — Auditoria Digital</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={fetchGlobalData} className="p-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-2xl transition-all">
+          <button onClick={() => fetchGlobalData()} className="p-4 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-2xl transition-all">
             <RefreshCcw className="w-4 h-4" />
           </button>
           <button onClick={handlePrint} className="flex items-center gap-3 px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-2xl text-[10px] font-black uppercase shadow-xl">

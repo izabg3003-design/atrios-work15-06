@@ -126,6 +126,36 @@ if (isConfigured && supabase) {
 
     const customFunctions = {
       invoke: async function (functionName: string, options?: any) {
+        if (functionName === 'process-payment') {
+          try {
+            console.log(`[Payment Interceptor] Desviando chamada da Edge Function '${functionName}' para a API local /api/process-payment...`);
+            const response = await fetch('/api/process-payment', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify(options?.body || {}),
+            });
+            
+            const responseText = await response.text();
+            let data: any = null;
+            if (responseText.trim()) {
+              try {
+                data = JSON.parse(responseText);
+              } catch (parseErr) {
+                console.warn("[Payment Interceptor] Falha ao analisar resposta JSON do servidor local:", parseErr, "Resposta recebida:", responseText);
+                data = { success: response.ok, rawText: responseText };
+              }
+            } else {
+              data = { success: response.ok, message: "Empty response" };
+            }
+            
+            return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no processamento do pagamento via backend") };
+          } catch (err: any) {
+            console.warn("[Payment Interceptor] Falha ao chamar a API de backup local de pagamento:", err);
+            return { data: null, error: new Error("Falha no processamento local do pagamento e fallback bloqueado.") };
+          }
+        }
         if (functionName === 'send-fcm-push' || functionName === 'send-push') {
           try {
             console.log(`[FCM Interceptor] Desviando chamada da Edge Function '${functionName}' para a API local /api/send-fcm-push...`);
@@ -189,6 +219,31 @@ if (isConfigured && supabase) {
       try {
         const originalInvoke = rawSupabase.functions.invoke.bind(rawSupabase.functions);
         rawSupabase.functions.invoke = async function (functionName: string, options?: any) {
+          if (functionName === 'process-payment') {
+            try {
+              console.log(`[Payment Interceptor Fallback] Desviando para a API local...`);
+              const response = await fetch('/api/process-payment', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(options?.body || {}),
+              });
+              const responseText = await response.text();
+              let data: any = null;
+              if (responseText.trim()) {
+                try {
+                  data = JSON.parse(responseText);
+                } catch (parseErr) {
+                  data = { success: response.ok, rawText: responseText };
+                }
+              } else {
+                data = { success: response.ok, message: "Empty response" };
+              }
+              return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no processamento do pagamento") };
+            } catch (err: any) {
+              console.warn("[Payment Interceptor Fallback] Falha na API local de pagamento:", err);
+              return { data: null, error: new Error("Falha no processamento local de pagamento.") };
+            }
+          }
           if (functionName === 'send-fcm-push' || functionName === 'send-push') {
             try {
               console.log(`[FCM Interceptor Fallback] Desviando para a API local...`);

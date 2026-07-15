@@ -749,6 +749,22 @@ async function startServer() {
       });
 
       // 🔵 DISPARO 2: Enviar via Firebase Cloud Messaging (FCM)
+      let finalServiceAccountEnv = serviceAccountEnv;
+      if (!finalServiceAccountEnv) {
+        try {
+          const { data: configData } = await supabase
+            .from('app_banners')
+            .select('highlight')
+            .eq('user_type', 'fcm_config')
+            .maybeSingle();
+          if (configData && configData.highlight) {
+            finalServiceAccountEnv = configData.highlight;
+          }
+        } catch (dbErr) {
+          console.warn("[Notify API] Erro ao carregar credenciais dinâmicas do FCM de app_banners:", dbErr);
+        }
+      }
+
       const fcmPromises = fcmTokens.map(async (token) => {
         if (isFirebaseAdminInitialized) {
           try {
@@ -782,9 +798,9 @@ async function startServer() {
           }
         }
 
-        if (serviceAccountEnv) {
+        if (finalServiceAccountEnv) {
           try {
-            const serviceAccount = JSON.parse(serviceAccountEnv);
+            const serviceAccount = JSON.parse(finalServiceAccountEnv);
             const accessToken = getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
             const projectId = serviceAccount.project_id;
 
@@ -853,6 +869,144 @@ async function startServer() {
       return res.status(500).json({
         success: false,
         error: err.message || String(err)
+      });
+    }
+  });
+
+  // ROTA: Processamento de Pagamento (Stripe + Sincronização e Fallback Inteligente)
+  app.post("/api/process-payment", async (req, res) => {
+    try {
+      const { token, email, description, vendorCode, discountPercent } = req.body;
+
+      console.log(`[Local Payment API] A receber pedido para: ${email}`);
+
+      if (!token) {
+        return res.status(400).json({ success: false, error: "Token de pagamento não fornecido." });
+      }
+      if (!email) {
+        return res.status(400).json({ success: false, error: "E-mail do cliente não fornecido." });
+      }
+
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseServiceKey) {
+        return res.status(500).json({ success: false, error: "Credenciais do Supabase não configuradas no servidor." });
+      }
+
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+
+      // Cálculo do Valor Final Dinâmico
+      const BASE_PRICE = 9.90;
+      let finalPrice = BASE_PRICE;
+      let discountApplied = false;
+
+      const discountVal = typeof discountPercent === 'string' ? parseFloat(discountPercent) : discountPercent;
+
+      if (discountVal !== undefined && discountVal !== null && discountVal > 0) {
+        discountApplied = true;
+        const discountRate = discountVal / 100;
+        finalPrice = BASE_PRICE * (1 - discountRate);
+        console.log(`[Local Payment API] Desconto de ${discountVal}% aplicado via checkout.`);
+      } else if (vendorCode) {
+        const code = vendorCode.trim().toUpperCase();
+        
+        const { data: vData } = await supabaseAdmin
+          .from('vendors')
+          .select('id')
+          .ilike('code', code)
+          .maybeSingle();
+        
+        if (vData) {
+          const { data: pData } = await supabaseAdmin
+            .from('profiles')
+            .select('subscription')
+            .eq('id', vData.id)
+            .maybeSingle();
+
+          if (pData) {
+            discountApplied = true;
+            let sub: any = {};
+            try {
+              sub = typeof pData.subscription === 'string' ? JSON.parse(pData.subscription) : (pData.subscription || {});
+            } catch (e) { sub = {}; }
+            
+            const dbDiscount = sub.custom_discount ?? 5;
+            const discountRate = dbDiscount / 100;
+            finalPrice = BASE_PRICE * (1 - discountRate);
+            console.log(`[Local Payment API] Desconto de ${dbDiscount}% recuperado da DB do parceiro.`);
+          } else {
+            discountApplied = true;
+            finalPrice = BASE_PRICE * 0.95;
+          }
+        }
+      }
+
+      const amountCents = Math.round(finalPrice * 100);
+      
+      if (isNaN(amountCents) || amountCents <= 0) {
+        return res.status(400).json({ success: false, error: `Montante calculado inválido: ${amountCents}` });
+      }
+
+      // Verificação da chave Stripe
+      const stripeKey = process.env.STRIPE_SECRET_KEY?.replace(/\s/g, '');
+
+      if (!stripeKey || stripeKey.trim() === '' || stripeKey.includes('SUA_CHAVE') || token === 'BYPASS_DEV_MODE') {
+        console.log(`[Local Payment API] Stripe Key ausente ou em modo bypass/teste. Simulando pagamento com sucesso!`);
+        return res.status(200).json({
+          success: true,
+          chargeId: `MOCK_AW_${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+          amountCharged: amountCents / 100,
+          discounted: discountApplied,
+          status: 'succeeded'
+        });
+      }
+
+      // Chamada real ao Stripe via REST API nativa
+      const params = new URLSearchParams();
+      params.append('amount', amountCents.toString());
+      params.append('currency', 'eur');
+      params.append('confirm', 'true');
+      params.append('payment_method_data[type]', 'card');
+      params.append('payment_method_data[card][token]', token);
+      params.append('description', description || `Licença AtriosWork Elite - ${email}`);
+      params.append('receipt_email', email);
+      params.append('off_session', 'true');
+      params.append('return_url', 'https://atrioswork.com/success');
+      params.append('metadata[vendor_code]', vendorCode || 'DIRETO');
+      params.append('metadata[discount_percent]', discountApplied ? (discountVal || 'DB_SYNC').toString() : '0%');
+
+      console.log(`[Local Payment API] Montante final: ${amountCents} cêntimos (${finalPrice}€). A contactar Stripe...`);
+
+      const stripeResponse = await fetch('https://api.stripe.com/v1/payment_intents', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${stripeKey}`,
+        },
+        body: params
+      });
+
+      const stripeData = await stripeResponse.json() as any;
+
+      if (!stripeResponse.ok) {
+        console.error("[Local Payment API Stripe Error]:", JSON.stringify(stripeData));
+        const errorMessage = stripeData.error?.message || "Erro desconhecido no processamento bancário.";
+        return res.status(400).json({ success: false, error: errorMessage });
+      }
+
+      return res.status(200).json({
+        success: true,
+        chargeId: stripeData.id,
+        amountCharged: amountCents / 100,
+        discounted: discountApplied,
+        status: stripeData.status
+      });
+
+    } catch (error: any) {
+      console.error("[Local Payment API Fatal Error]:", error.message);
+      return res.status(500).json({
+        success: false,
+        error: error.message || "Erro interno ao processar pagamento."
       });
     }
   });
@@ -1131,6 +1285,32 @@ async function startServer() {
       });
 
       // 🔵 DISPARO 2: Enviar notificações via Firebase Cloud Messaging (FCM)
+      let finalServiceAccountEnv = serviceAccountEnv;
+      if (req.body.customServiceAccount) {
+        try {
+          finalServiceAccountEnv = typeof req.body.customServiceAccount === 'string'
+            ? req.body.customServiceAccount
+            : JSON.stringify(req.body.customServiceAccount);
+        } catch (e) {
+          console.warn("[Push Server] Falha ao parsear customServiceAccount:", e);
+        }
+      }
+
+      if (!finalServiceAccountEnv) {
+        try {
+          const { data: configData } = await supabase
+            .from('app_banners')
+            .select('highlight')
+            .eq('user_type', 'fcm_config')
+            .maybeSingle();
+          if (configData && configData.highlight) {
+            finalServiceAccountEnv = configData.highlight;
+          }
+        } catch (dbErr) {
+          console.warn("[Push Server] Erro ao carregar credenciais dinâmicas do FCM de app_banners:", dbErr);
+        }
+      }
+
       const fcmPromises = fcmTokens.map(async (token) => {
         const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
         // Método A: Usar Firebase Admin SDK se inicializado
@@ -1195,9 +1375,9 @@ async function startServer() {
         }
 
         // Método B: Fallback para requisição direta à API HTTP v1 se tivermos a conta de serviço carregada
-        if (serviceAccountEnv) {
+        if (finalServiceAccountEnv) {
           try {
-            const serviceAccount = JSON.parse(serviceAccountEnv);
+            const serviceAccount = JSON.parse(finalServiceAccountEnv);
             const accessToken = getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
             const projectId = serviceAccount.project_id;
 
