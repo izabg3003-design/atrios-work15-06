@@ -128,11 +128,12 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
           role: 'user',
           hourlyRate: 10,
           isFreelancer: false,
+          status: 'FREE',
           subscription: {
             id: `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
             startDate: new Date().toISOString(), 
             isActive: true,
-            status: 'ACTIVE_FREE'
+            status: 'FREE'
           },
           password: regData.password,
           settings: {

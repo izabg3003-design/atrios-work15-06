@@ -8,6 +8,7 @@ interface Props {
   onSuccess: () => void;
   onBack: () => void;
   t: (key: string) => any;
+  currentUser?: any;
 }
 
 const generateAtriosWorkId = () => {
@@ -17,7 +18,7 @@ const generateAtriosWorkId = () => {
   return `AW-${year}-${hex}-${serial}-AW`;
 };
 
-const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
+const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t, currentUser }) => {
   const [loading, setLoading] = useState(false);
   const [vendorCode, setVendorCode] = useState('');
   const [isValidatingCode, setIsValidatingCode] = useState(false);
@@ -34,9 +35,9 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
   const [cardNumberElement, setCardNumberElement] = useState<any>(null);
 
   const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
+    name: currentUser?.name || '',
+    email: currentUser?.email || '',
+    phone: currentUser?.phone || '',
     password: '',
     confirmPassword: ''
   });
@@ -161,7 +162,7 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
     e.preventDefault();
     setErrorDetails(null);
 
-    if (formData.password !== formData.confirmPassword) {
+    if (!currentUser?.id && formData.password !== formData.confirmPassword) {
       setErrorDetails("As senhas não coincidem!");
       return;
     }
@@ -169,8 +170,10 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
     setLoading(true);
 
     try {
-      const { data: existingUser } = await supabase.from('profiles').select('id').eq('email', formData.email).maybeSingle();
-      if (existingUser) throw new Error("Este e-mail já possui uma licença AtriosWork ativa.");
+      if (!currentUser?.id) {
+        const { data: existingUser } = await supabase.from('profiles').select('id').eq('email', formData.email).maybeSingle();
+        if (existingUser) throw new Error("Este e-mail já possui uma licença AtriosWork ativa.");
+      }
 
       if (vendorCode.trim().toUpperCase() === 'ATRIOSWORK-FREE-DEV') {
         setPaymentStep('charging');
@@ -232,22 +235,30 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
 
   const finalizeAtriosWorkAccount = async (chargeId: string, finalAmount: number, wasDiscounted: boolean) => {
     try {
-      const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: { 
-          data: { 
-            full_name: formData.name, 
-            phone: formData.phone
-          } 
-        }
-      });
+      let targetUserId = currentUser?.id;
 
-      if (authError) throw authError;
+      if (!targetUserId) {
+        const { data: authData, error: authError } = await supabase.auth.signUp({
+          email: formData.email,
+          password: formData.password,
+          options: { 
+            data: { 
+              full_name: formData.name, 
+              phone: formData.phone
+            } 
+          }
+        });
 
-      if (authData.user) {
+        if (authError) throw authError;
+        targetUserId = authData.user?.id;
+      }
+
+      if (targetUserId) {
+        const expiryDate = new Date();
+        expiryDate.setFullYear(expiryDate.getFullYear() + 1);
+
         const { error: profileError } = await supabase.from('profiles').upsert({
-          id: authData.user.id,
+          id: targetUserId,
           name: formData.name,
           email: formData.email,
           phone: formData.phone,
@@ -255,13 +266,15 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
           role: 'user',
           hourlyRate: 10,
           isFreelancer: false,
+          status: 'PRO',
           subscription: {
             id: generateAtriosWorkId(),
             startDate: new Date().toISOString(), 
+            expiryDate: expiryDate.toISOString(),
             isActive: true,
             appliedDiscount: wasDiscounted ? appliedDiscountPercent : 0,
             paidAmount: finalAmount,
-            status: 'ACTIVE_PAID',
+            status: 'PRO',
             stripe_charge_id: chargeId,
             payment_date: new Date().toISOString()
           }
@@ -300,10 +313,12 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
         
         setPaymentStep('success');
         setTimeout(() => onSuccess(), 1500);
+      } else {
+        throw new Error("Não foi possível identificar o utilizador para ativação.");
       }
     } catch (err: any) {
       setPaymentStep('failed');
-      setErrorDetails(`Erro ao criar conta AtriosWork: ${err.message}`);
+      setErrorDetails(`Erro ao criar conta ou atualizar licença AtriosWork: ${err.message}`);
     }
   };
 
@@ -449,16 +464,18 @@ const SubscriptionPage: React.FC<Props> = ({ onSuccess, onBack, t }) => {
                     </div>
                   </div>
                   
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-500 uppercase ml-2 tracking-widest">Criar Palavra-passe</label>
-                      <input type="password" required value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" placeholder="••••••••" />
+                  {!currentUser?.id && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2 tracking-widest">Criar Palavra-passe</label>
+                        <input type="password" required value={formData.password} onChange={e => setFormData({...formData, password: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" placeholder="••••••••" />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase ml-2 tracking-widest">Repetir Palavra-passe</label>
+                        <input type="password" required value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" placeholder="••••••••" />
+                      </div>
                     </div>
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black text-slate-500 uppercase ml-2 tracking-widest">Repetir Palavra-passe</label>
-                      <input type="password" required value={formData.confirmPassword} onChange={e => setFormData({...formData, confirmPassword: e.target.value})} className="w-full bg-slate-950 border border-slate-800 rounded-2xl px-6 py-4 text-white font-bold" placeholder="••••••••" />
-                    </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="bg-slate-950/80 p-10 rounded-[3rem] border border-slate-800 space-y-8 shadow-2xl">

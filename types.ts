@@ -58,6 +58,7 @@ export interface UserProfile {
   companyNif?: string;
   password?: string;
   role: 'admin' | 'user' | 'vendor' | 'support';
+  status?: string;
   overtimeRates: {
     h1: number;
     h2: number;

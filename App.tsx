@@ -207,7 +207,7 @@ const App: React.FC = () => {
 
   const isPro = useMemo(() => {
     const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
-    const isPaid = sub?.status === 'ACTIVE_PAID';
+    const isPaid = sub?.status === 'ACTIVE_PAID' || sub?.status === 'PRO' || user?.status === 'PRO' || user?.status === 'ACTIVE_PAID';
     const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
     const isAdmin = user.role === 'admin';
     
@@ -602,7 +602,7 @@ const App: React.FC = () => {
       )}
       {appState === 'privacy' && <PrivacyPage onBack={() => setAppState('landing')} />}
       {appState === 'terms' && <TermsPage onBack={() => setAppState('landing')} />}
-      {appState === 'subscription' && <SubscriptionPage onSuccess={() => setAppState('login')} onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} t={t} />}
+      {appState === 'subscription' && <SubscriptionPage currentUser={user} onSuccess={() => setAppState('login')} onBack={() => setAppState(user.id ? 'dashboard' : 'landing')} t={t} />}
       {appState === 'login' && (
         <LoginPage 
           onLogin={() => {}} 

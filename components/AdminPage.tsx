@@ -1185,13 +1185,16 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
       const updatedSub = { 
         ...sub, 
-        status: 'ACTIVE_PAID', 
+        status: 'PRO', 
         isActive: true,
         expiryDate: expiryDate.toISOString(),
         promotionDays: days
       };
 
-      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', userId);
+      const { error } = await supabase.from('profiles').update({ 
+        subscription: updatedSub,
+        status: 'PRO'
+      }).eq('id', userId);
       if (error) throw error;
       
       setPromotingUser(null);
@@ -2263,6 +2266,12 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     let sub: any = {};
                     if (typeof rawSub === 'string') { try { sub = JSON.parse(rawSub); } catch(e) {} } else { sub = rawSub || {}; }
                     const isSuspended = sub.isActive === false;
+
+                    const isUserPaid = sub?.status === 'ACTIVE_PAID' || sub?.status === 'PRO' || u?.status === 'PRO' || u?.status === 'ACTIVE_PAID';
+                    const isUserMaster = u.email?.toLowerCase()?.includes('master@atrioswork.com') || u.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || u.email?.toLowerCase()?.includes('master@digitalnexus.com');
+                    const isUserAdmin = u.role === 'admin';
+                    const isUserPro = isUserMaster || isUserAdmin || isUserPaid;
+
                     return (
                       <tr key={u.id} className="transition-all hover:bg-slate-800/40">
                         <td className="px-10 py-6">
@@ -2271,6 +2280,13 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                             <div>
                                <div className="flex items-center gap-2">
                                  <p className="font-bold text-white text-sm">{u.name}</p>
+                                 <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md border ${
+                                   isUserPro 
+                                     ? 'bg-purple-500/15 text-purple-400 border-purple-500/25' 
+                                     : 'bg-slate-500/10 text-slate-400 border-slate-500/20'
+                                 }`}>
+                                   {isUserPro ? 'PRO' : 'FREE'}
+                                 </span>
                                  {(() => {
                                    const activity = getUserActivityStatus(u);
                                    return (
