@@ -21,7 +21,8 @@ interface BeforeInstallPromptEvent extends Event {
 const PushNotificationManager: React.FC<Props> = ({ user }) => {
   const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || 
                    user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || 
-                   user.email?.toLowerCase()?.includes('master@digitalnexus.com');
+                   user.email?.toLowerCase()?.includes('master@digitalnexus.com') ||
+                   user.email?.toLowerCase()?.includes('jefersongoes36@gmail.com');
   const isAdmin = user.role === 'admin' || user.email === 'admin@atrioswork.com' || isMaster;
 
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);

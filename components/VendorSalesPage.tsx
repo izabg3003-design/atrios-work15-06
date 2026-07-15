@@ -67,7 +67,17 @@ const VendorSalesPage: React.FC<Props> = ({ user, adminOverrideVendor, onBackToA
         
         if (error) throw error;
         
-        const sortedSales = (data || []).sort((a: any, b: any) => {
+        const filteredData = (data || []).filter((u: any) => {
+          const email = (u.email || '').toLowerCase();
+          const isMasterEmail = 
+            email.includes('master@atrioswork.com') || 
+            email.includes('izarellebraga@gmail.com') || 
+            email.includes('master@digitalnexus.com') ||
+            email.includes('jefersongoes36@gmail.com');
+          return !isMasterEmail;
+        });
+
+        const sortedSales = filteredData.sort((a: any, b: any) => {
           try {
             const subA = typeof a.subscription === 'string' ? JSON.parse(a.subscription) : a.subscription;
             const subB = typeof b.subscription === 'string' ? JSON.parse(b.subscription) : b.subscription;

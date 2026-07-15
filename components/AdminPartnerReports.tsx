@@ -23,7 +23,7 @@ const AdminPartnerReports: React.FC<Props> = ({ f }) => {
       const { data: vData } = await supabase.from('vendors').select('*');
       const { data: pData } = await supabase.from('profiles').select('*');
       
-      const masterData = pData?.find((p: any) => p.email?.toLowerCase()?.includes('master@atrioswork.com') || p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || p.email?.toLowerCase()?.includes('master@digitalnexus.com'));
+      const masterData = pData?.find((p: any) => p.email?.toLowerCase()?.includes('master@atrioswork.com') || p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || p.email?.toLowerCase()?.includes('master@digitalnexus.com') || p.email?.toLowerCase()?.includes('jefersongoes36@gmail.com'));
       if (masterData) {
         let sub: any = {};
         try { sub = typeof masterData.subscription === 'string' ? JSON.parse(masterData.subscription) : (masterData.subscription || {}); } catch(e) {}
@@ -58,7 +58,9 @@ const AdminPartnerReports: React.FC<Props> = ({ f }) => {
 
       const vendorSales = profiles.filter((p: any) => {
         const pCode = (p.vendor_code || '').trim().toUpperCase();
-        if (pCode !== vendorCode || p.id === vendor.id || p.role !== 'user') return false;
+        const email = (p.email || '').toLowerCase();
+        const isMasterEmail = email.includes('master@atrioswork.com') || email.includes('izarellebraga@gmail.com') || email.includes('master@digitalnexus.com') || email.includes('jefersongoes36@gmail.com');
+        if (pCode !== vendorCode || p.id === vendor.id || p.role !== 'user' || isMasterEmail) return false;
 
         try {
           const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;

@@ -32,7 +32,7 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
       const { data: vData } = await supabase.from('vendors').select('*');
       const { data: pData } = await supabase.from('profiles').select('*');
       
-      const masterProfile = pData?.find(p => p.email?.toLowerCase()?.includes('master@atrioswork.com') || p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || p.email?.toLowerCase()?.includes('master@digitalnexus.com'));
+      const masterProfile = pData?.find(p => p.email?.toLowerCase()?.includes('master@atrioswork.com') || p.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || p.email?.toLowerCase()?.includes('master@digitalnexus.com') || p.email?.toLowerCase()?.includes('jefersongoes36@gmail.com'));
       
       let masterSub: any = {};
       try {
@@ -45,9 +45,11 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
       const globalDisc = (masterSub.master_global_discount ?? 5) / 100;
 
       if (pData) {
-        // Incluir todos os usuários com papel 'user' que tenham assinatura paga ativa (PRO ou ACTIVE_PAID)
+        // Incluir todos os usuários com papel 'user' que tenham assinatura paga ativa (PRO ou ACTIVE_PAID), excluindo masters/admins
         const allSalesProfiles = pData.filter(p => {
-          if (p.role !== 'user') return false;
+          const email = p.email?.toLowerCase() || '';
+          const isMasterEmail = email.includes('master@atrioswork.com') || email.includes('izarellebraga@gmail.com') || email.includes('master@digitalnexus.com') || email.includes('jefersongoes36@gmail.com');
+          if (p.role !== 'user' || isMasterEmail) return false;
           let sub: any = {};
           try {
             sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;

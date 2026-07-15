@@ -97,6 +97,7 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
             email.includes('master@atrioswork.com') || 
             email.includes('izarellebraga@gmail.com') || 
             email.includes('master@digitalnexus.com') ||
+            email.includes('jefersongoes36@gmail.com') ||
             role === 'vendor' ||
             role === 'support' ||
             role === 'admin';
@@ -146,7 +147,8 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
         return role === 'user' && 
                !email.includes('master@atrioswork.com') && 
                !email.includes('izarellebraga@gmail.com') && 
-               !email.includes('master@digitalnexus.com');
+               !email.includes('master@digitalnexus.com') &&
+               !email.includes('jefersongoes36@gmail.com');
       }).length;
 
       // Unir trabalhadores registados com utilizadores com registos de atividade ativos

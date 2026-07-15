@@ -71,7 +71,18 @@ const VendorDetailPage: React.FC<Props> = ({ vendorId, currentUser, onBack, f, i
             .eq('role', 'user');
           
           if (mDataMembers) {
-            const sorted = [...mDataMembers].sort((a, b) => {
+            const filteredMembers = mDataMembers.filter((m: any) => {
+              const email = (m.email || '').toLowerCase();
+              const isMasterEmail = 
+                email.includes('master@atrioswork.com') || 
+                email.includes('izarellebraga@gmail.com') || 
+                email.includes('master@digitalnexus.com') ||
+                email.includes('jefersongoes36@gmail.com');
+              return !isMasterEmail;
+            });
+            setRealSalesCount(filteredMembers.length);
+
+            const sorted = [...filteredMembers].sort((a, b) => {
               try {
                 const subA = typeof a.subscription === 'string' ? JSON.parse(a.subscription) : a.subscription;
                 const subB = typeof b.subscription === 'string' ? JSON.parse(b.subscription) : b.subscription;

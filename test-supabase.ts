@@ -1,15 +1,21 @@
 import { supabase } from './lib/supabase';
 
 async function testIntercept() {
-  console.log("Testing supabase functions interceptor...");
+  console.log("Inspecting all profiles in the database...");
   try {
-    const { data, error } = await supabase.functions.invoke('send-fcm-push', {
-      body: { title: 'Test', body: 'Hello', audience: 'all' }
-    });
-    console.log("Result:", { data, error: error?.message });
+    const { data, error } = await supabase.from('profiles').select('*');
+    if (error) {
+      console.error("Error:", error);
+    } else {
+      console.log("Profiles list:");
+      data.forEach(p => {
+        console.log(`- ${p.name} (${p.email}) | Role: ${p.role} | Status: ${p.status} | Sub: ${JSON.stringify(p.subscription)}`);
+      });
+    }
   } catch (err: any) {
     console.error("Test threw error:", err);
   }
 }
 
 testIntercept();
+
