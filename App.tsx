@@ -238,22 +238,23 @@ const App: React.FC = () => {
   const PUBLIC_STATES: AppState[] = ['landing', 'privacy', 'terms', 'subscription', 'login', 'about-atrioswork', 'splash', 'language-gate'];
 
   useEffect(() => {
-    const isPublicPage = PUBLIC_STATES.includes(appState);
-    document.body.classList.toggle('jivo-visible', isPublicPage);
+    // Balão da JivoChat sempre visível em todas as páginas
+    document.body.classList.add('jivo-visible');
 
     const updateJivo = () => {
       try {
         const api = (window as any).jivo_api;
         if (api && typeof api.showWidget === 'function') {
-          if (isPublicPage) api.showWidget();
-          else { api.hideWidget(); if (typeof api.close === 'function') api.close(); }
+          api.showWidget();
         }
       } catch (e) {}
     };
 
     updateJivo();
     const interval = setInterval(() => {
-      if (isPublicPage && !document.body.classList.contains('jivo-visible')) document.body.classList.add('jivo-visible');
+      if (!document.body.classList.contains('jivo-visible')) {
+        document.body.classList.add('jivo-visible');
+      }
       updateJivo();
     }, 300);
     const timeout = setTimeout(() => clearInterval(interval), 5000);

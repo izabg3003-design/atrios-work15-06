@@ -7,9 +7,10 @@ import { WorkRecord } from '../types';
 
 interface Props {
   f: (val: number) => string;
+  adminEmail?: string;
 }
 
-const AdminPlatformLedger: React.FC<Props> = ({ f }) => {
+const AdminPlatformLedger: React.FC<Props> = ({ f, adminEmail }) => {
   const [loading, setLoading] = useState(true);
   const [debugLog, setDebugLog] = useState<string[]>([]);
   const [stats, setStats] = useState({
@@ -33,15 +34,49 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
     try {
       addLog("AtriosWork Cloud Global Sync...");
       
-      const [pRes, rRes] = await Promise.all([
-        supabase.from('profiles').select('*'),
-        supabase.from('work_records').select('*')
-      ]);
+      let rawRecords: any[] = [];
+      let allProfiles: any[] = [];
 
-      if (rRes.error) throw new Error(rRes.error.message);
+      if (adminEmail) {
+        try {
+          const res = await fetch('/api/admin/ledger-stats', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ adminEmail })
+          });
+          if (res.ok) {
+            const result = await res.json();
+            if (result.success) {
+              rawRecords = result.workRecords || [];
+              allProfiles = result.profiles || [];
+            } else {
+              throw new Error(result.error || "Erro na API de Estatísticas");
+            }
+          } else {
+            throw new Error(`Status de erro HTTP: ${res.status}`);
+          }
+        } catch (apiErr: any) {
+          console.warn("[Ledger Sync Fallback]: Erro na chamada da API de estatísticas:", apiErr);
+          const [pRes, rRes] = await Promise.all([
+            supabase.from('profiles').select('*'),
+            supabase.from('work_records').select('*')
+          ]);
+          if (rRes.error) throw new Error(rRes.error.message);
+          rawRecords = rRes.data || [];
+          allProfiles = pRes.data || [];
+        }
+      } else {
+        const [pRes, rRes] = await Promise.all([
+          supabase.from('profiles').select('*'),
+          supabase.from('work_records').select('*')
+        ]);
+        if (rRes.error) throw new Error(rRes.error.message);
+        rawRecords = rRes.data || [];
+        allProfiles = pRes.data || [];
+      }
 
-      const rawRecords = rRes.data || [];
-      const allProfiles = pRes.data || [];
       const profilesMap = new Map();
       allProfiles.forEach(p => { if (p.id) profilesMap.set(p.id, p); });
 
@@ -54,7 +89,21 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
         try {
           const uid = row.user_id || 'unlinked';
           const profile = profilesMap.get(uid);
-          activeUsersSet.add(uid);
+          
+          // Excluir administradores, suporte e parceiros (vendedores) de serem contados na força de trabalho ativa
+          const email = (profile?.email || row.user_email || '').toLowerCase();
+          const role = profile?.role || 'user';
+          const isExcluded = 
+            email.includes('master@atrioswork.com') || 
+            email.includes('izarellebraga@gmail.com') || 
+            email.includes('master@digitalnexus.com') ||
+            role === 'vendor' ||
+            role === 'support' ||
+            role === 'admin';
+
+          if (!isExcluded && uid !== 'unlinked') {
+            activeUsersSet.add(uid);
+          }
           
           let data: WorkRecord;
           if (!row.data) {
@@ -90,11 +139,24 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
         } catch (err) { }
       });
 
+      // Contagem de trabalhadores (membros normais com papel 'user') registados
+      const registeredWorkersCount = allProfiles.filter(p => {
+        const role = p.role || 'user';
+        const email = (p.email || '').toLowerCase();
+        return role === 'user' && 
+               !email.includes('master@atrioswork.com') && 
+               !email.includes('izarellebraga@gmail.com') && 
+               !email.includes('master@digitalnexus.com');
+      }).length;
+
+      // Unir trabalhadores registados com utilizadores com registos de atividade ativos
+      const finalWorkforceCount = Math.max(registeredWorkersCount, activeUsersSet.size);
+
       setStats({
         totalHours: gHours,
         totalDays: globalUniqueDays.size,
         totalGrossValue: gGross,
-        activeUsers: activeUsersSet.size,
+        activeUsers: finalWorkforceCount,
         rawRowCount: rawRecords.length,
         profilesCount: allProfiles.length
       });
@@ -105,12 +167,30 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [adminEmail]);
 
   useEffect(() => {
     syncGlobalLedger();
-    const channel = supabase.channel('atrioswork_ops_live').on('postgres_changes', { event: '*', schema: 'public', table: 'work_records' }, () => syncGlobalLedger(true)).subscribe();
-    return () => { supabase.removeChannel(channel); };
+    
+    // Subscrição em tempo real para alterações na tabela work_records e profiles
+    const channel1 = supabase.channel('atrioswork_ops_live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'work_records' }, () => syncGlobalLedger(true))
+      .subscribe();
+
+    const channel2 = supabase.channel('atrioswork_profiles_live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles' }, () => syncGlobalLedger(true))
+      .subscribe();
+
+    // Poller de redundância a cada 4 segundos para garantir atualização imediata sem depender do Realtime/RLS
+    const poller = setInterval(() => {
+      syncGlobalLedger(true);
+    }, 4000);
+
+    return () => { 
+      supabase.removeChannel(channel1); 
+      supabase.removeChannel(channel2);
+      clearInterval(poller);
+    };
   }, [syncGlobalLedger]);
 
   // Prepara os dados para os anéis de rodela

@@ -134,6 +134,7 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
             isActive: true,
             status: 'ACTIVE_FREE'
           },
+          password: regData.password,
           settings: {
             password: regData.password
           }

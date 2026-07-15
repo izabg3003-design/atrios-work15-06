@@ -89,15 +89,21 @@ const LandingPage: React.FC<Props> = ({ onLogin, onSubscribe, onFreeRegister, on
 
       {/* Navigation */}
       <nav className={`fixed top-0 left-0 right-0 z-[100] transition-all duration-500 ${scrolled ? 'py-4 bg-slate-950/90 backdrop-blur-xl border-b border-white/5' : 'py-8 bg-transparent'}`}>
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <img src="/logo_atualizado.jpg?v=20260314_v1" className="w-10 h-10 object-contain rounded-xl shadow-lg" alt="AtriosWork Logo" />
-            <span className="font-bold text-xl tracking-tighter text-white">Atrios<span className="text-emerald-400">Work</span></span>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between">
+          <div className="flex items-center gap-2 sm:gap-3">
+            <img src="/logo_atualizado.jpg?v=20260314_v1" className="w-8 h-8 sm:w-10 sm:h-10 object-contain rounded-xl shadow-lg" alt="AtriosWork Logo" />
+            <span className="font-bold text-sm sm:text-xl tracking-tighter text-white">Atrios<span className="text-emerald-400">Work</span></span>
           </div>
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-2 sm:gap-4">
             <button onClick={onAbout} className="hidden md:block text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-white transition-colors">A Empresa</button>
-            <button onClick={onLogin} className="text-[11px] font-black text-slate-400 uppercase tracking-widest hover:text-white transition-colors">Acesso Membro</button>
-            <button onClick={onSubscribe} className="px-6 py-3 bg-emerald-500 text-slate-950 rounded-xl text-[11px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 hover:bg-emerald-400">Ativar Licença</button>
+            <div className="flex flex-col gap-1 sm:hidden items-end">
+              <button onClick={onSubscribe} className="px-2 py-1 bg-emerald-500 text-slate-950 rounded-md text-[8px] font-black uppercase tracking-wider shadow-md transition-all active:scale-95 hover:bg-emerald-400 text-center">Ativar Licença</button>
+              <button onClick={onLogin} className="px-2 py-0.5 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-md text-[7.5px] font-black uppercase tracking-wider border border-white/5 transition-all active:scale-95 text-center">Acesso Membro</button>
+            </div>
+            <div className="hidden sm:flex items-center gap-4">
+              <button onClick={onLogin} className="px-4 py-3 bg-slate-900 hover:bg-slate-800 text-slate-200 rounded-xl text-[11px] font-black uppercase tracking-wider border border-white/10 transition-all active:scale-95">Acesso Membro</button>
+              <button onClick={onSubscribe} className="px-4 py-3 bg-emerald-500 text-slate-950 rounded-xl text-[11px] font-black uppercase tracking-wider shadow-lg transition-all active:scale-95 hover:bg-emerald-400">Ativar Licença</button>
+            </div>
           </div>
         </div>
       </nav>

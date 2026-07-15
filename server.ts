@@ -399,6 +399,56 @@ async function startServer() {
 
   app.use(express.json());
 
+  // ROTA: Buscar dados agregados para a aba Plataforma (Ledger) ignorando RLS
+  app.post("/api/admin/ledger-stats", async (req, res) => {
+    const { adminEmail } = req.body;
+    if (!adminEmail) {
+      return res.status(400).json({ success: false, error: "Parâmetros em falta." });
+    }
+
+    const emailLower = adminEmail.toLowerCase();
+    const isMaster = emailLower.includes('master@atrioswork.com') || 
+                     emailLower.includes('izarellebraga@gmail.com') || 
+                     emailLower.includes('master@digitalnexus.com');
+
+    if (!isMaster) {
+      return res.status(403).json({ success: false, error: "Não autorizado." });
+    }
+
+    try {
+      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+
+      if (!supabaseServiceKey) {
+        return res.status(500).json({ success: false, error: "Chave do Supabase em falta no servidor." });
+      }
+
+      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+        auth: {
+          autoRefreshToken: false,
+          persistSession: false
+        }
+      });
+
+      const [pRes, rRes] = await Promise.all([
+        supabaseAdmin.from('profiles').select('*'),
+        supabaseAdmin.from('work_records').select('*')
+      ]);
+
+      if (pRes.error) throw pRes.error;
+      if (rRes.error) throw rRes.error;
+
+      return res.json({
+        success: true,
+        profiles: pRes.data || [],
+        workRecords: rRes.data || []
+      });
+    } catch (err: any) {
+      console.error("[Ledger Stats API Error]:", err);
+      return res.status(500).json({ success: false, error: err.message });
+    }
+  });
+
   // ROTA: Atualizar senha de utilizador via Supabase Admin (para Master)
   app.post("/api/admin/update-user-password", async (req, res) => {
     const { userId, newPassword, adminEmail } = req.body;

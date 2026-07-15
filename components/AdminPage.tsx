@@ -681,6 +681,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             startDate: new Date().toISOString(), 
             isActive: true,
             status: 'ACTIVE_ADMIN_CREATED'
+          },
+          password: newUser.password,
+          settings: {
+            password: newUser.password
           }
         });
 
@@ -736,6 +740,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             startDate: new Date().toISOString(), 
             isActive: true,
             status: 'VENDOR_ACTIVE'
+          },
+          password: newVendor.password,
+          settings: {
+            password: newVendor.password
           }
         });
 
@@ -1447,7 +1455,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       </div>
 
       {activeSubTab === 'analytics' ? <AdminGlobalAnalytics f={f} /> : 
-       activeSubTab === 'ledger' ? <AdminPlatformLedger f={f} /> :
+       activeSubTab === 'ledger' ? <AdminPlatformLedger f={f} adminEmail={currentUser?.email || ''} /> :
        activeSubTab === 'reports' ? <AdminPartnerReports f={f} /> : 
        activeSubTab === 'profile' ? <SettingsPage user={currentUser!} setUser={onUpdateProfile} t={t} hideValues={hideValues} /> : 
        activeSubTab === 'notifications' ? (
