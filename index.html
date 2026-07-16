@@ -1,56 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-PT">
 <head>
-    <!-- Self-Healing Storage & Service Worker Patch -->
-    <script>
-      (function() {
-        function createMemoryStorage() {
-          var store = {};
-          return {
-            getItem: function(key) { return store[key] !== undefined ? store[key] : null; },
-            setItem: function(key, value) { store[key] = String(value); },
-            removeItem: function(key) { delete store[key]; },
-            clear: function() { store = {}; },
-            key: function(i) { return Object.keys(store)[i] || null; },
-            get length() { return Object.keys(store).length; }
-          };
-        }
-
-        try {
-          var test = window.localStorage;
-          test.setItem('__storage_test__', '1');
-          test.removeItem('__storage_test__');
-        } catch (e) {
-          console.warn('[Storage Patch] localStorage is blocked or restricted. Applying memory-backed fallback.');
-          try {
-            Object.defineProperty(window, 'localStorage', {
-              value: createMemoryStorage(),
-              writable: true,
-              configurable: true
-            });
-          } catch (err) {
-            window.localStorage = createMemoryStorage();
-          }
-        }
-
-        try {
-          var testSession = window.sessionStorage;
-          testSession.setItem('__session_test__', '1');
-          testSession.removeItem('__session_test__');
-        } catch (e) {
-          console.warn('[Storage Patch] sessionStorage is blocked or restricted. Applying memory-backed fallback.');
-          try {
-            Object.defineProperty(window, 'sessionStorage', {
-              value: createMemoryStorage(),
-              writable: true,
-              configurable: true
-            });
-          } catch (err) {
-            window.sessionStorage = createMemoryStorage();
-          }
-        }
-      })();
-    </script>
     <!-- Self-Healing Chunk Loading Error & Service Worker Reset Catcher -->
     <script>
       // One-time force clear for v6.0.8 to resolve any older active SW blocking API calls
@@ -319,23 +269,6 @@
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          const isDev = window.location.hostname === 'localhost' || 
-                        window.location.hostname === '127.0.0.1' || 
-                        window.location.hostname.includes('.run.app') || 
-                        window.location.hostname.includes('dev');
-
-          if (isDev) {
-            console.log('Ambiente de desenvolvimento/visualização detectado. Desativando Service Worker...');
-            navigator.serviceWorker.getRegistrations().then(registrations => {
-              for (let registration of registrations) {
-                registration.unregister().then(() => {
-                  console.log('Service Worker desregistrado no ambiente dev:', registration.scope);
-                });
-              }
-            });
-            return;
-          }
-
           navigator.serviceWorker.getRegistrations().then(registrations => {
             let hasOld = false;
             for (let registration of registrations) {

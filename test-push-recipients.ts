@@ -9,7 +9,7 @@ async function testRecipients() {
   console.log("Checking ALL profiles...");
   const { data: profiles, error } = await supabase
     .from('profiles')
-    .select('id, email, role, fcm_token, name');
+    .select('id, email, role, fcm_token, name, created_at');
 
   if (error) {
     console.error("Error fetching profiles:", error);
