@@ -596,7 +596,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             isActive: true,
             status: 'ACTIVE_ADMIN_CREATED'
           },
-          password: newUser.password,
           settings: {
             password: newUser.password
           }
@@ -655,7 +654,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             isActive: true,
             status: 'VENDOR_ACTIVE'
           },
-          password: newVendor.password,
           settings: {
             password: newVendor.password
           }

@@ -600,6 +600,50 @@ async function startServer() {
 
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
+      // Se for um novo utilizador, sincronizar/criar o perfil correspondente com bypass-RLS no backend!
+      if (type === "new_user" && email) {
+        try {
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('id, subscription, name, phone, email')
+            .eq('email', email.toLowerCase())
+            .maybeSingle();
+
+          if (existingProfile) {
+            const rawSub = existingProfile.subscription;
+            let sub: any = {};
+            if (typeof rawSub === 'string') {
+              try { sub = JSON.parse(rawSub); } catch (e) { sub = {}; }
+            } else {
+              sub = rawSub || {};
+            }
+
+            const updatedSub = {
+              id: sub.id || `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+              startDate: sub.startDate || new Date().toISOString(),
+              isActive: sub.isActive !== false,
+              status: sub.status || 'FREE'
+            };
+
+            await supabase
+              .from('profiles')
+              .update({
+                name: name || existingProfile.name || 'Membro AtriosWork',
+                phone: req.body.phone || existingProfile.phone || '',
+                role: 'user',
+                hourlyRate: 10,
+                isFreelancer: false,
+                status: 'FREE',
+                subscription: updatedSub
+              })
+              .eq('id', existingProfile.id);
+            console.log(`[Notify API] Perfil do utilizador ${email} sincronizado com sucesso no backend.`);
+          }
+        } catch (syncErr: any) {
+          console.warn("[Notify API] Erro ao sincronizar perfil do novo utilizador no backend:", syncErr.message || syncErr);
+        }
+      }
+
       // Salvar registro de sistema em app_banners para fins de histórico de recebidos
       try {
         const dbPushRecord = {
