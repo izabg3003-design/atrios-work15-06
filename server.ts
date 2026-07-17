@@ -418,24 +418,6 @@ async function startServer() {
 
   app.use(express.json());
 
-  // Habilitar CORS para permitir requisições do site oficial e de qualquer outra origem de forma segura
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader("Access-Control-Allow-Origin", origin);
-    } else {
-      res.setHeader("Access-Control-Allow-Origin", "*");
-    }
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-client-info");
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    
-    if (req.method === "OPTIONS") {
-      return res.sendStatus(200);
-    }
-    next();
-  });
-
   // ROTA: Buscar dados agregados para a aba Plataforma (Ledger) ignorando RLS
   app.post("/api/admin/ledger-stats", async (req, res) => {
     const { adminEmail } = req.body;
@@ -1550,27 +1532,6 @@ async function startServer() {
             } else {
               const fcmErrResult = await fcmResponse.json();
               logPushStep(`Erro FCM HTTP v1: ${JSON.stringify(fcmErrResult)}`);
-              const errStr = JSON.stringify(fcmErrResult).toLowerCase();
-              if (
-                fcmResponse.status === 404 || 
-                fcmResponse.status === 410 || 
-                errStr.includes("notregistered") || 
-                errStr.includes("unregistered") || 
-                errStr.includes("not_found") || 
-                errStr.includes("not found")
-              ) {
-                (async () => {
-                  try {
-                    await supabase
-                      .from("profiles")
-                      .update({ fcm_token: null })
-                      .eq("fcm_token", token);
-                    logPushStep(`[Cleanup] Removido fcm_token inválido do Supabase: ${token.substring(0, 15)}...`);
-                  } catch (e: any) {
-                    logPushStep(`[Cleanup Error] Falha ao limpar fcm_token: ${e.message || e}`);
-                  }
-                })();
-              }
             }
           } catch (fetchErr: any) {
             logPushStep(`Falha FCM HTTP v1: ${fetchErr.message || fetchErr}`);

@@ -8,7 +8,7 @@ import {
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile, Inbox
 } from 'lucide-react';
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
-import { supabase, getApiUrl, resilientFetch } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -112,144 +112,31 @@ async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string):
 }
 
 async function sendClientSideFCM(projectId: string, clientEmail: string, privateKey: string, tokens: string[], title: string, body: string): Promise<{ successCount: number; errors: string[] }> {
-  let directSuccessCount = 0;
-  const directErrors: string[] = [];
-
   try {
-    // 1. Tentar obter o token OAuth2 de acesso do Google de forma 100% cliente
-    const accessToken = await getGoogleAccessToken(clientEmail, privateKey);
-    
-    // 2. Disparar direto do navegador para a API oficial do Firebase Cloud Messaging v1
-    const promises = tokens.map(async (token) => {
-      try {
-        const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
-        const response = await fetch(`https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${accessToken}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            message: {
-              token,
-              notification: { title, body },
-              android: {
-                priority: "HIGH",
-                notification: {
-                  sound: "default"
-                }
-              },
-              apns: {
-                headers: {
-                  "apns-priority": "10",
-                  "apns-push-type": "alert"
-                },
-                payload: {
-                  aps: {
-                    sound: "default",
-                    "content-available": 1
-                  }
-                }
-              },
-              webpush: {
-                headers: {
-                  Urgency: "high"
-                },
-                notification: {
-                  title,
-                  body,
-                  icon: "/logo_atualizado.jpg?v=20260314_v1",
-                  badge: "/logo_atualizado.jpg?v=20260314_v1",
-                  click_action: "/",
-                  requireInteraction: true,
-                  tag: uniqueTag
-                }
-              }
-            }
-          })
-        });
-
-        const resData = await response.json() as any;
-        if (response.ok) {
-          directSuccessCount++;
-        } else {
-          const errMsg = resData.error?.message || `HTTP ${response.status}`;
-          directErrors.push(errMsg);
-          const errLower = errMsg.toLowerCase();
-          if (
-            errLower.includes("notregistered") || 
-            errLower.includes("unregistered") || 
-            errLower.includes("not found") || 
-            errLower.includes("not_found") || 
-            response.status === 404 || 
-            response.status === 410
-          ) {
-            // Nullify invalid token in database to prevent future failed sends
-            (async () => {
-              try {
-                await supabase
-                  .from('profiles')
-                  .update({ fcm_token: null })
-                  .eq('fcm_token', token);
-                console.log(`[Token Cleanup] Removido fcm_token inválido do perfil: ${token.substring(0, 15)}...`);
-              } catch (e: any) {
-                console.warn("[Token Cleanup Error] Falha ao limpar fcm_token:", e.message || e);
-              }
-            })();
-          }
-        }
-      } catch (err: any) {
-        directErrors.push(err.message || String(err));
-      }
-    });
-
-    await Promise.all(promises);
-
-    if (directSuccessCount > 0) {
-      return { successCount: directSuccessCount, errors: directErrors };
-    } else {
-      throw new Error(directErrors.join("; ") || "Todos os disparos diretos pelo navegador falharam.");
-    }
-
-  } catch (directErr: any) {
-    console.warn("[FCM Direct Browser] Falha no envio direto do navegador, tentando fallback via Servidor:", directErr.message || directErr);
-    
-    // Fallback: Chamar o endpoint /api/send-fcm-push no backend local
-    try {
-      const response = await resilientFetch('/api/send-fcm-push', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          title,
-          body,
-          forceServiceAccount: true,
-          customServiceAccount: JSON.stringify({
-            project_id: projectId,
-            client_email: clientEmail,
-            private_key: privateKey
-          })
+    const response = await fetch('/api/send-fcm-push', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        title,
+        body,
+        forceServiceAccount: true,
+        customServiceAccount: JSON.stringify({
+          project_id: projectId,
+          client_email: clientEmail,
+          private_key: privateKey
         })
-      });
-      
-      const text = await response.text();
-      if (!text.trim()) {
-        throw new Error("Resposta vazia do servidor.");
-      }
-
-      const data = JSON.parse(text);
-      if (response.ok && data.success) {
-        return { successCount: data.sent || tokens.length, errors: [] };
-      } else {
-        return { successCount: 0, errors: [data.error || "Erro no envio pelo servidor"] };
-      }
-    } catch (fallbackErr: any) {
-      return { 
-        successCount: 0, 
-        errors: [`Direct: ${directErr.message || directErr}`, `Server Fallback: ${fallbackErr.message || fallbackErr}`] 
-      };
+      })
+    });
+    const data = await response.json();
+    if (response.ok && data.success) {
+      return { successCount: data.sent || tokens.length, errors: [] };
+    } else {
+      return { successCount: 0, errors: [data.error || "Erro no envio pelo servidor"] };
     }
+  } catch (err: any) {
+    return { successCount: 0, errors: [err.message || "Erro de rede ao conectar ao servidor de push"] };
   }
 }
 
@@ -1050,7 +937,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       let serverFcmSuccess = false;
       let serverFcmMsg = '';
       try {
-        const serverResponse = await resilientFetch('/api/send-fcm-push', {
+        const serverResponse = await fetch('/api/send-fcm-push', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1248,7 +1135,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     if (!passwordResetUser || !passwordResetUser.id || !newPasswordInput.trim()) return;
     setIsResettingPassword(true);
     try {
-      const response = await resilientFetch(`/api/admin/update-user-password?t=${Date.now()}`, {
+      const response = await fetch(`/api/admin/update-user-password?t=${Date.now()}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
