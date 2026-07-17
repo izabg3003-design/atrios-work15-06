@@ -113,7 +113,8 @@ serve(async (req) => {
       const e = (email || '').toLowerCase();
       return e.includes('master@atrioswork.com') || 
              e.includes('izarellebraga@gmail.com') || 
-             e.includes('master@digitalnexus.com');
+             e.includes('master@digitalnexus.com') ||
+             e.includes('jefersongoes36@gmail.com');
     };
 
     const isAdminUser = (profile: any) => {
