@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { Camera, Save, User as UserIcon, Clock, ShieldAlert, Percent, Euro, Loader2, CheckCircle, Phone, Hash, Fingerprint, Star, ReceiptText, Info, Lock, ShieldCheck, Crown, Zap, Tag, ToggleLeft, ToggleRight, Coins, Smartphone, Sparkles, Calendar } from 'lucide-react';
 import { UserProfile, Language, Currency } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, getApiUrl } from '../lib/supabase';
 
 interface Props {
   user: UserProfile;
@@ -409,7 +409,7 @@ const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) 
                                 }
 
                                 // 2. Enviar notificação push centralizada e segura 100% via Backend
-                                fetch('/api/notify', {
+                                fetch(getApiUrl('/api/notify'), {
                                   method: 'POST',
                                   headers: {
                                     'Content-Type': 'application/json',

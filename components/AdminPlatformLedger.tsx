@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Loader2, RefreshCw, Database, Users, TrendingUp, ShieldOff, Copy, DollarSign, Clock, Activity, Zap } from 'lucide-react';
 import { RadialBarChart, RadialBar, ResponsiveContainer, Tooltip, Legend } from 'recharts';
-import { supabase } from '../lib/supabase';
+import { supabase, getApiUrl } from '../lib/supabase';
 import { WorkRecord } from '../types';
 
 interface Props {
@@ -39,7 +39,7 @@ ALTER TABLE public.profiles DISABLE ROW LEVEL SECURITY;`;
 
       if (adminEmail) {
         try {
-          const res = await fetch('/api/admin/ledger-stats', {
+          const res = await fetch(getApiUrl('/api/admin/ledger-stats'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'

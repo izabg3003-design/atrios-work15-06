@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, BellRing, Download, Smartphone, X, ShieldAlert, CheckCircle2, Sparkles, Megaphone } from 'lucide-react';
 import { UserProfile } from '../types';
-import { supabase } from '../lib/supabase';
+import { supabase, getApiUrl } from '../lib/supabase';
 import { messaging, getToken, isFirebaseConfigured, isPushSupported, onMessage } from '../lib/firebase';
 import { logReceivedPush } from '../src/utils/pushLogger';
 
@@ -290,7 +290,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
         let publicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
         try {
-          const res = await fetch('/api/push/public-key');
+          const res = await fetch(getApiUrl('/api/push/public-key'));
           if (res.ok) {
             const data = await res.json();
             if (data && data.publicKey) {
@@ -376,7 +376,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
         // B) Se for VAPID, também registrar no backend local para fins de cache de arquivo local / Firestore
         if (vapidSub) {
           try {
-            const localRes = await fetch('/api/push/subscribe', {
+            const localRes = await fetch(getApiUrl('/api/push/subscribe'), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({

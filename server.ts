@@ -418,6 +418,24 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Habilitar CORS para permitir requisições do site oficial e de qualquer outra origem de forma segura
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader("Access-Control-Allow-Origin", origin);
+    } else {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+    }
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-client-info");
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   // ROTA: Buscar dados agregados para a aba Plataforma (Ledger) ignorando RLS
   app.post("/api/admin/ledger-stats", async (req, res) => {
     const { adminEmail } = req.body;

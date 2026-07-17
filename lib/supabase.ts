@@ -281,3 +281,37 @@ if (isConfigured && supabase) {
     }
   }
 }
+
+/**
+ * Utilitário para resolver URLs de API de forma resiliente.
+ * Se o frontend estiver rodando no site oficial (static/SPA no domínio próprio),
+ * direciona as chamadas de backend para a URL absoluta da nossa Cloud Run ativa na AI Studio.
+ * Se estiver rodando em localhost ou no próprio ambiente de preview da AI Studio, usa caminhos relativos.
+ */
+export function getApiUrl(path: string): string {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  
+  try {
+    const currentHost = window.location.hostname;
+    // Se estiver em localhost ou no próprio preview da AI Studio, usa caminhos relativos nativos
+    if (
+      currentHost === 'localhost' || 
+      currentHost === '127.0.0.1' || 
+      currentHost.includes('europe-west1.run.app') || 
+      currentHost.includes('aistudio-preview')
+    ) {
+      return path;
+    }
+  } catch (e) {
+    // Fallback silencioso se executado em ambientes não-browser (SSR ou testes)
+  }
+  
+  // URL da nossa Cloud Run full-stack ativa na AI Studio
+  const remoteBackend = 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app';
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+  return `${remoteBackend}${cleanPath}`;
+}
+

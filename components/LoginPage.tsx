@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { User, Lock, ArrowRight, ArrowLeft, ShieldAlert, Loader2, ShieldCheck, UserPlus, Phone, Mail, Sparkles } from 'lucide-react';
-import { supabase } from '../lib/supabase';
+import { supabase, getApiUrl } from '../lib/supabase';
 
 interface Props {
   onLogin: (email: string) => void;
@@ -183,7 +183,7 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
         
         // Envia notificação simplificada e segura 100% via Backend
         try {
-          await fetch('/api/notify', {
+          await fetch(getApiUrl('/api/notify'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
