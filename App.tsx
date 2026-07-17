@@ -208,7 +208,7 @@ const App: React.FC = () => {
   const isPro = useMemo(() => {
     const sub = typeof user.subscription === 'string' ? JSON.parse(user.subscription) : user.subscription;
     const isPaid = sub?.status === 'ACTIVE_PAID' || sub?.status === 'PRO' || user?.status === 'PRO' || user?.status === 'ACTIVE_PAID';
-    const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com') || user.email?.toLowerCase()?.includes('jefersongoes36@gmail.com');
+    const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
     const isAdmin = user.role === 'admin';
     
     if (isMaster || isAdmin) return true;
@@ -315,7 +315,7 @@ const App: React.FC = () => {
       if (profile) {
         const sub = profile.subscription;
         const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-        if (parsedSub.isActive === false && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com') && !profile.email?.toLowerCase()?.includes('jefersongoes36@gmail.com')) {
+        if (parsedSub.isActive === false && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) {
           await supabase.auth.signOut();
           setAuthError({ title: 'BEM-VINDO', text: 'Faça o login para aceder sua conta.' });
           setAppState('login');
@@ -346,7 +346,7 @@ const App: React.FC = () => {
         profile.companyLockStatus = profile.settings?.companyLockStatus ?? profile.companyLockStatus ?? 'unlocked';
 
         setUser(profile);
-        if (profile.email?.toLowerCase()?.includes('master@atrioswork.com') || profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || profile.email?.toLowerCase()?.includes('master@digitalnexus.com') || profile.email?.toLowerCase()?.includes('jefersongoes36@gmail.com')) setAppState('admin');
+        if (profile.email?.toLowerCase()?.includes('master@atrioswork.com') || profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || profile.email?.toLowerCase()?.includes('master@digitalnexus.com')) setAppState('admin');
         else if (profile.role === 'vendor') setAppState('vendor-detail');
         else setAppState('dashboard');
         

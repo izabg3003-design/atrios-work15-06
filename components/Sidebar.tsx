@@ -15,7 +15,7 @@ interface Props {
 }
 
 const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, hideValues, togglePrivacy, isPro }) => {
-  const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com') || user.email?.toLowerCase()?.includes('jefersongoes36@gmail.com');
+  const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
   const isVendor = user.role === 'vendor';
   const isSupport = user.role === 'support';
   const isAdmin = user.role === 'admin' || user.email === 'admin@atrioswork.com' || isMaster;

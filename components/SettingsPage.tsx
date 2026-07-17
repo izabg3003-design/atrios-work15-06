@@ -14,7 +14,7 @@ interface Props {
 
 const SettingsPage: React.FC<Props> = ({ user, setUser, t, hideValues, isPro }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com') || user.email?.toLowerCase()?.includes('jefersongoes36@gmail.com');
+  const isMaster = user.email?.toLowerCase()?.includes('master@atrioswork.com') || user.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || user.email?.toLowerCase()?.includes('master@digitalnexus.com');
   const [formUser, setFormUser] = useState<UserProfile>(() => ({
     ...user,
     overtimeRates: user.overtimeRates || { h1: 50, h2: 75, h3: 100 }

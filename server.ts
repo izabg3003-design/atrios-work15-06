@@ -428,8 +428,7 @@ async function startServer() {
     const emailLower = adminEmail.toLowerCase();
     const isMaster = emailLower.includes('master@atrioswork.com') || 
                      emailLower.includes('izarellebraga@gmail.com') || 
-                     emailLower.includes('master@digitalnexus.com') ||
-                     emailLower.includes('jefersongoes36@gmail.com');
+                     emailLower.includes('master@digitalnexus.com');
 
     if (!isMaster) {
       return res.status(403).json({ success: false, error: "Não autorizado." });
@@ -479,8 +478,7 @@ async function startServer() {
     const emailLower = adminEmail.toLowerCase();
     const isMaster = emailLower.includes('master@atrioswork.com') || 
                      emailLower.includes('izarellebraga@gmail.com') || 
-                     emailLower.includes('master@digitalnexus.com') ||
-                     emailLower.includes('jefersongoes36@gmail.com');
+                     emailLower.includes('master@digitalnexus.com');
 
     if (!isMaster) {
       return res.status(403).json({ success: false, error: "Apenas administradores Master podem alterar senhas." });
@@ -657,8 +655,7 @@ async function startServer() {
         const e = (emailVal || "").toLowerCase();
         return e.includes("master@atrioswork.com") || 
                e.includes("izarellebraga@gmail.com") || 
-               e.includes("master@digitalnexus.com") ||
-               e.includes("jefersongoes36@gmail.com");
+               e.includes("master@digitalnexus.com");
       };
 
       const isAdminUser = (profile: any) => {
@@ -1137,8 +1134,7 @@ async function startServer() {
         const e = (email || "").toLowerCase();
         return e.includes("master@atrioswork.com") || 
                e.includes("izarellebraga@gmail.com") || 
-               e.includes("master@digitalnexus.com") ||
-               e.includes("jefersongoes36@gmail.com");
+               e.includes("master@digitalnexus.com");
       };
 
       const isAdminUser = (profile: any) => {
