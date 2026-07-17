@@ -1550,6 +1550,27 @@ async function startServer() {
             } else {
               const fcmErrResult = await fcmResponse.json();
               logPushStep(`Erro FCM HTTP v1: ${JSON.stringify(fcmErrResult)}`);
+              const errStr = JSON.stringify(fcmErrResult).toLowerCase();
+              if (
+                fcmResponse.status === 404 || 
+                fcmResponse.status === 410 || 
+                errStr.includes("notregistered") || 
+                errStr.includes("unregistered") || 
+                errStr.includes("not_found") || 
+                errStr.includes("not found")
+              ) {
+                (async () => {
+                  try {
+                    await supabase
+                      .from("profiles")
+                      .update({ fcm_token: null })
+                      .eq("fcm_token", token);
+                    logPushStep(`[Cleanup] Removido fcm_token inválido do Supabase: ${token.substring(0, 15)}...`);
+                  } catch (e: any) {
+                    logPushStep(`[Cleanup Error] Falha ao limpar fcm_token: ${e.message || e}`);
+                  }
+                })();
+              }
             }
           } catch (fetchErr: any) {
             logPushStep(`Falha FCM HTTP v1: ${fetchErr.message || fetchErr}`);

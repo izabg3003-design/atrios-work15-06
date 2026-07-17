@@ -8,7 +8,7 @@ import {
   BarChart3, TrendingUp, Calendar, BellRing, Smartphone, Webhook, Globe, Smile, Inbox
 } from 'lucide-react';
 import EmojiPicker, { Theme, EmojiStyle } from 'emoji-picker-react';
-import { supabase, getApiUrl } from '../lib/supabase';
+import { supabase, getApiUrl, resilientFetch } from '../lib/supabase';
 import { UserProfile, AppBanner } from '../types';
 import { differenceInDays, parseISO, addYears } from 'date-fns';
 import AdminPartnerReports from './AdminPartnerReports';
@@ -173,7 +173,30 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
         if (response.ok) {
           directSuccessCount++;
         } else {
-          directErrors.push(resData.error?.message || `HTTP ${response.status}`);
+          const errMsg = resData.error?.message || `HTTP ${response.status}`;
+          directErrors.push(errMsg);
+          const errLower = errMsg.toLowerCase();
+          if (
+            errLower.includes("notregistered") || 
+            errLower.includes("unregistered") || 
+            errLower.includes("not found") || 
+            errLower.includes("not_found") || 
+            response.status === 404 || 
+            response.status === 410
+          ) {
+            // Nullify invalid token in database to prevent future failed sends
+            (async () => {
+              try {
+                await supabase
+                  .from('profiles')
+                  .update({ fcm_token: null })
+                  .eq('fcm_token', token);
+                console.log(`[Token Cleanup] Removido fcm_token inválido do perfil: ${token.substring(0, 15)}...`);
+              } catch (e: any) {
+                console.warn("[Token Cleanup Error] Falha ao limpar fcm_token:", e.message || e);
+              }
+            })();
+          }
         }
       } catch (err: any) {
         directErrors.push(err.message || String(err));
@@ -193,7 +216,7 @@ async function sendClientSideFCM(projectId: string, clientEmail: string, private
     
     // Fallback: Chamar o endpoint /api/send-fcm-push no backend local
     try {
-      const response = await fetch(getApiUrl('/api/send-fcm-push'), {
+      const response = await resilientFetch('/api/send-fcm-push', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -1027,7 +1050,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       let serverFcmSuccess = false;
       let serverFcmMsg = '';
       try {
-        const serverResponse = await fetch(getApiUrl('/api/send-fcm-push'), {
+        const serverResponse = await resilientFetch('/api/send-fcm-push', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -1225,7 +1248,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     if (!passwordResetUser || !passwordResetUser.id || !newPasswordInput.trim()) return;
     setIsResettingPassword(true);
     try {
-      const response = await fetch(getApiUrl(`/api/admin/update-user-password?t=${Date.now()}`), {
+      const response = await resilientFetch(`/api/admin/update-user-password?t=${Date.now()}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

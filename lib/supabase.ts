@@ -46,6 +46,77 @@ export const supabase = isConfigured
       }
     }) as any);
 
+/**
+ * Utilitário para resolver URLs de API de forma resiliente.
+ * Se o frontend estiver rodando no site oficial (static/SPA no domínio próprio),
+ * direciona as chamadas de backend para a URL absoluta da nossa Cloud Run ativa na AI Studio.
+ * Se estiver rodando em localhost ou no próprio ambiente de preview da AI Studio, usa caminhos relativos.
+ */
+export function getApiUrl(path: string, forceAbsolute = false): string {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    return path;
+  }
+  
+  const remoteBackend = 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app';
+  const cleanPath = path.startsWith('/') ? path : `/${path}`;
+
+  if (forceAbsolute) {
+    return `${remoteBackend}${cleanPath}`;
+  }
+  
+  try {
+    const currentHost = window.location.hostname;
+    // Se estiver em localhost ou no próprio preview da AI Studio, ou nos domínios oficiais, usa caminhos relativos nativos
+    if (
+      currentHost === 'localhost' || 
+      currentHost === '127.0.0.1' || 
+      currentHost.includes('europe-west1.run.app') || 
+      currentHost.includes('aistudio-preview') ||
+      currentHost.includes('atrioswork.pt') ||
+      currentHost.includes('atrioswork.com')
+    ) {
+      return path;
+    }
+  } catch (e) {
+    // Fallback silencioso se executado em ambientes não-browser (SSR ou testes)
+  }
+  
+  return `${remoteBackend}${cleanPath}`;
+}
+
+/**
+ * Realiza requisições de API de forma resiliente.
+ * Tenta primeiro usar o getApiUrl normal (que pode ser relativo se estivermos no mesmo servidor).
+ * Se a requisição falhar com erro de rede ou retornar 404/500, e a URL for relativa,
+ * tenta novamente usando a URL absoluta do backend remoto.
+ */
+export async function resilientFetch(path: string, options?: RequestInit): Promise<Response> {
+  const primaryUrl = getApiUrl(path);
+  try {
+    const response = await fetch(primaryUrl, options);
+    // Se der 404 ou status de erro de gateway/servidor e a URL original for relativa, tenta o backend remoto
+    if ((response.status === 404 || response.status >= 502) && !primaryUrl.startsWith('http')) {
+      const fallbackUrl = getApiUrl(path, true);
+      console.log(`[Resilient Fetch] Resposta ${response.status} para URL relativa. Tentando fallback absoluto: ${fallbackUrl}`);
+      return await fetch(fallbackUrl, options);
+    }
+    return response;
+  } catch (err: any) {
+    // Se houver falha de rede (ex: Failed to fetch) e a URL original for relativa, tenta a absoluta
+    if (!primaryUrl.startsWith('http')) {
+      const fallbackUrl = getApiUrl(path, true);
+      console.warn(`[Resilient Fetch] Falha de rede (${err.message || err}) para URL relativa. Tentando fallback absoluto: ${fallbackUrl}`);
+      try {
+        return await fetch(fallbackUrl, options);
+      } catch (fallbackErr) {
+        throw err; // Se ambos falharem, lança o erro original
+      }
+    }
+    throw err;
+  }
+}
+
 // Interceptador inteligente para enviar notificações push via API local (evita erros de CORS nas Deno Edge Functions)
 if (isConfigured && supabase) {
   try {
@@ -129,7 +200,7 @@ if (isConfigured && supabase) {
         if (functionName === 'process-payment') {
           try {
             console.log(`[Payment Interceptor] Desviando chamada da Edge Function '${functionName}' para a API local /api/process-payment...`);
-            const response = await fetch('/api/process-payment', {
+            const response = await resilientFetch('/api/process-payment', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -159,7 +230,7 @@ if (isConfigured && supabase) {
         if (functionName === 'send-fcm-push' || functionName === 'send-push') {
           try {
             console.log(`[FCM Interceptor] Desviando chamada da Edge Function '${functionName}' para a API local /api/send-fcm-push...`);
-            const response = await fetch('/api/send-fcm-push', {
+            const response = await resilientFetch('/api/send-fcm-push', {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -222,7 +293,7 @@ if (isConfigured && supabase) {
           if (functionName === 'process-payment') {
             try {
               console.log(`[Payment Interceptor Fallback] Desviando para a API local...`);
-              const response = await fetch('/api/process-payment', {
+              const response = await resilientFetch('/api/process-payment', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(options?.body || {}),
@@ -247,7 +318,7 @@ if (isConfigured && supabase) {
           if (functionName === 'send-fcm-push' || functionName === 'send-push') {
             try {
               console.log(`[FCM Interceptor Fallback] Desviando para a API local...`);
-              const response = await fetch('/api/send-fcm-push', {
+              const response = await resilientFetch('/api/send-fcm-push', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(options?.body || {}),
@@ -282,36 +353,5 @@ if (isConfigured && supabase) {
   }
 }
 
-/**
- * Utilitário para resolver URLs de API de forma resiliente.
- * Se o frontend estiver rodando no site oficial (static/SPA no domínio próprio),
- * direciona as chamadas de backend para a URL absoluta da nossa Cloud Run ativa na AI Studio.
- * Se estiver rodando em localhost ou no próprio ambiente de preview da AI Studio, usa caminhos relativos.
- */
-export function getApiUrl(path: string): string {
-  if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) {
-    return path;
-  }
-  
-  try {
-    const currentHost = window.location.hostname;
-    // Se estiver em localhost ou no próprio preview da AI Studio, usa caminhos relativos nativos
-    if (
-      currentHost === 'localhost' || 
-      currentHost === '127.0.0.1' || 
-      currentHost.includes('europe-west1.run.app') || 
-      currentHost.includes('aistudio-preview')
-    ) {
-      return path;
-    }
-  } catch (e) {
-    // Fallback silencioso se executado em ambientes não-browser (SSR ou testes)
-  }
-  
-  // URL da nossa Cloud Run full-stack ativa na AI Studio
-  const remoteBackend = 'https://ais-pre-klns3osu2yeuvbbyqv7tl7-37225789255.europe-west1.run.app';
-  const cleanPath = path.startsWith('/') ? path : `/${path}`;
-  return `${remoteBackend}${cleanPath}`;
-}
+
 
