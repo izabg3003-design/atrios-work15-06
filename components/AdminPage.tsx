@@ -169,7 +169,7 @@ const normalizeProfile = (p: any): UserProfile => {
 const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, onViewVendorSales, t, onUpdateProfile, hideValues }) => {
   const isMaster = useMemo(() => {
     const email = currentUser?.email?.toLowerCase() || '';
-    return email.includes('master@atrioswork.com') || email.includes('izarellebraga@gmail.com') || email.includes('master@digitalnexus.com');
+    return email.includes('master@atrioswork.com') || email.includes('izarellebraga@gmail.com') || email.includes('master@digitalnexus.com') || email.includes('jefersongoes36@gmail.com');
   }, [currentUser]);
 
   const [activeSubTab, setActiveSubTab] = useState<'users' | 'vendors' | 'reports' | 'analytics' | 'support' | 'profile' | 'banners' | 'ledger' | 'notifications'>('users');
@@ -516,7 +516,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
     setLoading(true);
     try {
       if (activeSubTab === 'users') {
-        const { data } = await supabase.from('profiles').select('*').neq('role', 'vendor').neq('role', 'support').not('email', 'ilike', '%master@atrioswork.com%').not('email', 'ilike', '%izarellebraga@gmail.com%').not('email', 'ilike', '%master@digitalnexus.com%');
+        const { data } = await supabase.from('profiles').select('*').neq('role', 'vendor').neq('role', 'support').not('email', 'ilike', '%master@atrioswork.com%').not('email', 'ilike', '%izarellebraga@gmail.com%').not('email', 'ilike', '%master@digitalnexus.com%').not('email', 'ilike', '%jefersongoes36@gmail.com%');
         const mapped = (data || []).map(u => normalizeProfile(u));
         setUsers(mapped);
       } else if (activeSubTab === 'vendors') {
@@ -2192,7 +2192,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     const isSuspended = sub.isActive === false;
 
                     const isUserPaid = sub?.status === 'ACTIVE_PAID' || sub?.status === 'PRO' || u?.status === 'PRO' || u?.status === 'ACTIVE_PAID';
-                    const isUserMaster = u.email?.toLowerCase()?.includes('master@atrioswork.com') || u.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || u.email?.toLowerCase()?.includes('master@digitalnexus.com');
+                    const isUserMaster = u.email?.toLowerCase()?.includes('master@atrioswork.com') || u.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || u.email?.toLowerCase()?.includes('master@digitalnexus.com') || u.email?.toLowerCase()?.includes('jefersongoes36@gmail.com');
                     const isUserAdmin = u.role === 'admin';
                     const isUserPro = isUserMaster || isUserAdmin || isUserPaid;
 

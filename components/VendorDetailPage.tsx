@@ -76,7 +76,8 @@ const VendorDetailPage: React.FC<Props> = ({ vendorId, currentUser, onBack, f, i
               const isMasterEmail = 
                 email.includes('master@atrioswork.com') || 
                 email.includes('izarellebraga@gmail.com') || 
-                email.includes('master@digitalnexus.com');
+                email.includes('master@digitalnexus.com') ||
+                email.includes('jefersongoes36@gmail.com');
               return !isMasterEmail;
             });
             setRealSalesCount(filteredMembers.length);

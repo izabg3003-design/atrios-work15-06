@@ -72,7 +72,8 @@ const VendorSalesPage: React.FC<Props> = ({ user, adminOverrideVendor, onBackToA
           const isMasterEmail = 
             email.includes('master@atrioswork.com') || 
             email.includes('izarellebraga@gmail.com') || 
-            email.includes('master@digitalnexus.com');
+            email.includes('master@digitalnexus.com') ||
+            email.includes('jefersongoes36@gmail.com');
           return !isMasterEmail;
         });
 
