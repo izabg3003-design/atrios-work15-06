@@ -97,7 +97,15 @@ self.addEventListener('fetch', (event) => {
           } catch (e) {
             console.warn('[SW] Cache fallback failed:', e);
           }
-          // If no cache or cache throws, we can't do anything else, let browser handle or fail
+          // If no cache or cache throws, return a friendly offline response rather than returning undefined which causes "TypeError: Failed to fetch"
+          return new Response(
+            'AtriosWork: Ligação perdida e nenhum conteúdo offline guardado em cache. Por favor, verifique a sua ligação à Internet.',
+            {
+              status: 503,
+              statusText: 'Service Unavailable',
+              headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8' })
+            }
+          );
         })
     );
   } else {
@@ -163,8 +171,9 @@ self.addEventListener('push', (event) => {
               nestedNotif.url || 
               '/';
 
-        // Garantir que a tag seja absolutamente única para evitar agrupamentos ou substituições indesejadas
-        tag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+        // Criar uma tag determinística baseada no título e conteúdo para evitar notificações duplicadas se o VAPID e o FCM dispararem em simultâneo
+        const normalizedText = ((title || '') + (body || '')).replace(/[^a-zA-Z0-9]/g, '').substring(0, 50);
+        tag = normalizedText ? `atrioswork-tag-${normalizedText}` : `push-${Date.now()}`;
       }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);

@@ -213,20 +213,24 @@ serve(async (req) => {
       if (trimmed.startsWith("{")) {
         try {
           const parsed = JSON.parse(trimmed);
+          let parsedAsSub = false;
           if (parsed && parsed.endpoint) {
-            // EVITAR DUPLICAÇÃO: Se houver um token FCM embutido, usamos APENAS o FCM e não adicionamos a subscrição VAPID para evitar notificações duplicadas
-            if (parsed.fcmToken) {
-              fcmTokens.push(parsed.fcmToken);
-            } else {
-              webPushSubscriptions.push({
-                subscription: parsed,
-                userId: null,
-              });
-            }
-          } else if (parsed && parsed.fcmToken) {
+            // Sempre adicionar ao Web Push VAPID para garantir a entrega nativa com o app fechado
+            webPushSubscriptions.push({
+              subscription: parsed,
+              userId: null,
+            });
+            parsedAsSub = true;
+          }
+          if (parsed && parsed.fcmToken) {
             fcmTokens.push(parsed.fcmToken);
+            parsedAsSub = true;
           } else if (parsed && parsed.token) {
             fcmTokens.push(parsed.token);
+            parsedAsSub = true;
+          }
+          if (!parsedAsSub) {
+            fcmTokens.push(trimmed);
           }
         } catch (_e) {
           fcmTokens.push(trimmed);

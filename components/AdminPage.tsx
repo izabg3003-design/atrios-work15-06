@@ -377,73 +377,22 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
 
           console.log(`[Scheduled Push] A disparar automaticamente: "${title}" para ${audience}`);
 
-          let clientFcmMsg = '';
-          let clientFcmSuccess = false;
-
-          // Se tiver conta de serviço local, envia o FCM nativo
-          if (fcmServiceAccount.trim()) {
-            try {
-              const sa = JSON.parse(fcmServiceAccount.trim());
-              const projectId = sa.project_id;
-              const clientEmail = sa.client_email;
-              const privateKey = sa.private_key;
-
-              if (projectId && clientEmail && privateKey) {
-                const { data: allProfiles, error: profErr } = await supabase
-                  .from('profiles')
-                  .select('id, fcm_token, name, role')
-                  .not('fcm_token', 'is', null);
-
-                if (!profErr && allProfiles) {
-                  let filteredProfiles = allProfiles || [];
-                  if (audience === 'premium') {
-                    filteredProfiles = filteredProfiles.filter(p => {
-                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-                      return sub && sub.isActive === true;
-                    });
-                  } else if (audience === 'free') {
-                    filteredProfiles = filteredProfiles.filter(p => {
-                      const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-                      return !sub || sub.isActive !== true;
-                    });
-                  }
-
-                  const validTokens = filteredProfiles
-                    .map(p => p.fcm_token)
-                    .filter((t): t is string => !!t && t.trim().length > 0);
-
-                  if (validTokens.length > 0) {
-                    const { successCount } = await sendClientSideFCM(
-                      projectId,
-                      clientEmail,
-                      privateKey,
-                      validTokens,
-                      title,
-                      body
-                    );
-                    if (successCount > 0) {
-                      clientFcmSuccess = true;
-                      clientFcmMsg = `Enviado para ${successCount} dispositivos ativos.`;
-                    }
-                  }
-                }
-              }
-            } catch (fcmErr) {
-              console.error("[Scheduled Push] Falha ao enviar FCM nativo:", fcmErr);
-            }
-          }
-
-          // Redundância via Edge Function do Supabase
+          // Disparo de Push Unificado e Seguro de Canal Único (FCM + VAPID) via Backend
           try {
-            await supabase.functions.invoke('send-fcm-push', {
-              body: {
+            await fetch('/api/send-fcm-push', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
                 title: title,
                 body: body,
-                audience: audience
-              }
+                audience: audience,
+                url: '/'
+              })
             });
-          } catch (fcmFuncErr) {
-            console.warn('[Scheduled Push] Edge Function offline:', fcmFuncErr);
+          } catch (pushErr) {
+            console.error("[Scheduled Push] Erro ao disparar via API local:", pushErr);
           }
 
           // Atualizar o registro do banner na tabela 'app_banners' de volta para ativo/enviado (se não for temporário local apenas)
@@ -857,83 +806,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         console.warn("Excepção ao registrar histórico (continuando com o envio do Push):", dbErr);
       }
 
-      let clientFcmMsg = '';
-      let clientFcmSuccess = false;
-
-      // Se houver uma conta de serviço configurada, enviar direto pelo navegador via FCM HTTP v1
-      if (fcmServiceAccount.trim()) {
-        try {
-          const sa = JSON.parse(fcmServiceAccount.trim());
-          const projectId = sa.project_id;
-          const clientEmail = sa.client_email;
-          const privateKey = sa.private_key;
-
-          if (!projectId || !clientEmail || !privateKey) {
-            throw new Error("O ficheiro JSON não contém todas as chaves necessárias (project_id, client_email, private_key).");
-          }
-
-          // Buscar tokens FCM ativos do Supabase
-          let query = supabase
-            .from('profiles')
-            .select('id, fcm_token, name, role')
-            .not('fcm_token', 'is', null);
-
-          const { data: allProfiles, error: profErr } = await query;
-          if (profErr) throw profErr;
-
-          let filteredProfiles = allProfiles || [];
-          if (newPushAudience === 'premium') {
-            filteredProfiles = filteredProfiles.filter(p => {
-              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-              return sub && sub.isActive === true;
-            });
-          } else if (newPushAudience === 'free') {
-            filteredProfiles = filteredProfiles.filter(p => {
-              const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-              return !sub || sub.isActive !== true;
-            });
-          }
-
-          const validTokens = filteredProfiles
-            .map(p => p.fcm_token)
-            .filter((t): t is string => !!t && t.trim().length > 0);
-
-          if (validTokens.length > 0) {
-            const { successCount, errors } = await sendClientSideFCM(
-              projectId,
-              clientEmail,
-              privateKey,
-              validTokens,
-              newPushTitle.trim(),
-              newPushBody.trim()
-            );
-            if (successCount > 0) {
-              clientFcmSuccess = true;
-              clientFcmMsg = `Enviado com sucesso diretamente pelo seu navegador para ${successCount} de ${validTokens.length} dispositivos ativos via FCM.`;
-              if (errors.length > 0) {
-                clientFcmMsg += ` Alguns avisos de erro em alguns dispositivos: ${errors.join('; ')}`;
-              }
-            } else {
-              clientFcmSuccess = false;
-              const detailedErr = errors.join('; ');
-              if (detailedErr.includes("403") || detailedErr.toLowerCase().includes("permission") || detailedErr.toLowerCase().includes("forbidden") || detailedErr.toLowerCase().includes("not been used")) {
-                clientFcmMsg = `Erro 403 (Permissão Negada): Certifique-se de que a API "Firebase Cloud Messaging API (V1)" está ATIVADA no Google Cloud Console do projeto "${projectId}" (e que as credenciais inseridas têm acesso). Detalhes: ${detailedErr}`;
-              } else if (detailedErr.toLowerCase().includes("sender_id_mismatch") || detailedErr.toLowerCase().includes("mismatch") || detailedErr.toLowerCase().includes("not-registered")) {
-                clientFcmMsg = `Erro de Mismatch / Token Inválido: Os tokens gerados no telemóvel dos utilizadores pertencem a outro projeto Firebase. Se está a usar o seu projeto Firebase "${projectId}" para enviar notificações, também deve configurar as credenciais do seu projeto Firebase no frontend (variáveis .env como VITE_FIREBASE_*) para que os tokens coincidam com o seu projeto!`;
-              } else {
-                clientFcmMsg = `Erro no envio FCM: ${detailedErr}`;
-              }
-            }
-          } else {
-            clientFcmMsg = "Nenhum dispositivo encontrado com token push registado para esta audiência.";
-          }
-        } catch (fcmClientErr: any) {
-          console.error("Erro ao enviar via FCM direto no navegador:", fcmClientErr);
-          clientFcmMsg = `Aviso: Erro ao despachar diretamente via FCM (${fcmClientErr.message}).`;
-        }
-      }
-
-      // Tenta chamar o servidor Express local como fallback confiável
+      // Envio de Push Unificado de Canal Único (FCM + VAPID) 100% via Backend
       let serverFcmSuccess = false;
       let serverFcmMsg = '';
       try {
@@ -955,42 +828,29 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           try {
             serverData = JSON.parse(responseText);
           } catch (pe) {
-            serverData = { success: false, error: `Falha ao decodificar JSON: ${responseText.substring(0, 100)}` };
+            serverData = { success: false, error: `Falha ao descodificar JSON: ${responseText.substring(0, 100)}` };
           }
         } else {
           serverData = { success: false, error: 'Resposta vazia do servidor.' };
         }
         if (serverResponse.ok && serverData.success) {
           serverFcmSuccess = true;
-          serverFcmMsg = `Servidor: Enviado a ${serverData.sent || 0} dispositivos.`;
+          serverFcmMsg = `Enviado com sucesso para ${serverData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
         } else {
-          serverFcmMsg = `Servidor: ${serverData.error || 'Falha no disparo.'}`;
+          serverFcmMsg = `Erro no envio: ${serverData.error || 'Falha no disparo.'}`;
         }
       } catch (servErr: any) {
-        console.warn('[Push Fallback] Erro no servidor de disparo local:', servErr);
-        serverFcmMsg = `Servidor: indisponível ou erro (${servErr.message || servErr})`;
-      }
-
-      // Tenta chamar a Edge Function como redundância adicional
-      try {
-        await supabase.functions.invoke('send-fcm-push', {
-          body: {
-            title: newPushTitle.trim(),
-            body: newPushBody.trim(),
-            audience: newPushAudience
-          }
-        });
-      } catch (fcmErr) {
-        console.warn('Função de borda do Supabase (send-fcm-push) ainda não implantada ou offline:', fcmErr);
+        console.warn('[Push Dispatch] Erro no servidor local:', servErr);
+        serverFcmMsg = `Erro de ligação ao servidor (${servErr.message || servErr})`;
       }
 
       setNewPushTitle('');
       setNewPushBody('');
       setPushSendResult({
-        success: clientFcmSuccess || serverFcmSuccess,
-        msg: (clientFcmSuccess || serverFcmSuccess)
-          ? `Transmissão concluída! ${clientFcmMsg ? clientFcmMsg + ' | ' : ''}${serverFcmMsg}${dbInsertWarning}`
-          : `Transmissão falhou ou precisa de ajuste: ${clientFcmMsg ? clientFcmMsg + ' | ' : ''}${serverFcmMsg}${dbInsertWarning}`
+        success: serverFcmSuccess,
+        msg: serverFcmSuccess
+          ? `Transmissão concluída! ${serverFcmMsg}${dbInsertWarning}`
+          : `Falha na transmissão: ${serverFcmMsg}${dbInsertWarning}`
       });
       fetchData();
     } catch (err: any) {

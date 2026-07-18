@@ -735,9 +735,11 @@ async function startServer() {
 
       const adminProfiles = profiles.filter((p) => isAdminUser(p));
 
-      // 4. Separar fcm_tokens e subscrições Web Push de forma dedupicada
+      // 4. Separar fcm_tokens e subscrições Web Push de forma dedupicada de verdade para evitar duplicações
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
+      const seenEndpoints = new Set<string>();
+      const seenFcmTokens = new Set<string>();
 
       adminProfiles.forEach((p) => {
         const token = p.fcm_token;
@@ -746,22 +748,49 @@ async function startServer() {
         if (token.trim().startsWith("{")) {
           try {
             const sub = JSON.parse(token);
+            let added = false;
+
+            // 1. Prioridade absoluta para Web Push VAPID se o endpoint estiver presente
             if (sub && sub.endpoint) {
-              // Se houver um token FCM embutido, preferimos usar FCM para este dispositivo e ignoramos a subscrição VAPID para evitar notificações duplicadas que esgotam o orçamento do navegador
-              if (sub.fcmToken) {
-                fcmTokens.push(sub.fcmToken);
-              } else {
+              const endpoint = sub.endpoint;
+              if (!seenEndpoints.has(endpoint)) {
+                seenEndpoints.add(endpoint);
                 webPushSubscriptions.push({
                   subscription: sub,
                   userId: p.id,
                 });
               }
+              added = true;
+            }
+
+            // 2. Se possuir fcmToken associado, adicionamos ao FCM unicamente se não adicionámos via VAPID para a mesma máquina/browser
+            if (sub && sub.fcmToken) {
+              const fcmTok = sub.fcmToken;
+              if (!added && !seenFcmTokens.has(fcmTok)) {
+                seenFcmTokens.add(fcmTok);
+                fcmTokens.push(fcmTok);
+              }
+              added = true;
+            }
+
+            // Fallback se não preencheu como nenhum dos dois padrões estruturados
+            if (!added) {
+              if (!seenFcmTokens.has(token)) {
+                seenFcmTokens.add(token);
+                fcmTokens.push(token);
+              }
             }
           } catch (e) {
-            fcmTokens.push(token);
+            if (!seenFcmTokens.has(token)) {
+              seenFcmTokens.add(token);
+              fcmTokens.push(token);
+            }
           }
         } else {
-          fcmTokens.push(token);
+          if (!seenFcmTokens.has(token)) {
+            seenFcmTokens.add(token);
+            fcmTokens.push(token);
+          }
         }
       });
 
@@ -770,7 +799,13 @@ async function startServer() {
         const localSubs = await loadAllSubscriptions();
         localSubs.forEach((ls) => {
           if (!ls.subscription || !ls.subscription.endpoint) return;
-          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
+
+          const endpoint = ls.subscription.endpoint;
+          if (seenEndpoints.has(endpoint)) {
+            return; // Já capturado e processado via perfis principais ativos
+          }
+
+          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === endpoint);
           if (!jaExiste) {
             const matchingProfile = profiles?.find((p) => p.id === ls.userId);
 
@@ -784,6 +819,7 @@ async function startServer() {
             const isMaster = isMasterEmail(userEmail) || userRole === "admin" || userRole === "master";
 
             if (isMaster) {
+              seenEndpoints.add(endpoint);
               webPushSubscriptions.push(ls);
             }
           }
@@ -837,24 +873,45 @@ async function startServer() {
       });
 
       // 🔵 DISPARO 2: Enviar via Firebase Cloud Messaging (FCM)
-      let finalServiceAccountEnv = serviceAccountEnv;
+      let finalServiceAccountEnv = null;
+      try {
+        const { data: configData } = await supabase
+          .from('app_banners')
+          .select('highlight')
+          .eq('user_type', 'fcm_config')
+          .maybeSingle();
+        if (configData && configData.highlight) {
+          finalServiceAccountEnv = configData.highlight;
+        }
+      } catch (dbErr) {
+        console.warn("[Notify API] Erro ao carregar credenciais dinâmicas do FCM de app_banners:", dbErr);
+      }
+
       if (!finalServiceAccountEnv) {
+        finalServiceAccountEnv = serviceAccountEnv;
+      }
+
+      // Pré-obter o token de acesso OAuth do Google apenas uma vez para evitar conexões paralelas e gargalos
+      let cachedAccessToken: string | null = null;
+      let fcmProjectId: string | null = null;
+
+      if (finalServiceAccountEnv) {
         try {
-          const { data: configData } = await supabase
-            .from('app_banners')
-            .select('highlight')
-            .eq('user_type', 'fcm_config')
-            .maybeSingle();
-          if (configData && configData.highlight) {
-            finalServiceAccountEnv = configData.highlight;
+          const serviceAccount = JSON.parse(finalServiceAccountEnv);
+          fcmProjectId = serviceAccount.project_id;
+          if (serviceAccount.client_email && serviceAccount.private_key) {
+            cachedAccessToken = await getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
           }
-        } catch (dbErr) {
-          console.warn("[Notify API] Erro ao carregar credenciais dinâmicas do FCM de app_banners:", dbErr);
+        } catch (tokenErr: any) {
+          console.warn("[Notify API] Erro ao obter token de acesso OAuth do Google:", tokenErr.message || tokenErr);
         }
       }
 
       const fcmPromises = fcmTokens.map(async (token) => {
-        if (isFirebaseAdminInitialized) {
+        const isUsingDefaultProject = !finalServiceAccountEnv || finalServiceAccountEnv === serviceAccountEnv;
+
+        // Método A: Usar Firebase Admin SDK se inicializado e estivermos no projeto padrão
+        if (isFirebaseAdminInitialized && isUsingDefaultProject) {
           try {
             await getMessaging().send({
               token,
@@ -904,11 +961,11 @@ async function startServer() {
           }
         }
 
-        if (finalServiceAccountEnv) {
+        // Método B: Enviar de forma direta e otimizada via REST API HTTP v1
+        if (cachedAccessToken && fcmProjectId) {
           try {
-            const serviceAccount = JSON.parse(finalServiceAccountEnv);
-            const accessToken = await getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
-            const projectId = serviceAccount.project_id;
+            const projectId = fcmProjectId;
+            const accessToken = cachedAccessToken;
 
             const fcmResponse = await fetch(
               `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -1330,9 +1387,11 @@ async function startServer() {
 
       logPushStep(`Perfis filtrados para envio: ${filteredProfiles.length}`);
 
-      // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON de forma deduplicada
+      // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON de forma deduplicada de verdade
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
+      const seenEndpoints = new Set<string>();
+      const seenFcmTokens = new Set<string>();
 
       filteredProfiles.forEach((p) => {
         const token = p.fcm_token;
@@ -1352,21 +1411,49 @@ async function startServer() {
         if (trimmedToken.startsWith("{")) {
           try {
             const sub = JSON.parse(trimmedToken);
+            let added = false;
+
+            // 1. Prioridade absoluta para Web Push VAPID se o endpoint estiver presente
             if (sub && sub.endpoint) {
-              if (sub.fcmToken) {
-                fcmTokens.push(sub.fcmToken);
-              } else {
+              const endpoint = sub.endpoint;
+              if (!seenEndpoints.has(endpoint)) {
+                seenEndpoints.add(endpoint);
                 webPushSubscriptions.push({
                   subscription: sub,
                   userId: p.id,
                 });
               }
+              added = true;
+            }
+
+            // 2. Se possuir fcmToken associado, adicionamos ao FCM unicamente se não adicionámos via VAPID para a mesma máquina/browser
+            if (sub && sub.fcmToken) {
+              const fcmTok = sub.fcmToken;
+              if (!added && !seenFcmTokens.has(fcmTok)) {
+                seenFcmTokens.add(fcmTok);
+                fcmTokens.push(fcmTok);
+              }
+              added = true;
+            }
+
+            // Fallback se não preencheu como nenhum dos dois padrões estruturados
+            if (!added) {
+              if (!seenFcmTokens.has(trimmedToken)) {
+                seenFcmTokens.add(trimmedToken);
+                fcmTokens.push(trimmedToken);
+              }
             }
           } catch (e) {
-            fcmTokens.push(trimmedToken);
+            if (!seenFcmTokens.has(trimmedToken)) {
+              seenFcmTokens.add(trimmedToken);
+              fcmTokens.push(trimmedToken);
+            }
           }
         } else {
-          fcmTokens.push(trimmedToken);
+          if (!seenFcmTokens.has(trimmedToken)) {
+            seenFcmTokens.add(trimmedToken);
+            fcmTokens.push(trimmedToken);
+          }
         }
       });
 
@@ -1377,7 +1464,13 @@ async function startServer() {
         logPushStep(`Carregadas ${localSubs.length} assinaturas locais/Firestore.`);
         localSubs.forEach((ls) => {
           if (!ls.subscription || !ls.subscription.endpoint) return;
-          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
+
+          const endpoint = ls.subscription.endpoint;
+          if (seenEndpoints.has(endpoint)) {
+            return; // Já capturado e processado via perfis principais ativos
+          }
+
+          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === endpoint);
           if (!jaExiste) {
             const matchingProfile = profiles?.find((p) => p.id === ls.userId);
             
@@ -1414,6 +1507,7 @@ async function startServer() {
             }
 
             if (belongsToAudience) {
+              seenEndpoints.add(endpoint);
               webPushSubscriptions.push(ls);
             }
           }
@@ -1472,7 +1566,7 @@ async function startServer() {
 
       // 🔵 DISPARO 2: Enviar notificações via Firebase Cloud Messaging (FCM)
       logPushStep("Processando disparos FCM...");
-      let finalServiceAccountEnv = serviceAccountEnv;
+      let finalServiceAccountEnv = null;
       if (req.body.customServiceAccount) {
         try {
           finalServiceAccountEnv = typeof req.body.customServiceAccount === 'string'
@@ -1499,11 +1593,33 @@ async function startServer() {
         }
       }
 
+      if (!finalServiceAccountEnv) {
+        finalServiceAccountEnv = serviceAccountEnv;
+      }
+
+      // Pré-obter o token de acesso OAuth do Google apenas uma vez para o envio em lote
+      let cachedAccessToken: string | null = null;
+      let fcmProjectId: string | null = null;
+
+      if (finalServiceAccountEnv) {
+        try {
+          const serviceAccount = JSON.parse(finalServiceAccountEnv);
+          fcmProjectId = serviceAccount.project_id;
+          if (serviceAccount.client_email && serviceAccount.private_key) {
+            cachedAccessToken = await getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
+            logPushStep(`Token de acesso OAuth2 obtido com sucesso para o envio FCM do projeto: ${fcmProjectId}`);
+          }
+        } catch (tokenErr: any) {
+          logPushStep(`Erro ao pré-obter token de acesso OAuth2 do Google: ${tokenErr.message || tokenErr}`);
+        }
+      }
+
       const fcmPromises = fcmTokens.map(async (token) => {
         const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+        const isUsingDefaultProject = !finalServiceAccountEnv || finalServiceAccountEnv === serviceAccountEnv;
         
-        // Método A: Usar Firebase Admin SDK se inicializado
-        if (isFirebaseAdminInitialized) {
+        // Método A: Usar Firebase Admin SDK se inicializado e estivermos no projeto padrão
+        if (isFirebaseAdminInitialized && isUsingDefaultProject) {
           try {
             logPushStep(`Enviando via FCM Admin para token: ${token.substring(0, 15)}...`);
             await withTimeout(
@@ -1576,13 +1692,12 @@ async function startServer() {
           }
         }
 
-        // Método B: Fallback para requisição direta à API HTTP v1 se tivermos a conta de serviço carregada
-        if (finalServiceAccountEnv) {
+        // Método B: Enviar via REST API HTTP v1 de forma direta e super estável
+        if (cachedAccessToken && fcmProjectId) {
           try {
             logPushStep(`Enviando via FCM HTTP v1 para token: ${token.substring(0, 15)}...`);
-            const serviceAccount = JSON.parse(finalServiceAccountEnv);
-            const accessToken = await getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
-            const projectId = serviceAccount.project_id;
+            const projectId = fcmProjectId;
+            const accessToken = cachedAccessToken;
 
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 10000);

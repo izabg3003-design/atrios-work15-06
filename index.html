@@ -283,7 +283,7 @@
               }
             }
             
-            navigator.serviceWorker.register('/sw-v3.js?v=6.0.8', { scope: '/' }).then(reg => {
+            navigator.serviceWorker.register('/firebase-messaging-sw.js?v=6.0.8', { scope: '/' }).then(reg => {
               console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
               if (hasOld) {
                 reg.update();
