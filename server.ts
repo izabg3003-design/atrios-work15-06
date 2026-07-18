@@ -138,7 +138,7 @@ if (serviceAccountEnv) {
 }
 
 // Helper para obter token de acesso do Google OAuth2 de forma nativa e segura para fallback HTTP v1
-function getGoogleAccessToken(clientEmail: string, privateKey: string): string {
+async function getGoogleAccessToken(clientEmail: string, privateKey: string): Promise<string> {
   const header = { alg: "RS256", typ: "JWT" };
   const now = Math.floor(Date.now() / 1000);
   const claims = {
@@ -162,7 +162,26 @@ function getGoogleAccessToken(clientEmail: string, privateKey: string): string {
   sign.update(toSign);
   const signature = sign.sign(privateKey, "base64url");
 
-  return `${toSign}.${signature}`;
+  const jwt = `${toSign}.${signature}`;
+
+  const tokenResponse = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+      assertion: jwt,
+    }),
+  });
+
+  if (!tokenResponse.ok) {
+    const errText = await tokenResponse.text();
+    throw new Error(`Falha ao obter token OAuth2 do Google: ${errText}`);
+  }
+
+  const tokenData = await tokenResponse.json() as { access_token: string };
+  return tokenData.access_token;
 }
 
 // Helper to get Firestore instance with custom databaseId if configured
@@ -391,6 +410,72 @@ async function deleteSubscriptionFromDatabase(endpoint: string) {
   }
 }
 
+async function deleteFcmTokenFromDatabase(token: string) {
+  if (!token) return;
+  console.log(`[Push Cleanup] Limpando token FCM inválido ou incompatível: ${token.substring(0, 15)}...`);
+
+  // 1. Remover do cache local
+  try {
+    const subs = loadLocalSubscriptions();
+    const filtered = subs.filter((s: any) => {
+      if (typeof s === "string") return s !== token;
+      if (s?.subscription?.fcmToken === token) return false;
+      if (s?.fcmToken === token) return false;
+      return true;
+    });
+    fs.writeFileSync(subsFilePath, JSON.stringify(filtered, null, 2), "utf-8");
+  } catch (e) {
+    console.error("[Local DB] Erro ao remover token FCM inválido local:", e);
+  }
+
+  // 2. Remover do Firestore
+  if (isFirebaseAdminInitialized) {
+    try {
+      await runFirestoreOp(async (db) => {
+        const snapshot = await db.collection("web_push_subscriptions").get();
+        const deletePromises: Promise<any>[] = [];
+        snapshot.forEach((doc: any) => {
+          const data = doc.data();
+          if (data?.subscription?.fcmToken === token || data?.fcmToken === token || doc.id === Buffer.from(token).toString("base64url")) {
+            deletePromises.push(db.collection("web_push_subscriptions").doc(doc.id).delete());
+          }
+        });
+        await Promise.all(deletePromises);
+        console.log("[Firestore] Assinatura FCM removida do Firestore.");
+      });
+    } catch (err: any) {
+      console.warn("[Firestore] Aviso ao remover token FCM do Firestore:", err?.message || err);
+    }
+  }
+
+  // 3. Remover do Supabase
+  try {
+    const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    if (supabaseServiceKey) {
+      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const { data: matchingProfiles, error: fetchErr } = await supabase
+        .from("profiles")
+        .select("id, fcm_token")
+        .not("fcm_token", "is", null);
+
+      if (!fetchErr && matchingProfiles) {
+        for (const p of matchingProfiles) {
+          if (p.fcm_token === token || (p.fcm_token && p.fcm_token.includes(token))) {
+            await supabase
+              .from("profiles")
+              .update({ fcm_token: null })
+              .eq("id", p.id);
+            console.log(`[Supabase Cleanup] Removido token FCM inválido/incompatível do perfil do usuário ${p.id}`);
+          }
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[Supabase Cleanup] Falha ao limpar token FCM do Supabase:", err);
+  }
+}
+
 // 🔵 5. START DO SERVIDOR EXPRESS
 async function startServer() {
   await initializeVapidKeys();
@@ -600,50 +685,6 @@ async function startServer() {
 
       const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-      // Se for um novo utilizador, sincronizar/criar o perfil correspondente com bypass-RLS no backend!
-      if (type === "new_user" && email) {
-        try {
-          const { data: existingProfile } = await supabase
-            .from('profiles')
-            .select('id, subscription, name, phone, email')
-            .eq('email', email.toLowerCase())
-            .maybeSingle();
-
-          if (existingProfile) {
-            const rawSub = existingProfile.subscription;
-            let sub: any = {};
-            if (typeof rawSub === 'string') {
-              try { sub = JSON.parse(rawSub); } catch (e) { sub = {}; }
-            } else {
-              sub = rawSub || {};
-            }
-
-            const updatedSub = {
-              id: sub.id || `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-              startDate: sub.startDate || new Date().toISOString(),
-              isActive: sub.isActive !== false,
-              status: sub.status || 'FREE'
-            };
-
-            await supabase
-              .from('profiles')
-              .update({
-                name: name || existingProfile.name || 'Membro AtriosWork',
-                phone: req.body.phone || existingProfile.phone || '',
-                role: 'user',
-                hourlyRate: 10,
-                isFreelancer: false,
-                status: 'FREE',
-                subscription: updatedSub
-              })
-              .eq('id', existingProfile.id);
-            console.log(`[Notify API] Perfil do utilizador ${email} sincronizado com sucesso no backend.`);
-          }
-        } catch (syncErr: any) {
-          console.warn("[Notify API] Erro ao sincronizar perfil do novo utilizador no backend:", syncErr.message || syncErr);
-        }
-      }
-
       // Salvar registro de sistema em app_banners para fins de histórico de recebidos
       try {
         const dbPushRecord = {
@@ -842,13 +883,31 @@ async function startServer() {
             return;
           } catch (fcmAdminErr: any) {
             console.error(`[Notify API FCM Admin] Erro para o token ${token.substring(0, 15)}...:`, fcmAdminErr.message);
+            const errMsg = (fcmAdminErr?.message || "").toLowerCase();
+            const errCode = (fcmAdminErr?.code || "").toLowerCase();
+            if (
+              errMsg.includes("registration-token-not-registered") ||
+              errMsg.includes("unregistered") ||
+              errMsg.includes("not-found") ||
+              errCode.includes("registration-token-not-registered") ||
+              errCode.includes("not-found") ||
+              errMsg.includes("mismatched-credential") ||
+              errMsg.includes("senderid mismatch") ||
+              errMsg.includes("sender_id_mismatch") ||
+              errCode.includes("mismatched-credential")
+            ) {
+              console.log(`[Notify API FCM Admin] Erro definitivo de token FCM detetado. Iniciando limpeza do token...`);
+              deleteFcmTokenFromDatabase(token).catch((cleanErr) => {
+                console.warn("[FCM Cleanup Error]", cleanErr);
+              });
+            }
           }
         }
 
         if (finalServiceAccountEnv) {
           try {
             const serviceAccount = JSON.parse(finalServiceAccountEnv);
-            const accessToken = getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
+            const accessToken = await getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
             const projectId = serviceAccount.project_id;
 
             const fcmResponse = await fetch(
@@ -894,8 +953,30 @@ async function startServer() {
             if (fcmResponse.ok) {
               totalSent++;
             } else {
-              const fcmErrResult = await fcmResponse.json();
+              const fcmErrResult = await fcmResponse.json() as any;
               console.error(`[Notify API FCM Fallback] Erro para o token ${token.substring(0, 15)}...:`, fcmErrResult);
+              const errorObj = fcmErrResult?.error || {};
+              const errMessage = (errorObj.message || "").toLowerCase();
+              const errStatus = (errorObj.status || "").toLowerCase();
+              const details = errorObj.details || [];
+              const hasUnregistered = details.some((d: any) => d.errorCode === "UNREGISTERED") || 
+                                      errMessage.includes("unregistered") || 
+                                      errMessage.includes("not_found") || 
+                                      errStatus === "not_found" ||
+                                      errorObj.code === 404;
+                                      
+              const hasSenderMismatch = details.some((d: any) => d.errorCode === "SENDER_ID_MISMATCH") || 
+                                        errMessage.includes("senderid mismatch") || 
+                                        errMessage.includes("sender_id_mismatch") ||
+                                        errStatus === "permission_denied" ||
+                                        errorObj.code === 403;
+
+              if (hasUnregistered || hasSenderMismatch) {
+                console.log(`[Notify API FCM Fallback] Erro definitivo de token FCM detetado (${hasUnregistered ? 'UNREGISTERED' : 'SENDER_ID_MISMATCH'}). Iniciando limpeza...`);
+                deleteFcmTokenFromDatabase(token).catch((cleanErr) => {
+                  console.warn("[FCM Fallback Cleanup Error]", cleanErr);
+                });
+              }
             }
           } catch (fetchErr: any) {
             console.error(`[Notify API FCM Fallback] Falha de rede para o token ${token.substring(0, 15)}...:`, fetchErr);
@@ -1058,12 +1139,49 @@ async function startServer() {
     }
   });
 
+  // Helper de timeout
+  function withTimeout<T>(promise: Promise<T>, ms: number, errorMessage = "Operação expirou por tempo limite"): Promise<T> {
+    let timeoutId: NodeJS.Timeout;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new Error(errorMessage));
+      }, ms);
+    });
+    return Promise.race([promise, timeoutPromise]).finally(() => {
+      clearTimeout(timeoutId);
+    });
+  }
+
+  // Inicializar logs de depuração globais para visualização admin se necessário
+  if (!(global as any).pushDebugLogs) {
+    (global as any).pushDebugLogs = [];
+  }
+
+  function logPushStep(msg: string) {
+    const formatted = `[${new Date().toISOString()}] ${msg}`;
+    console.log(formatted);
+    if ((global as any).pushDebugLogs) {
+      (global as any).pushDebugLogs.push(formatted);
+      if ((global as any).pushDebugLogs.length > 500) {
+        (global as any).pushDebugLogs.shift();
+      }
+    }
+  }
+
+  // ROTA: Obter logs de depuração do Push
+  app.get("/api/push-debug-logs", (req, res) => {
+    return res.json({ logs: (global as any).pushDebugLogs || [] });
+  });
+
   // ROTA: Envio de Push Inteligente (Suporta FCM de forma nativa/v1 + Web Push VAPID + Fallbacks)
   app.post("/api/send-fcm-push", async (req, res) => {
+    logPushStep(`--- Novo Disparo Solicitado ---`);
     try {
       const { title, body, audience, url = "/", targetUserId, targetUserEmail } = req.body;
+      logPushStep(`Dados recebidos: título="${title}", corpo="${body}", audience="${audience}", targetUserId="${targetUserId || ''}", targetUserEmail="${targetUserEmail || ''}"`);
 
       if (!title || !body) {
+        logPushStep("Erro: Título ou corpo vazios.");
         return res.status(400).json({
           success: false,
           error: "Campos 'title' e 'body' são obrigatórios.",
@@ -1083,13 +1201,14 @@ async function startServer() {
         absoluteTargetUrl = `${currentOrigin}/${cleanPath}`;
       }
 
-      console.log(`[Push Server] Disparando notificação: "${title}" para público: "${audience || "geral"}" (targetUserId: ${targetUserId || 'nenhum'}, targetUserEmail: ${targetUserEmail || 'nenhum'}) - URL Destino: ${absoluteTargetUrl}`);
+      logPushStep(`Destino absoluto: ${absoluteTargetUrl}`);
 
       // 1. Obter credenciais do Supabase
       const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
       const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
 
       if (!supabaseServiceKey) {
+        logPushStep("Erro: SUPABASE_SERVICE_ROLE_KEY ausente.");
         return res.status(400).json({
           success: false,
           error: "Credenciais do Supabase não configuradas nas variáveis de ambiente.",
@@ -1101,17 +1220,21 @@ async function startServer() {
       // 2. Obter perfis ativos do Supabase que contêm fcm_token ou subscrições de forma resiliente
       let profiles: any[] = [];
       try {
+        logPushStep("Buscando perfis no Supabase...");
         const { data, error: dbError } = await supabase
           .from("profiles")
           .select("id, fcm_token, role, email")
           .not("fcm_token", "is", null);
 
         if (dbError) {
+          logPushStep(`Erro ao buscar perfis: ${dbError.message}`);
           console.warn("[FCM Server] Erro ao buscar perfis no Supabase (usando dados locais de subscrições como alternativa):", dbError.message);
         } else {
           profiles = data || [];
+          logPushStep(`Encontrados ${profiles.length} perfis com fcm_token.`);
         }
       } catch (err: any) {
+        logPushStep(`Erro crítico ao buscar perfis: ${err.message || err}`);
         console.warn("[FCM Server] Excepção ao buscar perfis do Supabase:", err.message || err);
       }
 
@@ -1132,7 +1255,6 @@ async function startServer() {
 
       // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
       const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string, hasTargetUser?: boolean) => {
-        // Se houver destinatário específico ou for para audiência de usuários comuns, NÃO é notificação de sistema administrativo!
         if (hasTargetUser || tAudience === "user") {
           return false;
         }
@@ -1141,12 +1263,10 @@ async function startServer() {
         const bodyL = (tBody || "").toLowerCase();
         const audL = (tAudience || "").toLowerCase();
 
-        // Se a audiência explícita for de administração ou suporte técnico, considera-se sistema sensível
         if (audL === "admin" || audL === "master" || audL === "support") {
           return true;
         }
 
-        // Palavras-chave estritas associadas a notificações do sistema/atendimento administrativo
         const systemKeywords = [
           "atendimento humano",
           "novo utilizador",
@@ -1167,9 +1287,8 @@ async function startServer() {
       const hasTargetUser = !!(targetUserId || targetUserEmail);
       const isSys = isSystemNotification(title, body, audience, hasTargetUser);
       if (isSys) {
-        console.log(`[Push Server] Notificação "${title}" classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA. Filtrando apenas para contas Master.`);
+        logPushStep(`Classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA.`);
         
-        // Registrar histórico do push de sistema na tabela app_banners
         try {
           await supabase.from('app_banners').insert([{
             title: `[SYSTEM] ${title}`,
@@ -1182,7 +1301,9 @@ async function startServer() {
             user_type: 'push_system',
             image_url: null
           }]);
+          logPushStep(`Histórico gravado com sucesso em app_banners.`);
         } catch (dbErr) {
+          logPushStep(`Aviso: erro ao gravar histórico em app_banners: ${dbErr}`);
           console.warn("[FCM Server] Erro ao gravar histórico de push_system:", dbErr);
         }
       }
@@ -1194,10 +1315,8 @@ async function startServer() {
       } else if (targetUserEmail) {
         filteredProfiles = filteredProfiles.filter((p) => (p.email || "").toLowerCase() === targetUserEmail.toLowerCase());
       } else if (isSys) {
-        // Notificações de sistema vão UNICAMENTE para os Master accounts
         filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
       } else {
-        // Fluxo normal para as outras notificações (ex: expiração de licença, informativos gerais, etc.)
         if (audience === "admin" || audience === "master") {
           filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
         } else if (audience === "vendors") {
@@ -1209,20 +1328,31 @@ async function startServer() {
         }
       }
 
+      logPushStep(`Perfis filtrados para envio: ${filteredProfiles.length}`);
+
       // Separar tokens normais FCM e assinaturas Web Push estruturadas em JSON de forma deduplicada
       const fcmTokens: string[] = [];
       const webPushSubscriptions: any[] = [];
 
       filteredProfiles.forEach((p) => {
         const token = p.fcm_token;
-        if (!token || !token.trim()) return;
+        if (!token) return;
+
+        let trimmedToken = "";
+        try {
+          trimmedToken = typeof token === "string" ? token.trim() : JSON.stringify(token);
+        } catch (err) {
+          logPushStep(`Erro ao converter fcm_token de ${p.email || p.id} para string: ${err}`);
+          return;
+        }
+
+        if (!trimmedToken) return;
 
         // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID
-        if (token.trim().startsWith("{")) {
+        if (trimmedToken.startsWith("{")) {
           try {
-            const sub = JSON.parse(token);
+            const sub = JSON.parse(trimmedToken);
             if (sub && sub.endpoint) {
-              // Se houver um token FCM embutido, preferimos usar FCM para este dispositivo e ignoramos a subscrição VAPID para evitar notificações duplicadas que esgotam o orçamento do navegador
               if (sub.fcmToken) {
                 fcmTokens.push(sub.fcmToken);
               } else {
@@ -1233,70 +1363,71 @@ async function startServer() {
               }
             }
           } catch (e) {
-            // Se falhar o parse, trata como token normal
-            fcmTokens.push(token);
+            fcmTokens.push(trimmedToken);
           }
         } else {
-          fcmTokens.push(token);
+          fcmTokens.push(trimmedToken);
         }
       });
 
       // Incorporar também assinaturas salvas localmente/Firestore para retrocompatibilidade
-      const localSubs = await loadAllSubscriptions();
-      localSubs.forEach((ls) => {
-        if (!ls.subscription || !ls.subscription.endpoint) return;
-        // Evitar duplicados pelo endpoint
-        const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
-        if (!jaExiste) {
-          // 1. Tentar associar usando dados de perfis se disponíveis
-          const matchingProfile = profiles?.find((p) => p.id === ls.userId);
-          
-          // EVITAR DUPLICAÇÃO: Se o perfil do usuário já possui fcm_token ativo no Supabase, evitamos processar a assinatura VAPID local obsoleta
-          if (matchingProfile && matchingProfile.fcm_token) {
-            return;
-          }
-          
-          // 2. Determinar de forma independente as informações do utilizador (usando perfil do Supabase ou dados embutidos na assinatura)
-          const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
-          const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
+      try {
+        logPushStep("Carregando assinaturas locais/Firestore...");
+        const localSubs = await loadAllSubscriptions();
+        logPushStep(`Carregadas ${localSubs.length} assinaturas locais/Firestore.`);
+        localSubs.forEach((ls) => {
+          if (!ls.subscription || !ls.subscription.endpoint) return;
+          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === ls.subscription.endpoint);
+          if (!jaExiste) {
+            const matchingProfile = profiles?.find((p) => p.id === ls.userId);
+            
+            if (matchingProfile && matchingProfile.fcm_token) {
+              return;
+            }
+            
+            const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
+            const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
 
-          // 3. Verificar se o e-mail ou dados correspondem a um Master/Admin
-          const isMaster = isMasterEmail(userEmail);
-          const isAdmin = isMaster || userRole === "admin" || userRole === "master";
+            const isMaster = isMasterEmail(userEmail);
+            const isAdmin = isMaster || userRole === "admin" || userRole === "master";
 
-          let belongsToAudience = false;
+            let belongsToAudience = false;
 
-          if (targetUserId) {
-            belongsToAudience = ls.userId === targetUserId;
-          } else if (targetUserEmail) {
-            belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
-          } else if (isSys) {
-            belongsToAudience = isAdmin;
-          } else {
-            if (audience === "admin" || audience === "master") {
+            if (targetUserId) {
+              belongsToAudience = ls.userId === targetUserId;
+            } else if (targetUserEmail) {
+              belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
+            } else if (isSys) {
               belongsToAudience = isAdmin;
-            } else if (audience === "vendors") {
-              belongsToAudience = userRole === "vendor";
-            } else if (audience === "support") {
-              belongsToAudience = userRole === "support" || isAdmin;
-            } else if (audience === "user") {
-              belongsToAudience = userRole === "user" && !isAdmin;
-            } else if (!audience || audience === "geral" || audience === "all") {
-              belongsToAudience = true;
+            } else {
+              if (audience === "admin" || audience === "master") {
+                belongsToAudience = isAdmin;
+              } else if (audience === "vendors") {
+                belongsToAudience = userRole === "vendor";
+              } else if (audience === "support") {
+                belongsToAudience = userRole === "support" || isAdmin;
+              } else if (audience === "user") {
+                belongsToAudience = userRole === "user" && !isAdmin;
+              } else if (!audience || audience === "geral" || audience === "all") {
+                belongsToAudience = true;
+              }
+            }
+
+            if (belongsToAudience) {
+              webPushSubscriptions.push(ls);
             }
           }
+        });
+      } catch (err: any) {
+        logPushStep(`Erro de carregamento de assinaturas retrocompatíveis: ${err.message || err}`);
+      }
 
-          if (belongsToAudience) {
-            webPushSubscriptions.push(ls);
-          }
-        }
-      });
-
-      console.log(`[Push Server] Encontrados ${fcmTokens.length} dispositivos FCM e ${webPushSubscriptions.length} assinaturas Web Push (VAPID).`);
+      logPushStep(`Final: ${fcmTokens.length} dispositivos FCM e ${webPushSubscriptions.length} assinaturas Web Push (VAPID) prontas.`);
 
       let totalSent = 0;
 
       // 🔵 DISPARO 1: Enviar notificações via Web Push (VAPID)
+      logPushStep("Processando disparos Web Push (VAPID)...");
       const webPushPromises = webPushSubscriptions.map(async (ws) => {
         const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
         const payload = JSON.stringify({
@@ -1315,24 +1446,32 @@ async function startServer() {
         });
 
         try {
-          await webpush.sendNotification(ws.subscription, payload, {
-            headers: {
-              "Urgency": "high"
-            },
-            TTL: 86400 // 1 dia de tempo de vida
-          });
+          logPushStep(`Enviando Web Push para endpoint: ${ws.subscription.endpoint.substring(0, 30)}...`);
+          await withTimeout(
+            webpush.sendNotification(ws.subscription, payload, {
+              headers: {
+                "Urgency": "high"
+              },
+              TTL: 86400
+            }),
+            8000,
+            "Timeout ao enviar Web Push (8s)"
+          );
           totalSent++;
+          logPushStep(`Web Push enviado com sucesso para ${ws.subscription.endpoint.substring(0, 30)}...`);
         } catch (err: any) {
+          logPushStep(`Erro no Web Push: ${err.message || err}`);
           if (err.statusCode === 410 || err.statusCode === 404) {
-            console.log(`[VAPID] Assinatura inválida (status ${err.statusCode}). Excluindo do banco.`);
-            await deleteSubscriptionFromDatabase(ws.subscription.endpoint);
-          } else {
-            console.error("[VAPID] Erro ao enviar notificação para assinatura:", err.message || err);
+            logPushStep(`Iniciando remoção em background de assinatura inválida.`);
+            deleteSubscriptionFromDatabase(ws.subscription.endpoint).catch((dbErr) => {
+              console.warn("[VAPID Cleanup Error] Falha de limpeza:", dbErr);
+            });
           }
         }
       });
 
       // 🔵 DISPARO 2: Enviar notificações via Firebase Cloud Messaging (FCM)
+      logPushStep("Processando disparos FCM...");
       let finalServiceAccountEnv = serviceAccountEnv;
       if (req.body.customServiceAccount) {
         try {
@@ -1353,81 +1492,100 @@ async function startServer() {
             .maybeSingle();
           if (configData && configData.highlight) {
             finalServiceAccountEnv = configData.highlight;
+            logPushStep("Carregadas credenciais FCM dinâmicas de app_banners.");
           }
         } catch (dbErr) {
-          console.warn("[Push Server] Erro ao carregar credenciais dinâmicas do FCM de app_banners:", dbErr);
+          logPushStep(`Erro ao carregar credenciais dinâmicas de app_banners: ${dbErr}`);
         }
       }
 
       const fcmPromises = fcmTokens.map(async (token) => {
         const uniqueTag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+        
         // Método A: Usar Firebase Admin SDK se inicializado
         if (isFirebaseAdminInitialized) {
           try {
-            await getMessaging().send({
-              token,
-              notification: {
-                title,
-                body,
-              },
-              android: {
-                priority: "high",
-              },
-              apns: {
-                headers: {
-                  "apns-priority": "10",
-                  "apns-push-type": "alert"
-                },
-                payload: {
-                  aps: {
-                    alert: {
-                      title,
-                      body,
+            logPushStep(`Enviando via FCM Admin para token: ${token.substring(0, 15)}...`);
+            await withTimeout(
+              getMessaging().send({
+                token,
+                notification: { title, body },
+                android: { priority: "high" },
+                apns: {
+                  headers: {
+                    "apns-priority": "10",
+                    "apns-push-type": "alert"
+                  },
+                  payload: {
+                    aps: {
+                      alert: { title, body },
+                      sound: "default",
+                      "content-available": 1
                     },
-                    sound: "default",
-                    "content-available": 1
                   },
                 },
-              },
-              webpush: {
-                headers: {
-                  Urgency: "high",
-                  urgency: "high",
-                  TTL: "86400",
-                  ttl: "86400"
+                webpush: {
+                  headers: {
+                    Urgency: "high",
+                    urgency: "high",
+                    TTL: "86400",
+                    ttl: "86400"
+                  },
+                  notification: {
+                    title,
+                    body,
+                    icon: iconUrl,
+                    badge: iconUrl,
+                    clickAction: absoluteTargetUrl,
+                    requireInteraction: true,
+                    tag: uniqueTag
+                  },
+                  fcmOptions: { link: absoluteTargetUrl },
                 },
-                notification: {
-                  title,
-                  body,
-                  icon: iconUrl,
-                  badge: iconUrl,
-                  clickAction: absoluteTargetUrl,
-                  requireInteraction: true,
-                  tag: uniqueTag
+                data: {
+                  url: absoluteTargetUrl,
+                  click_action: absoluteTargetUrl,
                 },
-                fcmOptions: {
-                  link: absoluteTargetUrl,
-                },
-              },
-              data: {
-                url: absoluteTargetUrl,
-                click_action: absoluteTargetUrl,
-              },
-            });
+              }),
+              10000,
+              "Timeout do Firebase Admin (10s)"
+            );
             totalSent++;
+            logPushStep(`FCM Admin enviado com sucesso para ${token.substring(0, 15)}...`);
             return;
           } catch (fcmAdminErr: any) {
-            console.error(`[FCM Admin] Erro de envio para o token ${token.substring(0, 15)}...:`, fcmAdminErr.message);
-            // Se o token for inválido/não registrado, podemos opcionalmente remover se suportado
+            logPushStep(`Erro FCM Admin: ${fcmAdminErr.message}`);
+            const errMsg = (fcmAdminErr?.message || "").toLowerCase();
+            const errCode = (fcmAdminErr?.code || "").toLowerCase();
+            if (
+              errMsg.includes("registration-token-not-registered") ||
+              errMsg.includes("unregistered") ||
+              errMsg.includes("not-found") ||
+              errCode.includes("registration-token-not-registered") ||
+              errCode.includes("not-found") ||
+              errMsg.includes("mismatched-credential") ||
+              errMsg.includes("senderid mismatch") ||
+              errMsg.includes("sender_id_mismatch") ||
+              errCode.includes("mismatched-credential")
+            ) {
+              logPushStep(`Erro definitivo de token FCM detetado no Admin SDK. Iniciando limpeza do token...`);
+              deleteFcmTokenFromDatabase(token).catch((cleanErr) => {
+                console.warn("[FCM Admin Cleanup Error]", cleanErr);
+              });
+            }
           }
         }
 
         // Método B: Fallback para requisição direta à API HTTP v1 se tivermos a conta de serviço carregada
         if (finalServiceAccountEnv) {
           try {
+            logPushStep(`Enviando via FCM HTTP v1 para token: ${token.substring(0, 15)}...`);
             const serviceAccount = JSON.parse(finalServiceAccountEnv);
-            const accessToken = getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
+            const accessToken = await getGoogleAccessToken(serviceAccount.client_email, serviceAccount.private_key);
             const projectId = serviceAccount.project_id;
+
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000);
 
             const fcmResponse = await fetch(
               `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`,
@@ -1486,23 +1644,56 @@ async function startServer() {
                     },
                   },
                 }),
+                signal: controller.signal
               }
             );
 
+            clearTimeout(timeoutId);
+
             if (fcmResponse.ok) {
               totalSent++;
+              logPushStep(`FCM HTTP v1 enviado com sucesso para ${token.substring(0, 15)}...`);
             } else {
-              const fcmErrResult = await fcmResponse.json();
-              console.error(`[FCM HTTP Fallback] Erro para o token ${token.substring(0, 15)}...:`, fcmErrResult);
+              const fcmErrResult = await fcmResponse.json() as any;
+              logPushStep(`Erro FCM HTTP v1: ${JSON.stringify(fcmErrResult)}`);
+              const errorObj = fcmErrResult?.error || {};
+              const errMessage = (errorObj.message || "").toLowerCase();
+              const errStatus = (errorObj.status || "").toLowerCase();
+              const details = errorObj.details || [];
+              const hasUnregistered = details.some((d: any) => d.errorCode === "UNREGISTERED") || 
+                                      errMessage.includes("unregistered") || 
+                                      errMessage.includes("not_found") || 
+                                      errStatus === "not_found" ||
+                                      errorObj.code === 404;
+                                      
+              const hasSenderMismatch = details.some((d: any) => d.errorCode === "SENDER_ID_MISMATCH") || 
+                                        errMessage.includes("senderid mismatch") || 
+                                        errMessage.includes("sender_id_mismatch") ||
+                                        errStatus === "permission_denied" ||
+                                        errorObj.code === 403;
+
+              if (hasUnregistered || hasSenderMismatch) {
+                logPushStep(`Erro definitivo de token FCM detetado no HTTP v1 (${hasUnregistered ? 'UNREGISTERED' : 'SENDER_ID_MISMATCH'}). Iniciando limpeza...`);
+                deleteFcmTokenFromDatabase(token).catch((cleanErr) => {
+                  console.warn("[FCM HTTP Fallback Cleanup Error]", cleanErr);
+                });
+              }
             }
           } catch (fetchErr: any) {
-            console.error(`[FCM HTTP Fallback] Falha de rede para o token ${token.substring(0, 15)}...:`, fetchErr);
+            logPushStep(`Falha FCM HTTP v1: ${fetchErr.message || fetchErr}`);
           }
         }
       });
 
-      // Aguarda todos os disparos terminarem
-      await Promise.all([...webPushPromises, ...fcmPromises]);
+      // Aguarda todos os disparos terminarem com um limite de tempo geral de 12 segundos
+      logPushStep("Aguardando conclusão de todas as promessas de envio...");
+      await withTimeout(
+        Promise.all([...webPushPromises, ...fcmPromises]),
+        12000,
+        "Tempo de espera esgotado aguardando envio das promessas"
+      );
+
+      logPushStep(`Envios finalizados. Total enviado: ${totalSent}`);
 
       return res.json({
         success: true,
@@ -1511,7 +1702,7 @@ async function startServer() {
       });
 
     } catch (err: any) {
-      console.error("[FCM Server] Erro catastrófico de disparo:", err);
+      logPushStep(`Erro catastrófico final no Express: ${err.message || err}`);
       return res.status(500).json({
         success: false,
         error: err.message || String(err),

@@ -246,14 +246,6 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     }
   };
 
-  const getReadyServiceWorker = async (): Promise<ServiceWorkerRegistration | null> => {
-    if (!('serviceWorker' in navigator)) return null;
-    return Promise.race([
-      navigator.serviceWorker.ready,
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200))
-    ]);
-  };
-
   // Helper para converter a chave pública VAPID recebida do backend
   const urlBase64ToUint8Array = (base64String: string) => {
     const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -276,18 +268,14 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     // 1. Tentar obter o token FCM se suportado
     if (isFirebaseConfigured && isPushSupported() && messaging) {
       try {
-        const reg = await getReadyServiceWorker();
-        if (reg) {
-          const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
-          fcmToken = await getToken(messaging, {
-            serviceWorkerRegistration: reg,
-            vapidKey: vapidKey || undefined
-          });
-          if (fcmToken) {
-            console.log('[Push Manager] Token FCM obtido com sucesso:', fcmToken);
-          }
-        } else {
-          console.warn('[Push Manager] Service Worker não está pronto. Ignorando obtenção de token FCM.');
+        const reg = await navigator.serviceWorker.ready;
+        const vapidKey = customVapidKey || (import.meta as any).env.VITE_FIREBASE_VAPID_KEY;
+        fcmToken = await getToken(messaging, {
+          serviceWorkerRegistration: reg,
+          vapidKey: vapidKey || undefined
+        });
+        if (fcmToken) {
+          console.log('[Push Manager] Token FCM obtido com sucesso:', fcmToken);
         }
       } catch (fcmErr) {
         console.warn('[Push Manager] Erro ao obter token FCM:', fcmErr);
@@ -297,11 +285,7 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     // 2. Tentar obter a subscrição VAPID Web Push
     if ('serviceWorker' in navigator && 'PushManager' in window) {
       try {
-        const reg = await getReadyServiceWorker();
-        if (!reg) {
-          console.warn('[Push Manager] Service Worker não está pronto para subscrição VAPID.');
-          return;
-        }
+        const reg = await navigator.serviceWorker.ready;
         let subscription = await reg.pushManager.getSubscription();
 
         let publicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
