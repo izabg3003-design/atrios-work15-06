@@ -596,7 +596,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             isActive: true,
             status: 'ACTIVE_ADMIN_CREATED'
           },
-          password: newUser.password,
           settings: {
             password: newUser.password
           }
@@ -655,7 +654,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             isActive: true,
             status: 'VENDOR_ACTIVE'
           },
-          password: newVendor.password,
           settings: {
             password: newVendor.password
           }
@@ -949,17 +947,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             url: '/'
           })
         });
-        const responseText = await serverResponse.text();
-        let serverData: any = {};
-        if (responseText.trim()) {
-          try {
-            serverData = JSON.parse(responseText);
-          } catch (pe) {
-            serverData = { success: false, error: `Falha ao decodificar JSON: ${responseText.substring(0, 100)}` };
-          }
-        } else {
-          serverData = { success: false, error: 'Resposta vazia do servidor.' };
-        }
+        const serverData = await serverResponse.json();
         if (serverResponse.ok && serverData.success) {
           serverFcmSuccess = true;
           serverFcmMsg = `Servidor: Enviado a ${serverData.sent || 0} dispositivos.`;

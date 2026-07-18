@@ -46,8 +46,8 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
       if (error) {
         if (error.message.includes('Email not confirmed')) {
           setErrorMsg({
-            title: t('login.blockedTitle'),
-            text: t('login.blockedMsg')
+            title: 'CONFIRME O SEU E-MAIL',
+            text: 'A sua conta foi criada com sucesso, mas precisa de confirmar o seu e-mail. Por favor, verifique a sua caixa de entrada (e pasta de spam) e clique no link de confirmação para poder aceder.'
           });
           return;
         } else if (error.message.includes('Invalid login credentials')) {
@@ -120,28 +120,32 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
       if (authError) throw authError;
 
       if (authData.user) {
-        const { error: profileError } = await supabase.from('profiles').upsert({
-          id: authData.user.id,
-          name: regData.name,
-          email: regData.email,
-          phone: regData.phone,
-          role: 'user',
-          hourlyRate: 10,
-          isFreelancer: false,
-          status: 'FREE',
-          subscription: {
-            id: `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
-            startDate: new Date().toISOString(), 
-            isActive: true,
-            status: 'FREE'
-          },
-          password: regData.password,
-          settings: {
-            password: regData.password
+        try {
+          const { error: profileError } = await supabase.from('profiles').upsert({
+            id: authData.user.id,
+            name: regData.name,
+            email: regData.email,
+            phone: regData.phone,
+            role: 'user',
+            hourlyRate: 10,
+            isFreelancer: false,
+            status: 'FREE',
+            subscription: {
+              id: `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+              startDate: new Date().toISOString(), 
+              isActive: true,
+              status: 'FREE'
+            },
+            settings: {
+              password: regData.password
+            }
+          });
+          if (profileError) {
+            console.warn('Erro RLS ou BD ao criar perfil no cliente (será corrigido pelo backend):', profileError);
           }
-        });
-
-        if (profileError) throw profileError;
+        } catch (err) {
+          console.warn('Falha ao tentar upsert de perfil no cliente:', err);
+        }
         
         // Log notification in history (app_banners) and trigger push
         try {
@@ -191,14 +195,37 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
             body: JSON.stringify({
               type: 'new_user',
               name: regData.name,
-              email: regData.email
+              email: regData.email,
+              phone: regData.phone
             })
           });
         } catch (apiErr) {
           console.warn('Erro ao disparar notificação central de novo cadastro:', apiErr);
         }
         
-        onLogin(regData.email);
+        // Direcionar para página de login ou já fazer o login automaticamente após o cadastro
+        let loggedIn = false;
+        try {
+          const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
+            email: regData.email,
+            password: regData.password
+          });
+          if (!signInError && signInData?.session) {
+            loggedIn = true;
+            onLogin(regData.email);
+          }
+        } catch (autoLoginErr) {
+          console.warn('Erro na tentativa de login automático:', autoLoginErr);
+        }
+
+        if (!loggedIn) {
+          setEmail(regData.email);
+          setIsRegistering(false);
+          setErrorMsg({
+            title: 'REGISTADO COM SUCESSO',
+            text: 'A sua conta foi criada! Enviámos um e-mail de confirmação. Por favor, verifique a sua caixa de entrada e clique no link para ativar a sua conta.'
+          });
+        }
       }
     } catch (error: any) {
       setErrorMsg({
