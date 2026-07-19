@@ -672,8 +672,8 @@ export const supabase = new Proxy({}, {
               window.location.hostname.includes('ai.studio')
             );
 
-          // Se estiver na produção real do cliente, chamar a Edge Function REAL do Supabase diretamente!
-          if (!isLocalOrDevEnv) {
+          // Se estiver na produção real do cliente, chamar a Edge Function REAL do Supabase diretamente (exceto para pagamento e push que preferem a API do backend local)!
+          if (!isLocalOrDevEnv && functionName !== 'process-payment' && functionName !== 'send-fcm-push' && functionName !== 'send-push') {
             if (originalFunctions && typeof originalFunctions.invoke === 'function') {
               console.log(`[Supabase Proxy] Direcionando '${functionName}' para a Edge Function Real no site de Produção.`);
               return originalFunctions.invoke(functionName, options);

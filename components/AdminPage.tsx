@@ -747,7 +747,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
           if (error) {
             console.warn("Aviso ao salvar agendamento no Supabase (prosseguindo):", error);
-            const is404 = error.code === 'PGRST116' || error.message?.includes('does not exist') || JSON.stringify(error).includes('404') || (error as any).status === 404;
+            const is404 = error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist');
             if (is404) {
               dbInsertWarning = "Nota: A tabela 'app_banners' não existe no seu Supabase. Para poder salvar históricos e agendamentos, execute o comando de criação no SQL Editor do painel do Supabase:\n\nCREATE TABLE IF NOT EXISTS app_banners (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, title TEXT NOT NULL, highlight TEXT, subtitle TEXT, cta_text TEXT, cta_link TEXT, theme_color TEXT DEFAULT 'indigo', is_active BOOLEAN DEFAULT true, user_type TEXT DEFAULT 'all', image_url TEXT, created_at TIMESTAMPTZ DEFAULT now());";
             } else if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
@@ -801,7 +801,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
         if (error) {
           console.warn("Aviso ao registrar histórico no Supabase (continuando com o envio do Push):", error);
-          const is404 = error.code === 'PGRST116' || error.message?.includes('does not exist') || JSON.stringify(error).includes('404') || (error as any).status === 404;
+          const is404 = error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist');
           if (is404) {
             dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: A tabela 'app_banners' não existe no seu Supabase. O push prosseguirá, mas para salvar o histórico, aceda ao SQL Editor do painel do Supabase e execute:\n\nCREATE TABLE IF NOT EXISTS app_banners (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  title TEXT NOT NULL,\n  highlight TEXT,\n  subtitle TEXT,\n  cta_text TEXT,\n  cta_link TEXT,\n  theme_color TEXT DEFAULT 'indigo',\n  is_active BOOLEAN DEFAULT true,\n  user_type TEXT DEFAULT 'all',\n  image_url TEXT,\n  created_at TIMESTAMPTZ DEFAULT now()\n);";
           } else if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
@@ -816,56 +816,40 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       let serverFcmSuccess = false;
       let serverFcmMsg = '';
       
-      const isLocalOrDevEnv = 
-        typeof window !== 'undefined' && (
-          window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1' ||
-          window.location.hostname.includes('europe-west1.run.app') ||
-          window.location.hostname.includes('web-preview') ||
-          window.location.hostname.includes('gitpod') ||
-          window.location.hostname.includes('codesandbox') ||
-          window.location.hostname.includes('ai.studio')
-        );
-
-      if (isLocalOrDevEnv) {
-        try {
-          console.log('[Push Dispatch] Ambiente local/dev: Tentando envio de push via servidor local...');
-          const serverResponse = await fetch('/api/send-fcm-push', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              title: newPushTitle.trim(),
-              body: newPushBody.trim(),
-              audience: newPushAudience,
-              url: '/'
-            })
-          });
-          const responseText = await serverResponse.text();
-          let serverData: any = {};
-          if (responseText.trim()) {
-            try {
-              serverData = JSON.parse(responseText);
-            } catch (pe) {
-              serverData = { success: false, error: `Falha ao descodificar JSON: ${responseText.substring(0, 100)}` };
-            }
-          } else {
-            serverData = { success: false, error: 'Resposta vazia do servidor.' };
+      try {
+        console.log('[Push Dispatch] Tentando envio de push via API local...');
+        const serverResponse = await fetch('/api/send-fcm-push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: newPushTitle.trim(),
+            body: newPushBody.trim(),
+            audience: newPushAudience,
+            url: '/'
+          })
+        });
+        const responseText = await serverResponse.text();
+        let serverData: any = {};
+        if (responseText.trim()) {
+          try {
+            serverData = JSON.parse(responseText);
+          } catch (pe) {
+            serverData = { success: false, error: `Falha ao descodificar JSON: ${responseText.substring(0, 100)}` };
           }
-          if (serverResponse.ok && serverData.success) {
-            serverFcmSuccess = true;
-            serverFcmMsg = `Enviado com sucesso para ${serverData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
-          } else {
-            serverFcmMsg = `Erro no envio: ${serverData.error || 'Falha no disparo.'}`;
-          }
-        } catch (servErr: any) {
-          console.warn('[Push Dispatch] Erro no servidor local:', servErr);
-          serverFcmMsg = `Erro de ligação ao servidor (${servErr.message || servErr})`;
+        } else {
+          serverData = { success: false, error: 'Resposta vazia do servidor.' };
         }
-      } else {
-        console.log('[Push Dispatch] Ambiente de produção: Enviando directamente via Supabase Edge Function...');
-        serverFcmMsg = 'Processando directamente pela Supabase Edge Function.';
+        if (serverResponse.ok && serverData.success) {
+          serverFcmSuccess = true;
+          serverFcmMsg = `Enviado com sucesso para ${serverData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
+        } else {
+          serverFcmMsg = `Erro no envio local: ${serverData.error || 'Falha no disparo.'}`;
+        }
+      } catch (servErr: any) {
+        console.warn('[Push Dispatch] Erro no servidor local, tentando fallback Supabase Edge Function:', servErr);
+        serverFcmMsg = `Erro de ligação ao servidor local (${servErr.message || servErr})`;
       }
  
       // FALLBACK: Se o envio via servidor local falhar ou retornar erro (por exemplo, em hospedagem estática de produção onde não há backend local ativo),
