@@ -62,7 +62,8 @@ const VendorSalesPage: React.FC<Props> = ({ user, adminOverrideVendor, onBackToA
           .from('profiles')
           .select('*')
           .ilike('vendor_code', finalCode)
-          .neq('id', activeUserId);
+          .neq('id', activeUserId)
+          .eq('role', 'user');
         
         if (error) throw error;
         
@@ -73,7 +74,7 @@ const VendorSalesPage: React.FC<Props> = ({ user, adminOverrideVendor, onBackToA
             email.includes('izarellebraga@gmail.com') || 
             email.includes('master@digitalnexus.com') ||
             email.includes('jefersongoes36@gmail.com');
-          return u.role !== 'admin' && !isMasterEmail;
+          return !isMasterEmail;
         });
 
         const sortedSales = filteredData.sort((a: any, b: any) => {

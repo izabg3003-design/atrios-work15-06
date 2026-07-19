@@ -60,13 +60,12 @@ const AdminPartnerReports: React.FC<Props> = ({ f }) => {
         const pCode = (p.vendor_code || '').trim().toUpperCase();
         const email = (p.email || '').toLowerCase();
         const isMasterEmail = email.includes('master@atrioswork.com') || email.includes('izarellebraga@gmail.com') || email.includes('master@digitalnexus.com') || email.includes('jefersongoes36@gmail.com');
-        if (pCode !== vendorCode || p.id === vendor.id || p.role === 'admin' || isMasterEmail) return false;
+        if (pCode !== vendorCode || p.id === vendor.id || p.role !== 'user' || isMasterEmail) return false;
 
         try {
           const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-          const dateStr = sub?.startDate || sub?.payment_date || p.created_at;
-          if (!dateStr) return false;
-          const date = parseISO(dateStr);
+          if (!sub || !sub.startDate) return false;
+          const date = parseISO(sub.startDate);
           return isWithinInterval(date, { start, end });
         } catch { return false; }
       });

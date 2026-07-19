@@ -186,10 +186,15 @@
             z-index: 2147483647 !important;
         }
 
-        @media screen and (max-width: 480px) {
-            jdiv[class^="label_"], [id^="jivo_label"] {
-                bottom: 20px !important;
-                right: 20px !important;
+        @media screen and (max-width: 768px) {
+            jdiv[class^="label_"], [id^="jivo_label"],
+            jdiv[class^="button_"], [id^="jivo_button"],
+            jdiv[class^="wrapper_"],
+            .jivo-iframe-container,
+            .jivo-iframe-container-bottom,
+            [class^="jivo-"],
+            [id^="jivo_container"] {
+                bottom: 110px !important;
                 z-index: 2147483647 !important;
             }
         }

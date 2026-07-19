@@ -45,11 +45,11 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
       const globalDisc = (masterSub.master_global_discount ?? 5) / 100;
 
       if (pData) {
-        // Incluir todos os usuários (exceto admins e masters) que tenham assinatura paga ativa (PRO ou ACTIVE_PAID)
+        // Incluir todos os usuários com papel 'user' que tenham assinatura paga ativa (PRO ou ACTIVE_PAID), excluindo masters/admins
         const allSalesProfiles = pData.filter(p => {
           const email = p.email?.toLowerCase() || '';
           const isMasterEmail = email.includes('master@atrioswork.com') || email.includes('izarellebraga@gmail.com') || email.includes('master@digitalnexus.com') || email.includes('jefersongoes36@gmail.com');
-          if (p.role === 'admin' || isMasterEmail) return false;
+          if (p.role !== 'user' || isMasterEmail) return false;
           let sub: any = {};
           try {
             sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
@@ -156,9 +156,7 @@ const AdminGlobalAnalytics: React.FC<Props> = ({ f }) => {
           const monthlySales = allSalesProfiles.filter(p => {
             try {
               const sub = typeof p.subscription === 'string' ? JSON.parse(p.subscription) : p.subscription;
-              const dateStr = sub?.startDate || sub?.payment_date || p.created_at;
-              if (!dateStr) return false;
-              const d = new Date(dateStr);
+              const d = new Date(sub?.startDate);
               return d.getMonth() === i && d.getFullYear() === currentYear;
             } catch (e) { return false; }
           });

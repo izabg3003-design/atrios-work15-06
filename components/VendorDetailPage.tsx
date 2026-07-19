@@ -54,13 +54,23 @@ const VendorDetailPage: React.FC<Props> = ({ vendorId, currentUser, onBack, f, i
         const code = (vData.code || '').trim().toUpperCase();
         
         if (code) {
-          const { data: mDataMembers, error: membersError } = await supabase
+          const { count, error: countError } = await supabase
+            .from('profiles')
+            .select('*', { count: 'exact', head: true })
+            .ilike('vendor_code', code)
+            .neq('id', targetId)
+            .eq('role', 'user');
+          
+          if (!countError) setRealSalesCount(count || 0);
+
+          const { data: mDataMembers } = await supabase
             .from('profiles')
             .select('*')
             .ilike('vendor_code', code)
-            .neq('id', targetId);
+            .neq('id', targetId)
+            .eq('role', 'user');
           
-          if (!membersError && mDataMembers) {
+          if (mDataMembers) {
             const filteredMembers = mDataMembers.filter((m: any) => {
               const email = (m.email || '').toLowerCase();
               const isMasterEmail = 
@@ -68,7 +78,7 @@ const VendorDetailPage: React.FC<Props> = ({ vendorId, currentUser, onBack, f, i
                 email.includes('izarellebraga@gmail.com') || 
                 email.includes('master@digitalnexus.com') ||
                 email.includes('jefersongoes36@gmail.com');
-              return m.role !== 'admin' && !isMasterEmail;
+              return !isMasterEmail;
             });
             setRealSalesCount(filteredMembers.length);
 

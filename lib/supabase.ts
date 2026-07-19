@@ -8,6 +8,7 @@ const supabaseAnonKey = metaEnv.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsI
 
 export const isConfigured = 
   (supabaseUrl as string) !== 'https://SUA_URL_AQUI.supabase.co' && 
+  (supabaseUrl as string) !== 'https://zuawenhgajcciefbwear.supabase.co' && 
   (supabaseAnonKey as string) !== '' &&
   supabaseUrl.startsWith('https://');
 
@@ -490,7 +491,7 @@ const realSupabase = isConfigured
 
 const offlineSupabase = createOfflineMockClient();
 
-const IS_DEFAULT_URL = supabaseUrl === 'https://zuawenhgajcciefbwear.supabase.co';
+const IS_DEFAULT_URL = supabaseUrl === 'https://SUA_URL_AQUI.supabase.co' || supabaseUrl === 'https://zuawenhgajcciefbwear.supabase.co';
 
 // Estado interno para controle do modo offline fallback
 // Se for a URL padrão, iniciamos em modo offline imediatamente para evitar "Failed to Fetch"
