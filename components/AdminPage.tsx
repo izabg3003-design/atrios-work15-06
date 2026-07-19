@@ -747,7 +747,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
           if (error) {
             console.warn("Aviso ao salvar agendamento no Supabase (prosseguindo):", error);
-            if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
+            const is404 = error.code === 'PGRST116' || error.message?.includes('does not exist') || JSON.stringify(error).includes('404') || (error as any).status === 404;
+            if (is404) {
+              dbInsertWarning = "Nota: A tabela 'app_banners' não existe no seu Supabase. Para poder salvar históricos e agendamentos, execute o comando de criação no SQL Editor do painel do Supabase:\n\nCREATE TABLE IF NOT EXISTS app_banners (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, title TEXT NOT NULL, highlight TEXT, subtitle TEXT, cta_text TEXT, cta_link TEXT, theme_color TEXT DEFAULT 'indigo', is_active BOOLEAN DEFAULT true, user_type TEXT DEFAULT 'all', image_url TEXT, created_at TIMESTAMPTZ DEFAULT now());";
+            } else if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
               dbInsertWarning = "Nota: O agendamento foi salvo apenas em memória pois existe um Trigger corrompido ou falta da extensão 'pg_net' no seu Supabase. Execute 'DROP TRIGGER IF EXISTS send_push_trigger ON app_banners;' no SQL Editor do Supabase.";
             }
           }
@@ -798,7 +801,10 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
         if (error) {
           console.warn("Aviso ao registrar histórico no Supabase (continuando com o envio do Push):", error);
-          if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
+          const is404 = error.code === 'PGRST116' || error.message?.includes('does not exist') || JSON.stringify(error).includes('404') || (error as any).status === 404;
+          if (is404) {
+            dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: A tabela 'app_banners' não existe no seu Supabase. O push prosseguirá, mas para salvar o histórico, aceda ao SQL Editor do painel do Supabase e execute:\n\nCREATE TABLE IF NOT EXISTS app_banners (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  title TEXT NOT NULL,\n  highlight TEXT,\n  subtitle TEXT,\n  cta_text TEXT,\n  cta_link TEXT,\n  theme_color TEXT DEFAULT 'indigo',\n  is_active BOOLEAN DEFAULT true,\n  user_type TEXT DEFAULT 'all',\n  image_url TEXT,\n  created_at TIMESTAMPTZ DEFAULT now()\n);";
+          } else if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
             dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: O envio de push prosseguiu com sucesso, mas o histórico não pôde ser salvo porque existe um Trigger corrompido ('net.http_post' não encontrado) no seu Supabase. Para corrigir isto permanentemente, aceda ao SQL Editor no painel do Supabase e execute:\nDROP TRIGGER IF EXISTS send_push_trigger ON app_banners;\nDROP TRIGGER IF EXISTS on_banner_created ON app_banners;\nDROP TRIGGER IF EXISTS send_push_trigger ON chat_messages;\nDROP TRIGGER IF EXISTS on_message_created ON chat_messages;\nDROP TRIGGER IF EXISTS send_push_trigger ON support_tickets;\nDROP TRIGGER IF EXISTS on_ticket_created ON support_tickets;";
           }
         }
@@ -842,6 +848,36 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       } catch (servErr: any) {
         console.warn('[Push Dispatch] Erro no servidor local:', servErr);
         serverFcmMsg = `Erro de ligação ao servidor (${servErr.message || servErr})`;
+      }
+
+      // FALLBACK: Se o envio via servidor local falhar ou retornar erro (por exemplo, em hospedagem estática de produção onde não há backend local ativo),
+      // tentamos invocar a Supabase Edge Function 'send-fcm-push' diretamente do cliente usando o cliente Supabase.
+      if (!serverFcmSuccess) {
+        console.log('[Push Dispatch] Tentando fallback via Supabase Edge Function "send-fcm-push"...');
+        try {
+          const { data: edgeData, error: edgeError } = await supabase.functions.invoke('send-fcm-push', {
+            body: {
+              title: newPushTitle.trim(),
+              body: newPushBody.trim(),
+              audience: newPushAudience,
+              url: '/'
+            }
+          });
+          if (!edgeError && edgeData && edgeData.success) {
+            serverFcmSuccess = true;
+            serverFcmMsg = `Enviado com sucesso via Supabase Edge Function para ${edgeData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
+          } else {
+            console.warn('[Push Dispatch] Falha no fallback do Supabase Edge Function:', edgeError || edgeData);
+            if (edgeError) {
+              serverFcmMsg = `Erro de ligação (${serverFcmMsg}) | Fallback Supabase: ${edgeError.message || JSON.stringify(edgeError)}`;
+            } else if (edgeData && edgeData.error) {
+              serverFcmMsg = `Erro no envio (${serverFcmMsg}) | Fallback Supabase: ${edgeData.error}`;
+            }
+          }
+        } catch (edgeCatchErr: any) {
+          console.warn('[Push Dispatch] Excepção no fallback do Supabase:', edgeCatchErr);
+          serverFcmMsg = `${serverFcmMsg} | Excepção Fallback: ${edgeCatchErr.message || edgeCatchErr}`;
+        }
       }
 
       setNewPushTitle('');

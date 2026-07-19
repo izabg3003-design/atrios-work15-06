@@ -508,6 +508,21 @@ if (isConfigured && realSupabase && !IS_DEFAULT_URL) {
     });
 }
 
+let lastHealCheckTime = 0;
+async function trySelfHeal() {
+  if (!isConfigured || !realSupabase || IS_DEFAULT_URL) return;
+  const now = Date.now();
+  if (now - lastHealCheckTime < 15000) return; // Máximo de um teste a cada 15 segundos
+  lastHealCheckTime = now;
+  try {
+    await fetch(supabaseUrl, { method: 'HEAD', mode: 'no-cors' });
+    console.log("[Supabase Status] Auto-recuperação: Conexão restabelecida com o Supabase! Sincronização online reativada.");
+    isOfflineMode = false;
+  } catch (err) {
+    // Silencioso se continuar inacessível
+  }
+}
+
 // Auxiliar para envelopar promessas de forma a capturar erros de rede retornados no objeto de resolução (padrão do Supabase)
 function wrapPromiseWithNetworkFallback(promise: Promise<any>, fallbackFn: () => Promise<any>): Promise<any> {
   return promise.then(
@@ -533,6 +548,11 @@ function wrapPromiseWithNetworkFallback(promise: Promise<any>, fallbackFn: () =>
 // Proxy wrapper inteligente exportado para toda a aplicação com tipagem 'any' para conformidade com o compilador
 export const supabase = new Proxy({}, {
   get: (target, prop) => {
+    if (isOfflineMode) {
+      // Tenta recuperar a conexão em segundo plano
+      trySelfHeal();
+    }
+
     if (isOfflineMode || !realSupabase) {
       return (offlineSupabase as any)[prop];
     }
@@ -681,6 +701,15 @@ export const supabase = new Proxy({}, {
                 body: JSON.stringify(options?.body || {}),
               });
               
+              if (!response.ok) {
+                console.warn("[FCM Interceptor] Servidor local retornou erro, tentando Edge Function real do Supabase...");
+                if (originalFunctions && typeof originalFunctions.invoke === 'function') {
+                  return originalFunctions.invoke(functionName, options).catch((origErr: any) => {
+                    return { data: { success: false, error: origErr.message || String(origErr) }, error: origErr };
+                  });
+                }
+              }
+
               const responseText = await response.text();
               let data: any = null;
               if (responseText.trim()) {
@@ -695,7 +724,13 @@ export const supabase = new Proxy({}, {
               
               return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no envio") };
             } catch (err) {
-              console.warn("[FCM Interceptor] Falha no servidor local de push, simulando envio...", err);
+              console.warn("[FCM Interceptor] Falha ao ligar ao servidor local de push, tentando Edge Function real do Supabase...", err);
+              if (originalFunctions && typeof originalFunctions.invoke === 'function') {
+                return originalFunctions.invoke(functionName, options).catch((origErr: any) => {
+                  console.warn("[FCM Interceptor] Falha definitiva na Edge Function real do Supabase:", origErr);
+                  return { data: { success: false, error: origErr.message || String(origErr) }, error: origErr };
+                });
+              }
               return { data: { success: true }, error: null };
             }
           }
