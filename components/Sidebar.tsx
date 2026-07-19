@@ -79,54 +79,77 @@ const Sidebar: React.FC<Props> = ({ activeTab, setActiveTab, user, onLogout, t, 
         </div>
       </aside>
 
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-24 bg-[#020617]/95 backdrop-blur-2xl z-[500] flex items-center justify-around px-2 border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
+      {/* Barra de Topo Premium para Mobile (Garante clique perfeito e evita overlaps com chat widgets) */}
+      <header 
+        style={{ zIndex: 2147483647 }}
+        className="md:hidden fixed top-0 left-0 right-0 h-16 bg-[#020617]/95 backdrop-blur-xl border-b border-white/10 flex items-center justify-between px-4 shadow-lg"
+      >
+        <div className="flex items-center gap-2.5">
+          <img src="/logo_atualizado.jpg?v=20260314_v1" className="w-8 h-8 object-contain rounded-xl shadow-md shadow-purple-500/25" alt="AtriosWork Logo" />
+          <div className="flex flex-col">
+            <h1 className="text-xs font-black uppercase tracking-widest text-white leading-none">AtriosWork</h1>
+            <span className="text-[7px] font-black uppercase tracking-wider text-slate-500 mt-0.5 max-w-[120px] truncate">{user.name || "Membro"}</span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          {/* Botão de Sair */}
+          <button 
+            onClick={onLogout} 
+            className="p-2.5 text-slate-400 hover:text-red-400 active:scale-95 flex items-center gap-1 bg-white/5 border border-white/5 rounded-xl"
+            title="Terminar Sessão"
+          >
+            <LogOut className="w-4 h-4 stroke-[2px]" />
+            <span className="text-[8px] font-black uppercase tracking-wider text-red-400/80">Sair</span>
+          </button>
+        </div>
+      </header>
+
+      <nav 
+        style={{ zIndex: 2147483647 }}
+        className="md:hidden fixed bottom-0 left-0 right-0 h-24 bg-[#020617]/95 backdrop-blur-2xl flex items-center justify-around px-2 border-t border-white/10 shadow-[0_-10px_40px_rgba(0,0,0,0.6)]"
+      >
         {filteredTabs.map((tab) => {
           const isActive = activeTab === tab.id;
+          const isSettings = tab.id === 'settings';
           return (
-            <button 
-              key={tab.id} 
-              onClick={() => setActiveTab(tab.id)} 
-              className={`flex flex-col items-center gap-1.5 p-1 transition-all duration-300 flex-1 relative ${isActive ? 'text-purple-400' : 'text-slate-500'}`}
-            >
-              <div className={`transition-all duration-300 relative ${isActive ? 'scale-110 -translate-y-1' : 'opacity-60'}`}>
-                <tab.icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
-                {(tab as any).isLocked && (
-                  <div className="absolute -top-1 -right-1 bg-amber-500 rounded-full p-0.5 border border-slate-950">
-                    <Lock className="w-2 h-2 text-slate-950" />
+            <React.Fragment key={tab.id}>
+              {isSettings && (
+                <button 
+                  onClick={togglePrivacy}
+                  className={`flex flex-col items-center gap-1.5 p-1 transition-all duration-300 flex-1 relative ${hideValues ? 'text-amber-500' : 'text-slate-500'}`}
+                >
+                  <div className={`transition-all duration-300 relative ${hideValues ? 'scale-110 -translate-y-1 text-amber-500' : 'opacity-60'}`}>
+                    {hideValues ? <EyeOff className="w-5 h-5 stroke-[2.5px]" /> : <Eye className="w-5 h-5 stroke-[1.5px]" />}
                   </div>
-                )}
-              </div>
-              <span className={`text-[7px] font-black uppercase tracking-widest text-center whitespace-nowrap transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-40 scale-90'}`}>
-                {tab.id === 'dashboard' ? 'Log' : tab.id === 'accountant' ? 'Contas' : tab.id === 'admin' ? 'Master' : tab.id === 'part-time' ? 'Part-Time' : tab.id === 'reports' ? 'Relat.' : tab.id === 'vendor-detail' ? 'Rede' : tab.id === 'vendor-sales' ? 'Vendas' : tab.label}
-              </span>
-              {isActive && (
-                <div className="absolute -top-1 w-6 h-0.5 bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></div>
+                  <span className={`text-[7px] font-black uppercase tracking-widest text-center whitespace-nowrap transition-all duration-300 ${hideValues ? 'opacity-100 text-amber-500' : 'opacity-40'}`}>
+                    Privac.
+                  </span>
+                </button>
               )}
-            </button>
+
+              <button 
+                onClick={() => setActiveTab(tab.id)} 
+                className={`flex flex-col items-center gap-1.5 p-1 transition-all duration-300 flex-1 relative ${isActive ? 'text-purple-400' : 'text-slate-500'}`}
+              >
+                <div className={`transition-all duration-300 relative ${isActive ? 'scale-110 -translate-y-1' : 'opacity-60'}`}>
+                  <tab.icon className={`w-5 h-5 ${isActive ? 'stroke-[2.5px]' : 'stroke-[1.5px]'}`} />
+                  {(tab as any).isLocked && (
+                    <div className="absolute -top-1 -right-1 bg-amber-500 rounded-full p-0.5 border border-slate-950">
+                      <Lock className="w-2 h-2 text-slate-950" />
+                    </div>
+                  )}
+                </div>
+                <span className={`text-[7px] font-black uppercase tracking-widest text-center whitespace-nowrap transition-all duration-300 ${isActive ? 'opacity-100 scale-100' : 'opacity-40 scale-90'}`}>
+                  {tab.id === 'dashboard' ? 'Log' : tab.id === 'accountant' ? 'Contas' : tab.id === 'admin' ? 'Master' : tab.id === 'part-time' ? 'Part-Time' : tab.id === 'reports' ? 'Relat.' : tab.id === 'vendor-detail' ? 'Rede' : tab.id === 'vendor-sales' ? 'Vendas' : tab.label}
+                </span>
+                {isActive && (
+                  <div className="absolute -top-1 w-6 h-0.5 bg-purple-500 rounded-full shadow-[0_0_10px_rgba(168,85,247,0.5)]"></div>
+                )}
+              </button>
+            </React.Fragment>
           );
         })}
-        
-        <button 
-          onClick={togglePrivacy}
-          className={`flex flex-col items-center gap-1.5 p-1 transition-all duration-300 flex-1 ${hideValues ? 'text-amber-500' : 'text-slate-500'}`}
-        >
-          <div className={`${hideValues ? 'opacity-100' : 'opacity-60'}`}>
-            {hideValues ? <EyeOff className="w-5 h-5 stroke-[2px]" /> : <Eye className="w-5 h-5 stroke-[1.5px]" />}
-          </div>
-          <span className="text-[7px] font-black uppercase tracking-widest text-center opacity-40">Privac.</span>
-        </button>
-
-        <button 
-          onClick={onLogout}
-          className="flex flex-col items-center gap-1.5 p-1 transition-all duration-300 flex-1 text-slate-500 hover:text-red-400 active:scale-95"
-        >
-          <div className="opacity-60 group-active:scale-110">
-            <LogOut className="w-5 h-5 stroke-[1.5px]" />
-          </div>
-          <span className="text-[7px] font-black uppercase tracking-widest text-center opacity-40">
-            Sair
-          </span>
-        </button>
       </nav>
     </>
   );

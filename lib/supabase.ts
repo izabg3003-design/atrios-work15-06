@@ -661,6 +661,25 @@ export const supabase = new Proxy({}, {
             return offlineSupabase.functions.invoke(functionName, options);
           }
 
+          const isLocalOrDevEnv = 
+            typeof window !== 'undefined' && (
+              window.location.hostname === 'localhost' ||
+              window.location.hostname === '127.0.0.1' ||
+              window.location.hostname.includes('europe-west1.run.app') ||
+              window.location.hostname.includes('web-preview') ||
+              window.location.hostname.includes('gitpod') ||
+              window.location.hostname.includes('codesandbox') ||
+              window.location.hostname.includes('ai.studio')
+            );
+
+          // Se estiver na produção real do cliente, chamar a Edge Function REAL do Supabase diretamente!
+          if (!isLocalOrDevEnv) {
+            if (originalFunctions && typeof originalFunctions.invoke === 'function') {
+              console.log(`[Supabase Proxy] Direcionando '${functionName}' para a Edge Function Real no site de Produção.`);
+              return originalFunctions.invoke(functionName, options);
+            }
+          }
+
           if (functionName === 'process-payment') {
             try {
               console.log(`[Payment Interceptor] Desviando Edge Function '${functionName}' para a API local /api/process-payment...`);

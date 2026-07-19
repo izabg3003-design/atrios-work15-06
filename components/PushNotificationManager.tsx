@@ -290,14 +290,26 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
         let publicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
         try {
-          const res = await fetch('/api/push/public-key');
-          if (res.ok) {
-            const data = await res.json();
-            if (data && data.publicKey) {
-              publicKey = data.publicKey;
-            }
+          // Tentar obter diretamente do Supabase (útil em produção estática)
+          const { data: keysData, error: keysError } = await supabase
+            .from("app_banners")
+            .select("*")
+            .eq("user_type", "system_vapid_keys")
+            .maybeSingle();
+
+          if (!keysError && keysData && keysData.highlight) {
+            publicKey = keysData.highlight;
+            console.log("[Push Manager] Chave pública VAPID recuperada diretamente do Supabase:", publicKey);
           } else {
-            console.warn('[Push Manager] Rota /api/push/public-key retornou status:', res.status, '. Usando chave VAPID padrão.');
+            const res = await fetch('/api/push/public-key');
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data.publicKey) {
+                publicKey = data.publicKey;
+              }
+            } else {
+              console.warn('[Push Manager] Rota /api/push/public-key retornou status:', res.status, '. Usando chave VAPID padrão.');
+            }
           }
         } catch (fetchErr) {
           console.warn('[Push Manager] Erro ao obter chave pública VAPID do servidor, usando padrão:', fetchErr);

@@ -199,9 +199,18 @@ serve(async (req) => {
         vapidPrivateKey = keysData.cta_text;
         webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
         console.log("[Edge Function VAPID] Chaves Web Push obtidas do banco de dados com sucesso.");
+      } else {
+        // Fallback para chaves padrão estáticas para garantir que as subscrições Web Push funcionem mesmo com base recém-criada
+        vapidPublicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
+        vapidPrivateKey = "4WDstomeo5DaU92E7ka7bcfQPbjfs1TVN14ya2U3Q70";
+        webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
+        console.log("[Edge Function VAPID] Usando chaves padrão VAPID de fallback.");
       }
     } catch (err) {
-      console.warn("[Edge Function VAPID] Erro ao obter chaves do banco de dados:", err);
+      console.warn("[Edge Function VAPID] Erro ao obter chaves do banco de dados, aplicando padrão:", err);
+      vapidPublicKey = "BJn7k0YuZBjidryzlMNfT4Rpo7MtnglZIiFJ-fRcwR6qwYx-OsSIXHIK4Wjws44ZO6uMh0w21KHfr_iUaauvvO4";
+      vapidPrivateKey = "4WDstomeo5DaU92E7ka7bcfQPbjfs1TVN14ya2U3Q70";
+      webpush.setVapidDetails(vapidSubject, vapidPublicKey, vapidPrivateKey);
     }
 
     const rawTokens = filteredProfiles.map(p => p.fcm_token).filter((t): t is string => !!t && t.trim().length > 0);

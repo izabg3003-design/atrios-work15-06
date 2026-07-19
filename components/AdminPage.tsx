@@ -815,45 +815,63 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       // Envio de Push Unificado de Canal Único (FCM + VAPID) 100% via Backend
       let serverFcmSuccess = false;
       let serverFcmMsg = '';
-      try {
-        const serverResponse = await fetch('/api/send-fcm-push', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            title: newPushTitle.trim(),
-            body: newPushBody.trim(),
-            audience: newPushAudience,
-            url: '/'
-          })
-        });
-        const responseText = await serverResponse.text();
-        let serverData: any = {};
-        if (responseText.trim()) {
-          try {
-            serverData = JSON.parse(responseText);
-          } catch (pe) {
-            serverData = { success: false, error: `Falha ao descodificar JSON: ${responseText.substring(0, 100)}` };
-          }
-        } else {
-          serverData = { success: false, error: 'Resposta vazia do servidor.' };
-        }
-        if (serverResponse.ok && serverData.success) {
-          serverFcmSuccess = true;
-          serverFcmMsg = `Enviado com sucesso para ${serverData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
-        } else {
-          serverFcmMsg = `Erro no envio: ${serverData.error || 'Falha no disparo.'}`;
-        }
-      } catch (servErr: any) {
-        console.warn('[Push Dispatch] Erro no servidor local:', servErr);
-        serverFcmMsg = `Erro de ligação ao servidor (${servErr.message || servErr})`;
-      }
+      
+      const isLocalOrDevEnv = 
+        typeof window !== 'undefined' && (
+          window.location.hostname === 'localhost' ||
+          window.location.hostname === '127.0.0.1' ||
+          window.location.hostname.includes('europe-west1.run.app') ||
+          window.location.hostname.includes('web-preview') ||
+          window.location.hostname.includes('gitpod') ||
+          window.location.hostname.includes('codesandbox') ||
+          window.location.hostname.includes('ai.studio')
+        );
 
+      if (isLocalOrDevEnv) {
+        try {
+          console.log('[Push Dispatch] Ambiente local/dev: Tentando envio de push via servidor local...');
+          const serverResponse = await fetch('/api/send-fcm-push', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: newPushTitle.trim(),
+              body: newPushBody.trim(),
+              audience: newPushAudience,
+              url: '/'
+            })
+          });
+          const responseText = await serverResponse.text();
+          let serverData: any = {};
+          if (responseText.trim()) {
+            try {
+              serverData = JSON.parse(responseText);
+            } catch (pe) {
+              serverData = { success: false, error: `Falha ao descodificar JSON: ${responseText.substring(0, 100)}` };
+            }
+          } else {
+            serverData = { success: false, error: 'Resposta vazia do servidor.' };
+          }
+          if (serverResponse.ok && serverData.success) {
+            serverFcmSuccess = true;
+            serverFcmMsg = `Enviado com sucesso para ${serverData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
+          } else {
+            serverFcmMsg = `Erro no envio: ${serverData.error || 'Falha no disparo.'}`;
+          }
+        } catch (servErr: any) {
+          console.warn('[Push Dispatch] Erro no servidor local:', servErr);
+          serverFcmMsg = `Erro de ligação ao servidor (${servErr.message || servErr})`;
+        }
+      } else {
+        console.log('[Push Dispatch] Ambiente de produção: Enviando directamente via Supabase Edge Function...');
+        serverFcmMsg = 'Processando directamente pela Supabase Edge Function.';
+      }
+ 
       // FALLBACK: Se o envio via servidor local falhar ou retornar erro (por exemplo, em hospedagem estática de produção onde não há backend local ativo),
       // tentamos invocar a Supabase Edge Function 'send-fcm-push' diretamente do cliente usando o cliente Supabase.
       if (!serverFcmSuccess) {
-        console.log('[Push Dispatch] Tentando fallback via Supabase Edge Function "send-fcm-push"...');
+        console.log('[Push Dispatch] Tentando envio via Supabase Edge Function "send-fcm-push"...');
         try {
           const { data: edgeData, error: edgeError } = await supabase.functions.invoke('send-fcm-push', {
             body: {

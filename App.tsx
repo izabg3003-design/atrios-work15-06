@@ -619,7 +619,7 @@ const App: React.FC = () => {
       {['dashboard', 'finance', 'part-time', 'reports', 'accountant', 'settings', 'admin', 'vendor-detail', 'vendor-sales'].includes(appState) && (
         <div className="flex h-screen overflow-hidden relative">
           <Sidebar activeTab={appState} setActiveTab={handleTabChange} user={user} onLogout={handleLogout} t={t} hideValues={hideValues} togglePrivacy={() => setHideValues(!hideValues)} isPro={isPro} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-12 pt-6 md:pt-12 pb-40 md:pb-12 ml-0 md:ml-24 scroll-smooth">
+          <main className="flex-1 overflow-y-auto overflow-x-hidden px-4 md:px-12 pt-24 md:pt-12 pb-40 md:pb-12 ml-0 md:ml-24 scroll-smooth">
             <div className="max-w-5xl mx-auto w-full">
               {appState === 'dashboard' && <Dashboard user={user} records={records} onOpenPremium={() => setIsPremiumModalOpen(true)} onDeleteRecord={async (date) => {
                 if (!user.id) return false;
