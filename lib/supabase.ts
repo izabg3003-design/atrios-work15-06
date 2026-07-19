@@ -8,7 +8,6 @@ const supabaseAnonKey = metaEnv.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsI
 
 export const isConfigured = 
   (supabaseUrl as string) !== 'https://SUA_URL_AQUI.supabase.co' && 
-  (supabaseUrl as string) !== 'https://zuawenhgajcciefbwear.supabase.co' && 
   (supabaseAnonKey as string) !== '' &&
   supabaseUrl.startsWith('https://');
 
@@ -491,32 +490,22 @@ const realSupabase = isConfigured
 
 const offlineSupabase = createOfflineMockClient();
 
-const IS_DEFAULT_URL = supabaseUrl === 'https://SUA_URL_AQUI.supabase.co' || supabaseUrl === 'https://zuawenhgajcciefbwear.supabase.co';
+const IS_DEFAULT_URL = supabaseUrl === 'https://SUA_URL_AQUI.supabase.co';
 
 // Estado interno para controle do modo offline fallback
 // Se for a URL padrão, iniciamos em modo offline imediatamente para evitar "Failed to Fetch"
-isOfflineMode = IS_DEFAULT_URL;
+isOfflineMode = IS_DEFAULT_URL || !isConfigured || !realSupabase;
 
-// Testar conexão Supabase imediatamente de forma não-bloqueante para ativar o modo offline se necessário
-if (isConfigured && realSupabase) {
-  if (IS_DEFAULT_URL) {
-    // Se for URL padrão, iniciamos offline e NÃO fazemos NENHUM fetch para evitar poluir o console com "Failed to fetch"!
-    isOfflineMode = true;
-    console.log("[Supabase Status] Usando URL padrão. Modo offline simulado ativo por padrão.");
-  } else {
-    // Se for URL customizado, tenta ligar diretamente, com fallback para offline se falhar
-    fetch(supabaseUrl, { method: 'HEAD', mode: 'no-cors' })
-      .then(() => {
-        console.log("[Supabase Status] Conexão com servidor customizado ativa.");
-        isOfflineMode = false;
-      })
-      .catch((err) => {
-        console.warn("[Supabase Status] Servidor customizado inacessível. Ativando fallback offline:", err);
-        isOfflineMode = true;
-      });
-  }
-} else {
-  isOfflineMode = true;
+// Testar conexão Supabase de forma não-bloqueante para log no console, sem forçar offline desnecessariamente
+if (isConfigured && realSupabase && !IS_DEFAULT_URL) {
+  isOfflineMode = false;
+  fetch(supabaseUrl, { method: 'HEAD', mode: 'no-cors' })
+    .then(() => {
+      console.log("[Supabase Status] Conexão preliminar com servidor ativa.");
+    })
+    .catch((err) => {
+      console.warn("[Supabase Status] Aviso: Falha no teste preliminar (HEAD). O app continuará online até que uma requisição real falhe:", err);
+    });
 }
 
 // Auxiliar para envelopar promessas de forma a capturar erros de rede retornados no objeto de resolução (padrão do Supabase)
