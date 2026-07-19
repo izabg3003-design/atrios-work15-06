@@ -10,6 +10,18 @@ import { getFirestore, FieldValue } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
 
 // 🔵 1. DECLARAÇÃO E INICIALIZAÇÃO DE CHAVES VAPID (PERSISTÊNCIA DUPLA EM NUVEM SUPABASE + LOCAL)
+const GLOBAL_SUPABASE_URL = "https://zuawenhgajcciefbwear.supabase.co";
+const GLOBAL_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp1YXdlbmhnYWpjY2llZmJ3ZWFyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcxODA5OTksImV4cCI6MjA4Mjc1Njk5OX0.Rv7ST3AqC3vElYjore9-zLUcJmHUCPjrGCGkOE-5Ms8";
+
+function getSupabaseClient(customOptions?: any) {
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || GLOBAL_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || GLOBAL_SUPABASE_KEY;
+  if (customOptions) {
+    return createClient(supabaseUrl, supabaseServiceKey, customOptions);
+  }
+  return createClient(supabaseUrl, supabaseServiceKey);
+}
+
 let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com";
@@ -17,8 +29,8 @@ const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com"
 const keysFilePath = path.join(process.cwd(), "vapid-keys.json");
 
 async function initializeVapidKeys() {
-  const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = process.env.VITE_SUPABASE_URL || GLOBAL_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || GLOBAL_SUPABASE_KEY;
 
   if (vapidPublicKey && vapidPrivateKey) {
     console.log("[VAPID] Chaves Web Push obtidas via variáveis de ambiente.");
@@ -29,7 +41,7 @@ async function initializeVapidKeys() {
   // 1. Tentar obter do Supabase (Nuvem Persistente)
   if (supabaseServiceKey) {
     try {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseClient();
       const { data, error } = await supabase
         .from("app_banners")
         .select("*")
@@ -84,7 +96,7 @@ async function initializeVapidKeys() {
   // Salvar no Supabase
   if (supabaseServiceKey) {
     try {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseClient();
       await supabase.from("app_banners").insert([{
         user_type: "system_vapid_keys",
         title: "System VAPID Keys",
@@ -350,9 +362,9 @@ async function saveSubscriptionToDatabase(data: { subscription: any; userId: str
   // 3. Espelhar no Supabase na tabela profiles sob fcm_token (como JSON string para retrocompatibilidade)
   try {
     const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || GLOBAL_SUPABASE_KEY;
     if (supabaseServiceKey && data.userId) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseClient();
       await supabase
         .from("profiles")
         .update({ fcm_token: JSON.stringify(data.subscription) })
@@ -384,9 +396,9 @@ async function deleteSubscriptionFromDatabase(endpoint: string) {
   // Remover do Supabase
   try {
     const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || GLOBAL_SUPABASE_KEY;
     if (supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseClient();
       
       const { data: matchingProfiles, error: fetchErr } = await supabase
         .from("profiles")
@@ -451,9 +463,9 @@ async function deleteFcmTokenFromDatabase(token: string) {
   // 3. Remover do Supabase
   try {
     const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || GLOBAL_SUPABASE_KEY;
     if (supabaseServiceKey) {
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseClient();
       const { data: matchingProfiles, error: fetchErr } = await supabase
         .from("profiles")
         .select("id, fcm_token")
@@ -509,7 +521,7 @@ async function startServer() {
         return res.status(500).json({ success: false, error: "Chave do Supabase em falta no servidor." });
       }
 
-      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      const supabaseAdmin = getSupabaseClient({
         auth: {
           autoRefreshToken: false,
           persistSession: false
@@ -560,7 +572,7 @@ async function startServer() {
         return res.status(500).json({ success: false, error: "Chave do Supabase em falta no servidor." });
       }
 
-      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      const supabaseAdmin = getSupabaseClient({
         auth: {
           autoRefreshToken: false,
           persistSession: false
@@ -629,9 +641,9 @@ async function startServer() {
     // Gravar no Supabase
     try {
       const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
+      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY || GLOBAL_SUPABASE_KEY;
       if (supabaseServiceKey) {
-        const supabase = createClient(supabaseUrl, supabaseServiceKey);
+        const supabase = getSupabaseClient();
         await supabase
           .from("profiles")
           .update({ fcm_token: token })
@@ -673,17 +685,7 @@ async function startServer() {
       console.log(`[Notify API] Processando notificação para administradores. Tipo: ${type || "geral"}. Título: "${resolvedTitle}"`);
 
       // 1. Obter credenciais do Supabase
-      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-
-      if (!supabaseServiceKey) {
-        return res.status(400).json({
-          success: false,
-          error: "Credenciais do Supabase não configuradas nas variáveis de ambiente.",
-        });
-      }
-
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseClient();
 
       // Salvar registro de sistema em app_banners para fins de histórico de recebidos
       try {
@@ -1072,14 +1074,7 @@ async function startServer() {
         return res.status(400).json({ success: false, error: "E-mail do cliente não fornecido." });
       }
 
-      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-
-      if (!supabaseServiceKey) {
-        return res.status(500).json({ success: false, error: "Credenciais do Supabase não configuradas no servidor." });
-      }
-
-      const supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey);
+      const supabaseAdmin = getSupabaseClient();
 
       // Cálculo do Valor Final Dinâmico
       const BASE_PRICE = 9.90;
@@ -1261,18 +1256,7 @@ async function startServer() {
       logPushStep(`Destino absoluto: ${absoluteTargetUrl}`);
 
       // 1. Obter credenciais do Supabase
-      const supabaseUrl = process.env.VITE_SUPABASE_URL || "https://zuawenhgajcciefbwear.supabase.co";
-      const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.VITE_SUPABASE_ANON_KEY;
-
-      if (!supabaseServiceKey) {
-        logPushStep("Erro: SUPABASE_SERVICE_ROLE_KEY ausente.");
-        return res.status(400).json({
-          success: false,
-          error: "Credenciais do Supabase não configuradas nas variáveis de ambiente.",
-        });
-      }
-
-      const supabase = createClient(supabaseUrl, supabaseServiceKey);
+      const supabase = getSupabaseClient();
 
       // 2. Obter perfis ativos do Supabase que contêm fcm_token ou subscrições de forma resiliente
       let profiles: any[] = [];
@@ -1985,7 +1969,10 @@ async function startServer() {
 
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: { 
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
