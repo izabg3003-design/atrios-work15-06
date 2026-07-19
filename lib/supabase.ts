@@ -496,16 +496,10 @@ const IS_DEFAULT_URL = supabaseUrl === 'https://SUA_URL_AQUI.supabase.co';
 // Se for a URL padrão, iniciamos em modo offline imediatamente para evitar "Failed to Fetch"
 isOfflineMode = IS_DEFAULT_URL || !isConfigured || !realSupabase;
 
-// Testar conexão Supabase de forma não-bloqueante para log no console, sem forçar offline desnecessariamente
+// Se estiver configurado com uma URL personalizada, garantimos que começa online
 if (isConfigured && realSupabase && !IS_DEFAULT_URL) {
   isOfflineMode = false;
-  fetch(supabaseUrl, { method: 'HEAD', mode: 'no-cors' })
-    .then(() => {
-      console.log("[Supabase Status] Conexão preliminar com servidor ativa.");
-    })
-    .catch((err) => {
-      console.warn("[Supabase Status] Aviso: Falha no teste preliminar (HEAD). O app continuará online até que uma requisição real falhe:", err);
-    });
+  console.log("[Supabase Status] Iniciando em modo online.");
 }
 
 let lastHealCheckTime = 0;
@@ -515,9 +509,12 @@ async function trySelfHeal() {
   if (now - lastHealCheckTime < 15000) return; // Máximo de um teste a cada 15 segundos
   lastHealCheckTime = now;
   try {
-    await fetch(supabaseUrl, { method: 'HEAD', mode: 'no-cors' });
-    console.log("[Supabase Status] Auto-recuperação: Conexão restabelecida com o Supabase! Sincronização online reativada.");
-    isOfflineMode = false;
+    // Usar chamada segura ao serviço de Auth que possui cabeçalhos CORS corretos
+    const { error } = await realSupabase.auth.getSession();
+    if (!error) {
+      console.log("[Supabase Status] Auto-recuperação: Conexão restabelecida com o Supabase! Sincronização online reativada.");
+      isOfflineMode = false;
+    }
   } catch (err) {
     // Silencioso se continuar inacessível
   }
