@@ -32,16 +32,21 @@ function isNetworkError(err: any): boolean {
 const createOfflineMockClient = () => {
   const getStorageItem = (key: string, fallback: any) => {
     try {
-      const val = localStorage.getItem(key);
-      return val ? JSON.parse(val) : fallback;
+      if (typeof localStorage !== 'undefined') {
+        const val = localStorage.getItem(key);
+        return val ? JSON.parse(val) : fallback;
+      }
     } catch {
       return fallback;
     }
+    return fallback;
   };
 
   const setStorageItem = (key: string, val: any) => {
     try {
-      localStorage.setItem(key, JSON.stringify(val));
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, JSON.stringify(val));
+      }
     } catch (e) {
       console.warn("Storage write failed:", e);
     }

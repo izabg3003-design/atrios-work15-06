@@ -6,9 +6,21 @@
       // One-time force clear for v6.0.8 to resolve any older active SW blocking API calls
       (function() {
         var cacheVersion = 'sw_cache_cleared_v6.0.8_h';
-        if (!localStorage.getItem(cacheVersion)) {
+        var isCleared = false;
+        try {
+          isCleared = !!localStorage.getItem(cacheVersion);
+        } catch (e) {
+          console.warn('LocalStorage access blocked:', e);
+          isCleared = true; // Avoid infinite loops or crashes if storage is blocked
+        }
+
+        if (!isCleared) {
           console.warn('Limpando service workers antigos e caches de forma preventiva...');
-          localStorage.setItem(cacheVersion, 'true');
+          try {
+            localStorage.setItem(cacheVersion, 'true');
+          } catch (e) {
+            console.warn('Failed to set cache version in localStorage:', e);
+          }
           var reloaded = false;
           if ('serviceWorker' in navigator) {
             navigator.serviceWorker.getRegistrations().then(function(registrations) {
