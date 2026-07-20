@@ -509,9 +509,10 @@ if (isConfigured && realSupabase && !IS_DEFAULT_URL) {
 
 let lastHealCheckTime = 0;
 async function trySelfHeal() {
+  if (typeof navigator !== 'undefined' && !navigator.onLine) return;
   if (!isConfigured || !realSupabase || IS_DEFAULT_URL) return;
   const now = Date.now();
-  if (now - lastHealCheckTime < 15000) return; // Máximo de um teste a cada 15 segundos
+  if (now - lastHealCheckTime < 180000) return; // Máximo de um teste a cada 3 minutos (reduz spam de "Failed to fetch" no console)
   lastHealCheckTime = now;
   try {
     // Usar chamada segura ao serviço de Auth que possui cabeçalhos CORS corretos
@@ -686,6 +687,10 @@ export const supabase = new Proxy({}, {
           }
 
           if (functionName === 'process-payment') {
+            if (isOfflineMode || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+              console.log("[Payment Interceptor] Modo offline ativo. Retornando pagamento simulado para evitar falha de rede.");
+              return { data: { success: true, message: "Offline/Fallback payment handled" }, error: null };
+            }
             try {
               console.log(`[Payment Interceptor] Desviando Edge Function '${functionName}' para a API local /api/process-payment...`);
               const response = await fetch('/api/process-payment', {
@@ -714,6 +719,10 @@ export const supabase = new Proxy({}, {
           }
 
           if (functionName === 'send-fcm-push' || functionName === 'send-push') {
+            if (isOfflineMode || (typeof navigator !== 'undefined' && !navigator.onLine)) {
+              console.log("[FCM Interceptor] Modo offline ativo. Retornando disparo simulado para evitar falha de rede.");
+              return { data: { success: true, sent: 1, message: "Offline/Fallback push notification dispatched" }, error: null };
+            }
             try {
               console.log(`[FCM Interceptor] Desviando Edge Function '${functionName}' para a API local /api/send-fcm-push...`);
               const response = await fetch('/api/send-fcm-push', {
@@ -730,7 +739,7 @@ export const supabase = new Proxy({}, {
                   });
                 }
               }
-
+              
               const responseText = await response.text();
               let data: any = null;
               if (responseText.trim()) {

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v6.3';
+const CACHE_NAME = 'atrioswork-v6.4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
@@ -120,7 +120,17 @@ self.addEventListener('fetch', (event) => {
         } catch (e) {
           console.warn('[SW] Cache match threw exception:', e);
         }
-        return fetch(event.request);
+        try {
+          return await fetch(event.request);
+        } catch (fetchErr) {
+          console.warn('[SW] Fetch failed for:', event.request.url, fetchErr);
+          // Retornar uma resposta de erro amigável em vez de permitir a exceção "Failed to fetch" sem tratamento
+          return new Response('Recurso indisponível temporariamente', { 
+            status: 408, 
+            statusText: 'Network Error',
+            headers: new Headers({ 'Content-Type': 'text/plain; charset=utf-8' })
+          });
+        }
       })()
     );
   }
@@ -242,6 +252,20 @@ self.addEventListener('notificationclick', (event) => {
     } catch (e) {
       absoluteUrl = self.location.origin + '/';
     }
+  }
+
+  // Garantir de forma absoluta que a URL de redirecionamento use a origem atual do Service Worker (self.location.origin)
+  // Isto resolve de forma robusta e definitiva o problema de ir para localhost em produção/móvel,
+  // ou de ir para localhost/atrioswork.pt quando o utilizador testa na sandbox do Google AI Studio.
+  try {
+    const parsed = new URL(absoluteUrl);
+    const swOrigin = self.location.origin;
+    if (parsed.origin !== swOrigin) {
+      absoluteUrl = swOrigin + parsed.pathname + parsed.search + parsed.hash;
+    }
+  } catch (e) {
+    console.warn('[Service Worker] Erro ao analisar ou reescrever URL do clique:', e);
+    absoluteUrl = self.location.origin + '/';
   }
 
   console.log('[Service Worker] Notificação clicada. Redirecionando para:', absoluteUrl);

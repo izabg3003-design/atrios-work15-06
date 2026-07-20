@@ -24,13 +24,15 @@ function getSupabaseClient(customOptions?: any) {
 
 // Utilitário para determinar o domínio/origem real de acesso do utilizador, evitando 'localhost' sob proxies reversos (como Cloud Run / Google AI Studio)
 function getRequestOrigin(req: any): string {
+  let detectedOrigin = "";
+
   // 1. Tentar ler do Referer (enviado pelo browser, contém a URL real do utilizador)
   const referer = req.headers.referer;
   if (referer) {
     try {
       const parsed = new URL(referer);
       if (parsed.origin && !parsed.origin.includes("localhost") && !parsed.origin.includes("127.0.0.1") && !parsed.origin.includes("::1")) {
-        return parsed.origin;
+        detectedOrigin = parsed.origin;
       }
     } catch (e) {
       // ignorar erro de parsing
@@ -38,26 +40,48 @@ function getRequestOrigin(req: any): string {
   }
 
   // 2. Tentar ler de X-Forwarded-Host (geralmente preservado por proxies reversos)
-  const forwardedHost = req.headers["x-forwarded-host"];
-  const forwardedProto = req.headers["x-forwarded-proto"];
-  if (forwardedHost) {
-    const proto = typeof forwardedProto === "string" ? forwardedProto : "https";
-    const hostStr = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
-    if (hostStr && !hostStr.includes("localhost") && !hostStr.includes("127.0.0.1")) {
-      return `${proto}://${hostStr}`;
+  if (!detectedOrigin) {
+    const forwardedHost = req.headers["x-forwarded-host"];
+    const forwardedProto = req.headers["x-forwarded-proto"];
+    if (forwardedHost) {
+      const proto = typeof forwardedProto === "string" ? forwardedProto : "https";
+      const hostStr = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
+      if (hostStr && !hostStr.includes("localhost") && !hostStr.includes("127.0.0.1") && !hostStr.includes("::1")) {
+        detectedOrigin = `${proto}://${hostStr}`;
+      }
     }
   }
 
   // 3. Tentar ler do cabeçalho Origin (enviado em pedidos POST/CORS)
-  const origin = req.headers.origin;
-  if (origin && typeof origin === "string" && !origin.includes("localhost") && !origin.includes("127.0.0.1")) {
-    return origin;
+  if (!detectedOrigin) {
+    const origin = req.headers.origin;
+    if (origin && typeof origin === "string" && !origin.includes("localhost") && !origin.includes("127.0.0.1") && !origin.includes("::1")) {
+      detectedOrigin = origin;
+    }
+  }
+
+  // Se detectou um domínio público válido, guarda-o globalmente para servir de fallback a rotas locais de background
+  if (detectedOrigin) {
+    (global as any).lastKnownPublicOrigin = detectedOrigin;
+    return detectedOrigin;
+  }
+
+  // Se a rota foi chamada internamente por localhost, tentamos usar o último domínio público conhecido
+  if ((global as any).lastKnownPublicOrigin) {
+    return (global as any).lastKnownPublicOrigin;
   }
 
   // 4. Fallback padrão para o host do pedido
   const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
   const host = req.get("host") || "atrioswork.pt";
-  return `${protocol}://${host}`;
+  const finalFallback = `${protocol}://${host}`;
+
+  // Evitar retornar localhost se houver domínio de produção disponível
+  if (finalFallback.includes("localhost") || finalFallback.includes("127.0.0.1") || finalFallback.includes("::1")) {
+    return "https://atrioswork.pt";
+  }
+
+  return finalFallback;
 }
 
 let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
@@ -533,6 +557,42 @@ async function startServer() {
   const PORT = 3000;
 
   app.use(express.json());
+
+  // Middleware para capturar o domínio/origem real de acesso dos utilizadores e evitar localhost/127.0.0.1 em tarefas automáticas
+  app.use((req, res, next) => {
+    let detected = "";
+    const referer = req.headers.referer;
+    if (referer) {
+      try {
+        const parsed = new URL(referer);
+        if (parsed.origin && !parsed.origin.includes("localhost") && !parsed.origin.includes("127.0.0.1") && !parsed.origin.includes("::1")) {
+          detected = parsed.origin;
+        }
+      } catch (e) {}
+    }
+    if (!detected) {
+      const origin = req.headers.origin;
+      if (origin && typeof origin === "string" && !origin.includes("localhost") && !origin.includes("127.0.0.1") && !origin.includes("::1")) {
+        detected = origin;
+      }
+    }
+    if (!detected) {
+      const forwardedHost = req.headers["x-forwarded-host"];
+      const forwardedProto = req.headers["x-forwarded-proto"];
+      if (forwardedHost) {
+        const proto = typeof forwardedProto === "string" ? forwardedProto : "https";
+        const hostStr = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
+        if (hostStr && !hostStr.includes("localhost") && !hostStr.includes("127.0.0.1") && !hostStr.includes("::1")) {
+          detected = `${proto}://${hostStr}`;
+        }
+      }
+    }
+
+    if (detected) {
+      (global as any).lastKnownPublicOrigin = detected;
+    }
+    next();
+  });
 
   // ROTA: Buscar dados agregados para a aba Plataforma (Ledger) ignorando RLS
   app.post("/api/admin/ledger-stats", async (req, res) => {
