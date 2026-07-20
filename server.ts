@@ -1328,25 +1328,7 @@ async function startServer() {
       const hasTargetUser = !!(targetUserId || targetUserEmail);
       const isSys = isSystemNotification(title, body, audience, hasTargetUser);
       if (isSys) {
-        logPushStep(`Classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA.`);
-        
-        try {
-          await supabase.from('app_banners').insert([{
-            title: `[SYSTEM] ${title}`,
-            highlight: body,
-            subtitle: `Sistema - ${audience || 'Notificação'}`,
-            cta_text: 'Abrir App',
-            cta_link: url || '/',
-            theme_color: 'purple',
-            is_active: true,
-            user_type: 'push_system',
-            image_url: null
-          }]);
-          logPushStep(`Histórico gravado com sucesso em app_banners.`);
-        } catch (dbErr) {
-          logPushStep(`Aviso: erro ao gravar histórico em app_banners: ${dbErr}`);
-          console.warn("[FCM Server] Erro ao gravar histórico de push_system:", dbErr);
-        }
+        logPushStep(`Classificada de forma estrita como NOTIFICAÇÃO DE SISTEMA (gravação em banco desativada por solicitação do utilizador).`);
       }
 
       let filteredProfiles = profiles || [];

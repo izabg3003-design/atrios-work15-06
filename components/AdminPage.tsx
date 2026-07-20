@@ -742,21 +742,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
           console.warn("Erro ao salvar agendamento local:", localErr);
         }
 
-        try {
-          const { id, ...dbPushRecord } = pushRecord;
-          const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
-          if (error) {
-            console.warn("Aviso ao salvar agendamento no Supabase (prosseguindo):", error);
-            const is404 = error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist');
-            if (is404) {
-              dbInsertWarning = "Nota: A tabela 'app_banners' não existe no seu Supabase. Para poder salvar históricos e agendamentos, execute o comando de criação no SQL Editor do painel do Supabase:\n\nCREATE TABLE IF NOT EXISTS app_banners (id UUID DEFAULT gen_random_uuid() PRIMARY KEY, title TEXT NOT NULL, highlight TEXT, subtitle TEXT, cta_text TEXT, cta_link TEXT, theme_color TEXT DEFAULT 'indigo', is_active BOOLEAN DEFAULT true, user_type TEXT DEFAULT 'all', image_url TEXT, created_at TIMESTAMPTZ DEFAULT now());";
-            } else if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
-              dbInsertWarning = "Nota: O agendamento foi salvo apenas em memória pois existe um Trigger corrompido ou falta da extensão 'pg_net' no seu Supabase. Execute 'DROP TRIGGER IF EXISTS send_push_trigger ON app_banners;' no SQL Editor do Supabase.";
-            }
-          }
-        } catch (dbErr) {
-          console.warn("Falha física ao salvar agendamento:", dbErr);
-        }
+        // Conforme solicitado pelo utilizador, desativamos a gravação de histórico de agendamento de push no banco de dados Supabase (app_banners) para evitar quaisquer erros de trigger.
+        dbInsertWarning = "";
 
         setNewPushTitle('');
         setNewPushBody('');
@@ -796,21 +783,8 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         console.warn("Erro ao salvar push enviado local:", localErr);
       }
 
-      try {
-        const { id, ...dbPushRecord } = pushRecord;
-        const { error } = await supabase.from('app_banners').insert([dbPushRecord]);
-        if (error) {
-          console.warn("Aviso ao registrar histórico no Supabase (continuando com o envio do Push):", error);
-          const is404 = error.code === 'PGRST116' || error.code === '42P01' || error.message?.includes('does not exist');
-          if (is404) {
-            dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: A tabela 'app_banners' não existe no seu Supabase. O push prosseguirá, mas para salvar o histórico, aceda ao SQL Editor do painel do Supabase e execute:\n\nCREATE TABLE IF NOT EXISTS app_banners (\n  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,\n  title TEXT NOT NULL,\n  highlight TEXT,\n  subtitle TEXT,\n  cta_text TEXT,\n  cta_link TEXT,\n  theme_color TEXT DEFAULT 'indigo',\n  is_active BOOLEAN DEFAULT true,\n  user_type TEXT DEFAULT 'all',\n  image_url TEXT,\n  created_at TIMESTAMPTZ DEFAULT now()\n);";
-          } else if (JSON.stringify(error).includes('net.http_post') || JSON.stringify(error).includes('trigger')) {
-            dbInsertWarning = "\n\n⚠️ AVISO DE BANCO DE DADOS: O envio de push prosseguiu com sucesso, mas o histórico não pôde ser salvo porque existe um Trigger corrompido ('net.http_post' não encontrado) no seu Supabase. Para corrigir isto permanentemente, aceda ao SQL Editor no painel do Supabase e execute:\nDROP TRIGGER IF EXISTS send_push_trigger ON app_banners;\nDROP TRIGGER IF EXISTS on_banner_created ON app_banners;\nDROP TRIGGER IF EXISTS send_push_trigger ON chat_messages;\nDROP TRIGGER IF EXISTS on_message_created ON chat_messages;\nDROP TRIGGER IF EXISTS send_push_trigger ON support_tickets;\nDROP TRIGGER IF EXISTS on_ticket_created ON support_tickets;";
-          }
-        }
-      } catch (dbErr) {
-        console.warn("Excepção ao registrar histórico (continuando com o envio do Push):", dbErr);
-      }
+      // Conforme solicitado pelo utilizador, desativamos a gravação de histórico de push no banco de dados Supabase (app_banners) para evitar quaisquer erros de trigger.
+      dbInsertWarning = "";
 
       // Envio de Push Unificado de Canal Único (FCM + VAPID) 100% via Backend
       let serverFcmSuccess = false;
