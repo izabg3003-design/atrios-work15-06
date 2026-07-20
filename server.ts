@@ -22,6 +22,44 @@ function getSupabaseClient(customOptions?: any) {
   return createClient(supabaseUrl, supabaseServiceKey);
 }
 
+// Utilitário para determinar o domínio/origem real de acesso do utilizador, evitando 'localhost' sob proxies reversos (como Cloud Run / Google AI Studio)
+function getRequestOrigin(req: any): string {
+  // 1. Tentar ler do Referer (enviado pelo browser, contém a URL real do utilizador)
+  const referer = req.headers.referer;
+  if (referer) {
+    try {
+      const parsed = new URL(referer);
+      if (parsed.origin && !parsed.origin.includes("localhost") && !parsed.origin.includes("127.0.0.1") && !parsed.origin.includes("::1")) {
+        return parsed.origin;
+      }
+    } catch (e) {
+      // ignorar erro de parsing
+    }
+  }
+
+  // 2. Tentar ler de X-Forwarded-Host (geralmente preservado por proxies reversos)
+  const forwardedHost = req.headers["x-forwarded-host"];
+  const forwardedProto = req.headers["x-forwarded-proto"];
+  if (forwardedHost) {
+    const proto = typeof forwardedProto === "string" ? forwardedProto : "https";
+    const hostStr = Array.isArray(forwardedHost) ? forwardedHost[0] : forwardedHost;
+    if (hostStr && !hostStr.includes("localhost") && !hostStr.includes("127.0.0.1")) {
+      return `${proto}://${hostStr}`;
+    }
+  }
+
+  // 3. Tentar ler do cabeçalho Origin (enviado em pedidos POST/CORS)
+  const origin = req.headers.origin;
+  if (origin && typeof origin === "string" && !origin.includes("localhost") && !origin.includes("127.0.0.1")) {
+    return origin;
+  }
+
+  // 4. Fallback padrão para o host do pedido
+  const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
+  const host = req.get("host") || "atrioswork.pt";
+  return `${protocol}://${host}`;
+}
+
 let vapidPublicKey = process.env.VAPID_PUBLIC_KEY;
 let vapidPrivateKey = process.env.VAPID_PRIVATE_KEY;
 const vapidSubject = process.env.VAPID_SUBJECT || "mailto:master@atrioswork.com";
@@ -832,10 +870,8 @@ async function startServer() {
 
       console.log(`[Notify API] Enviando notificação para ${fcmTokens.length} dispositivos FCM e ${webPushSubscriptions.length} assinaturas Web Push.`);
 
-      // Calcular links dinâmicos do domínio ativo do request
-      const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
-      const host = req.get("host") || "atrioswork.pt";
-      const currentOrigin = `${protocol}://${host}`;
+      // Calcular links dinâmicos do domínio ativo do request de forma segura (evita localhost sob proxies reversos)
+      const currentOrigin = getRequestOrigin(req);
       const iconUrl = `${currentOrigin}/logo_atualizado.jpg?v=20260314_v1`;
       const absoluteTargetUrl = `${currentOrigin}/`;
 
@@ -1240,10 +1276,8 @@ async function startServer() {
         });
       }
 
-      // Calcular dinamicamente o link do ícone do domínio ativo do request (evita chaves e imagens expiradas/CORS)
-      const protocol = req.secure || req.headers["x-forwarded-proto"] === "https" ? "https" : "http";
-      const host = req.get("host") || "atrioswork.pt";
-      const currentOrigin = `${protocol}://${host}`;
+      // Calcular dinamicamente o link do ícone do domínio ativo do request de forma segura (evita localhost sob proxies reversos)
+      const currentOrigin = getRequestOrigin(req);
       const iconUrl = `${currentOrigin}/logo_atualizado.jpg?v=20260314_v1`;
 
       // Garantir que a URL de destino seja absoluta para que o SO/Navegador consiga abrir o app quando fechado
