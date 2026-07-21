@@ -571,7 +571,7 @@ export const supabase = new Proxy({}, {
             return function(...args: any[]) {
               try {
                 const res = originalMethod.apply(authTarget, args);
-                if (res instanceof Promise) {
+                if (res && (res instanceof Promise || typeof res.then === 'function')) {
                   return wrapPromiseWithNetworkFallback(res, () => {
                     return (offlineSupabase.auth as any)[authProp](...args);
                   });
@@ -779,6 +779,9 @@ export const supabase = new Proxy({}, {
       };
     }
 
+    if (typeof realVal === 'function') {
+      return realVal.bind(realSupabase);
+    }
     return realVal;
   }
 }) as any;
