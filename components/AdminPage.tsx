@@ -829,38 +829,6 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
         serverFcmMsg = `Erro de ligação ao servidor local (${servErr.message || servErr})`;
       }
  
-      // FALLBACK: Se o envio via servidor local falhar ou retornar erro (por exemplo, em hospedagem estática de produção onde não há backend local ativo),
-      // tentamos invocar a Supabase Edge Function 'send-fcm-push' diretamente do cliente usando o cliente Supabase.
-      if (!serverFcmSuccess) {
-        console.log('[Push Dispatch] Tentando envio via Supabase Edge Function "send-fcm-push"...');
-        try {
-          const { data: edgeData, error: edgeError } = await supabase.functions.invoke('send-fcm-push', {
-            body: {
-              title: newPushTitle.trim(),
-              body: newPushBody.trim(),
-              audience: newPushAudience,
-              url: '/'
-            }
-          });
-          if (!edgeError && edgeData && edgeData.success) {
-            serverFcmSuccess = true;
-            serverFcmMsg = `Enviado com sucesso via Supabase Edge Function para ${edgeData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
-          } else {
-            console.warn('[Push Dispatch] Falha no fallback do Supabase Edge Function:', edgeError || edgeData);
-            if (edgeError) {
-              serverFcmMsg = `Erro de ligação (${serverFcmMsg}) | Fallback Supabase: ${edgeError.message || JSON.stringify(edgeError)}`;
-            } else if (edgeData && edgeData.error) {
-              serverFcmMsg = `Erro no envio (${serverFcmMsg}) | Fallback Supabase: ${edgeData.error}`;
-            } else {
-              serverFcmMsg = `${serverFcmMsg} | Edge Function sem resposta JSON válida`;
-            }
-          }
-        } catch (edgeCatchErr: any) {
-          console.warn('[Push Dispatch] Excepção no fallback do Supabase:', edgeCatchErr);
-          serverFcmMsg = `${serverFcmMsg} | Excepção Fallback: ${edgeCatchErr.message || edgeCatchErr}`;
-        }
-      }
-
       // Transmissão via canal Realtime Broadcast do Supabase em tempo real para todos os apps ativos na web/PWA
       try {
         const pushChannel = supabase.channel('atrioswork-push-notifications');
@@ -879,10 +847,9 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             }).catch(() => {});
           }
         });
-        // Se a transmissão por canal Broadcast foi iniciada, considerámos que os clientes ativos recebem o push imediato
         if (!serverFcmSuccess) {
           serverFcmSuccess = true;
-          serverFcmMsg = `Notificação transmitida em tempo real via Supabase Realtime Broadcast para todos os clientes e navegadores ativos.`;
+          serverFcmMsg = `Notificação transmitida em tempo real via Supabase Realtime Broadcast para todos os clientes ativos.`;
         }
       } catch (bcErr) {
         console.warn('[Push Dispatch] Erro ao transmitir via canal Realtime Broadcast:', bcErr);
