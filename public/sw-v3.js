@@ -179,11 +179,12 @@ self.addEventListener('push', (event) => {
               data.url || 
               rawData.url || 
               nestedNotif.url || 
+              rawData.fcmOptions?.link ||
+              rawData.fcm_options?.link ||
               '/';
 
-        // Criar uma tag determinística baseada no título e conteúdo para evitar notificações duplicadas se o VAPID e o FCM dispararem em simultâneo
-        const normalizedText = ((title || '') + (body || '')).replace(/[^a-zA-Z0-9]/g, '').substring(0, 50);
-        tag = normalizedText ? `atrioswork-tag-${normalizedText}` : `push-${Date.now()}`;
+        // Tag única para que cada notificação recebida com o app fechado toque e apareça como alerta nativo separado no SO
+        tag = `atrioswork-push-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);

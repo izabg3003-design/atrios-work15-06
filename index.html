@@ -3,47 +3,25 @@
 <head>
     <!-- Self-Healing Chunk Loading Error & Service Worker Reset Catcher -->
     <script>
-      // One-time force clear for v6.0.8 to resolve any older active SW blocking API calls
+      // Preventative cache update for v6.0.8
       (function() {
         var cacheVersion = 'sw_cache_cleared_v6.0.8_h';
         var isCleared = false;
         try {
           isCleared = !!localStorage.getItem(cacheVersion);
         } catch (e) {
-          console.warn('LocalStorage access blocked:', e);
-          isCleared = true; // Avoid infinite loops or crashes if storage is blocked
+          isCleared = true;
         }
 
         if (!isCleared) {
-          console.warn('Limpando service workers antigos e caches de forma preventiva...');
           try {
             localStorage.setItem(cacheVersion, 'true');
-          } catch (e) {
-            console.warn('Failed to set cache version in localStorage:', e);
-          }
-          var reloaded = false;
-          if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.getRegistrations().then(function(registrations) {
-              if (registrations && registrations.length > 0) {
-                for (var i = 0; i < registrations.length; i++) {
-                  registrations[i].unregister();
-                }
-                if (!reloaded) {
-                  reloaded = true;
-                  setTimeout(function() { window.location.reload(true); }, 250);
-                }
-              }
-            });
-          }
+          } catch (e) {}
           if ('caches' in window) {
             caches.keys().then(function(names) {
               if (names && names.length > 0) {
                 for (var i = 0; i < names.length; i++) {
                   caches.delete(names[i]);
-                }
-                if (!reloaded) {
-                  reloaded = true;
-                  setTimeout(function() { window.location.reload(true); }, 250);
                 }
               }
             });
@@ -282,32 +260,15 @@
     <script type="module" src="/index.tsx"></script>
     <script src="//code.jivosite.com/widget/wfDiRuDrnE" async></script>
     
-    <!-- Service Worker Registration Fixed for TWA/Store -->
+    <!-- Service Worker Registration Persistent for Background Push -->
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.getRegistrations().then(registrations => {
-            let hasOld = false;
-            for (let registration of registrations) {
-              const scriptUrl = registration.active?.scriptURL || '';
-              if (scriptUrl && !scriptUrl.includes('v=6.0.8')) {
-                registration.unregister().then(success => {
-                  if (success) {
-                    console.log('Service Worker antigo desregistrado com sucesso para atualização:', scriptUrl);
-                    hasOld = true;
-                  }
-                });
-              }
-            }
-            
-            navigator.serviceWorker.register('/firebase-messaging-sw.js?v=6.0.8', { scope: '/' }).then(reg => {
-              console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
-              if (hasOld) {
-                reg.update();
-              }
-            }).catch(err => {
-              console.warn('Registro de SW ignorado ou falhou:', err.message);
-            });
+          navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' }).then(reg => {
+            console.log('AtriosWork Sentinel Service Worker ativo na origem:', reg.scope);
+            reg.update();
+          }).catch(err => {
+            console.warn('Registro de SW ignorado ou falhou:', err.message);
           });
         });
       }

@@ -1654,10 +1654,47 @@ async function startServer() {
               token: token,
               notification: { title, body, image: iconUrl },
               webpush: {
-                notification: { title, body, icon: iconUrl, badge: iconUrl, vibrate: [100, 50, 100], data: { url: absoluteTargetUrl } },
+                headers: {
+                  "Urgency": "high",
+                  "TTL": "86400"
+                },
+                notification: {
+                  title,
+                  body,
+                  icon: iconUrl,
+                  badge: iconUrl,
+                  vibrate: [100, 50, 100],
+                  requireInteraction: true,
+                  tag: `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
+                  data: { url: absoluteTargetUrl }
+                },
                 fcm_options: { link: absoluteTargetUrl }
               },
-              data: { title, body, url: absoluteTargetUrl }
+              android: {
+                priority: "HIGH",
+                notification: {
+                  channel_id: "default",
+                  default_sound: true,
+                  visibility: "PUBLIC",
+                  notification_priority: "PRIORITY_MAX",
+                  click_action: absoluteTargetUrl,
+                  icon: iconUrl
+                }
+              },
+              apns: {
+                headers: {
+                  "apns-priority": "10",
+                  "apns-push-type": "alert"
+                },
+                payload: {
+                  aps: {
+                    alert: { title, body },
+                    sound: "default",
+                    "content-available": 1
+                  }
+                }
+              },
+              data: { title, body, url: absoluteTargetUrl, click_action: absoluteTargetUrl }
             }
           }),
           signal: controller.signal
