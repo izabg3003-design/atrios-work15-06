@@ -8,9 +8,9 @@ importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-comp
 try {
   const firebaseConfig = {
     apiKey: "AIzaSyClZrrC0g02fWxqH5n0aaZW_K8oog8_Qnw",
-    authDomain: "ai-studio-2f050a4c-3230-4998-afa1-380ba6ae66da.firebaseapp.com",
-    projectId: "ai-studio-2f050a4c-3230-4998-afa1-380ba6ae66da",
-    storageBucket: "ai-studio-2f050a4c-3230-4998-afa1-380ba6ae66da.firebasestorage.app",
+    authDomain: "gen-lang-client-0484473706.firebaseapp.com",
+    projectId: "gen-lang-client-0484473706",
+    storageBucket: "gen-lang-client-0484473706.firebasestorage.app",
     messagingSenderId: "930305696130",
     appId: "1:930305696130:web:bd82c9a63cf737900f6f9b"
   };
@@ -28,18 +28,20 @@ try {
       const body = payload.notification?.body || payload.data?.body || 'Nova notificação do sistema!';
       const targetUrl = payload.data?.url || payload.fcmOptions?.link || payload.fcm_options?.link || '/';
       const origin = self.location.origin;
-      const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
+      const iconUrl = `${origin}/logo_atualizado.jpg?v=20260314_v1`;
       const tag = `atrioswork-fcm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
       return self.registration.showNotification(title, {
         body: body,
         icon: iconUrl,
         badge: iconUrl,
-        vibrate: [200, 100, 200],
         data: targetUrl,
-        tag: tag,
-        requireInteraction: true,
-        actions: [{ action: 'open', title: 'Ver App' }]
+        tag: tag
+      }).catch(() => {
+        return self.registration.showNotification(title || 'AtriosWork', {
+          body: body || 'Nova notificação do sistema!',
+          tag: tag
+        });
       });
     });
   }

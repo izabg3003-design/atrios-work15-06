@@ -143,8 +143,7 @@ self.addEventListener('push', (event) => {
     let title = 'AtriosWork';
     let body = 'Nova notificação do sistema!';
     let url = '/';
-    // Inicializar imediatamente com uma tag única baseada no tempo atual para garantir que nunca seja vazia ou duplicada
-    let tag = `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
+    let tag = `atrioswork-push-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     try {
       if (event.data) {
@@ -162,7 +161,6 @@ self.addEventListener('push', (event) => {
         const data = rawData.data || {};
         const nestedNotif = data.notification || {};
 
-        // Extrair informações de todas as formas possíveis (FCM, VAPID, plana, nested, data) de forma segura
         title = notif.title || 
                 rawData.title || 
                 data.title || 
@@ -174,7 +172,7 @@ self.addEventListener('push', (event) => {
                data.body || 
                nestedNotif.body || 
                'Nova notificação do sistema!';
-                   
+                    
         url = notif.data?.url ||
               data.url || 
               rawData.url || 
@@ -183,55 +181,47 @@ self.addEventListener('push', (event) => {
               rawData.fcm_options?.link ||
               '/';
 
-        // Tag única para que cada notificação recebida com o app fechado toque e apareça como alerta nativo separado no SO
         tag = `atrioswork-push-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
 
-    try {
-      // Resolver URLs relativas para absolutas usando self.location.origin para garantir que o OS consiga carregar as imagens em segundo plano com o app fechado
-      const origin = self.location.origin;
-      const iconUrl = new URL('/logo_atualizado.jpg?v=20260314_v1', origin).href;
+    // Resolver ícone absoluto de forma segura usando a origem do Service Worker
+    const origin = self.location.origin;
+    const iconUrl = `${origin}/logo_atualizado.jpg?v=20260314_v1`;
 
-      const options = {
+    // Exibição resiliente com fallback em 3 níveis (Garante que a notificação SEMPRE seja exibida no SO com o app fechado)
+    try {
+      // Nível 1: Notificação completa com ícone, badge e link de redirecionamento
+      await self.registration.showNotification(title, {
         body: body,
         icon: iconUrl,
         badge: iconUrl,
-        vibrate: [200, 100, 200],
         data: url,
-        tag: tag, // Tag única para cada notificação para que acumulem individualmente
-        requireInteraction: true, // Força a notificação a ficar visível até que o utilizador interaja (não desaparece sozinha)
-        actions: [
-          { action: 'open', title: 'Ver App' }
-        ]
-      };
-
+        tag: tag
+      });
+    } catch (err1) {
+      console.warn('[Service Worker] Tentativa 1 de exibição falhou, tentando minimal com ícone:', err1);
       try {
-        await self.registration.showNotification(title, options);
-      } catch (innerShowErr) {
-        console.warn('[Service Worker] Falha ao exibir com opções avançadas (ações/vibração), tentando fallback simples:', innerShowErr);
-        // Fallback simples sem ações ou vibrações complexas
+        // Nível 2: Minimal com ícone e link
         await self.registration.showNotification(title, {
           body: body,
           icon: iconUrl,
           data: url,
-          tag: tag, // Tag única também no fallback
-          requireInteraction: true
+          tag: tag
         });
-      }
-    } catch (showErr) {
-      console.error('[Service Worker] Erro fatal ao tentar disparar showNotification:', showErr);
-      try {
-        // Fallback absoluto e super simples para satisfazer o requisito de "user-visible-only" do Chrome/Safari e evitar punição de quota
-        await self.registration.showNotification(title || 'AtriosWork', {
-          body: body || 'Nova atualização no sistema.',
-          tag: tag || 'atrioswork-fail-safe',
-          requireInteraction: true
-        });
-      } catch (fatalErr) {
-        console.error('[Service Worker] Falha no fallback absoluto:', fatalErr);
+      } catch (err2) {
+        console.warn('[Service Worker] Tentativa 2 de exibição falhou, tentando fallback apenas texto:', err2);
+        try {
+          // Nível 3: Fallback absoluto (apenas título, corpo e tag) - Impossível falhar em qualquer SO/PWA
+          await self.registration.showNotification(title || 'AtriosWork', {
+            body: body || 'Nova mensagem no sistema',
+            tag: tag
+          });
+        } catch (fatalErr) {
+          console.error('[Service Worker] Falha no fallback absoluto de notificação:', fatalErr);
+        }
       }
     }
   })());
