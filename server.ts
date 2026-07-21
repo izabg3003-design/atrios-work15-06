@@ -1390,13 +1390,13 @@ async function startServer() {
 
       // Função de classificação estrita de Notificações do Sistema para proteção do usuário comum
       const isSystemNotification = (tTitle: string, tBody: string, tAudience?: string, hasTargetUser?: boolean) => {
-        if (hasTargetUser || tAudience === "user") {
+        const audL = (tAudience || "").toLowerCase();
+        if (hasTargetUser || audL === "all" || audL === "todos" || audL === "geral" || audL === "user" || audL === "users" || audL === "free" || audL === "gratis" || audL === "premium" || audL === "pro") {
           return false;
         }
 
         const titleL = (tTitle || "").toLowerCase();
         const bodyL = (tBody || "").toLowerCase();
-        const audL = (tAudience || "").toLowerCase();
 
         if (audL === "admin" || audL === "master" || audL === "support") {
           return true;

@@ -148,11 +148,8 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
               const cleanTitle = freshPush.title.replace('[PUSH]', '').replace('[push]', '').trim();
               const cleanBody = `${freshPush.highlight || ''} ${freshPush.subtitle || ''}`.trim();
               
-              // 1. Mostrar Notificação Nativa Push (Apenas como fallback se FCM não estiver ativo no dispositivo)
-              const hasFCMActive = isFirebaseConfigured && isPushSupported() && notificationPermission === 'granted';
-              if (!hasFCMActive) {
-                triggerNativePush(cleanTitle, cleanBody);
-              }
+              // 1. Mostrar Notificação Nativa Push (Garante exibição no sistema/browser)
+              triggerNativePush(cleanTitle, cleanBody);
               
               // 2. Mostrar Alerta Visual no App
               setNewPushAlert({
@@ -229,7 +226,8 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
     if (currentPerm === 'granted') {
       const iconPath = '/logo_atualizado.jpg?v=20260314_v1';
-      const uniqueTag = `push-alert-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      const normalizedText = ((title || '') + (body || '')).replace(/[^a-zA-Z0-9]/g, '').substring(0, 50);
+      const uniqueTag = normalizedText ? `atrioswork-tag-${normalizedText}` : `push-alert-${Date.now()}`;
 
       // 1. Tentar exibir via Service Worker para suporte robusto em PWA/Móvel
       if ('serviceWorker' in navigator) {
@@ -500,6 +498,9 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
       // Registrar no histórico de recebidos
       logReceivedPush(title, body, title.includes('🆕') || title.toUpperCase().includes('CADASTRO') ? 'signup' : 'manual');
+
+      // Exibir notificação de sistema nativa no SO/navegador
+      triggerNativePush(title, body);
     });
 
     return () => unsubscribe();

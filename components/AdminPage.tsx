@@ -831,25 +831,59 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
  
       // Transmissão via canal Realtime Broadcast do Supabase em tempo real para todos os apps ativos na web/PWA
       try {
-        const pushChannel = supabase.channel('atrioswork-push-notifications');
-        pushChannel.subscribe((status) => {
-          if (status === 'SUBSCRIBED') {
-            pushChannel.send({
-              type: 'broadcast',
-              event: 'push_received',
-              payload: {
-                id: String(Date.now()),
-                title: newPushTitle.trim(),
-                body: newPushBody.trim(),
-                audience: newPushAudience,
-                url: '/'
+        console.log('[Push Dispatch] Enviando transmissão Realtime Broadcast via Supabase...');
+        const broadcastResult = await new Promise<boolean>((resolve) => {
+          const pushChannel = supabase.channel('atrioswork-push-notifications', {
+            config: { broadcast: { self: true } }
+          });
+          
+          let finished = false;
+          const timer = setTimeout(() => {
+            if (!finished) {
+              finished = true;
+              console.warn('[Push Dispatch] Timeout de 3.5s ao aguardar conexão do Realtime Broadcast');
+              try { supabase.removeChannel(pushChannel); } catch (_) {}
+              resolve(false);
+            }
+          }, 3500);
+
+          pushChannel.subscribe(async (status) => {
+            if (status === 'SUBSCRIBED' && !finished) {
+              try {
+                const sendRes = await pushChannel.send({
+                  type: 'broadcast',
+                  event: 'push_received',
+                  payload: {
+                    id: String(Date.now()),
+                    title: newPushTitle.trim(),
+                    body: newPushBody.trim(),
+                    audience: newPushAudience,
+                    url: '/'
+                  }
+                });
+                clearTimeout(timer);
+                finished = true;
+                console.log('[Push Dispatch] Transmissão Realtime concluída com status:', sendRes);
+                setTimeout(() => {
+                  try { supabase.removeChannel(pushChannel); } catch (_) {}
+                }, 300);
+                resolve(sendRes === 'ok');
+              } catch (sendErr) {
+                console.warn('[Push Dispatch] Erro no envio Broadcast:', sendErr);
+                clearTimeout(timer);
+                finished = true;
+                try { supabase.removeChannel(pushChannel); } catch (_) {}
+                resolve(false);
               }
-            }).catch(() => {});
-          }
+            }
+          });
         });
-        if (!serverFcmSuccess) {
+
+        if (broadcastResult || !serverFcmSuccess) {
           serverFcmSuccess = true;
-          serverFcmMsg = `Notificação transmitida em tempo real via Supabase Realtime Broadcast para todos os clientes ativos.`;
+          serverFcmMsg = broadcastResult
+            ? (serverFcmSuccess ? `${serverFcmMsg} (Transmitido em tempo real via Realtime Broadcast).` : `Notificação transmitida com sucesso em tempo real via Supabase Realtime Broadcast.`)
+            : serverFcmMsg;
         }
       } catch (bcErr) {
         console.warn('[Push Dispatch] Erro ao transmitir via canal Realtime Broadcast:', bcErr);
