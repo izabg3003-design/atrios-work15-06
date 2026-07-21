@@ -1436,12 +1436,16 @@ async function startServer() {
       } else {
         if (audience === "admin" || audience === "master") {
           filteredProfiles = filteredProfiles.filter((p) => isAdminUser(p));
-        } else if (audience === "vendors") {
+        } else if (audience === "vendors" || audience === "vendor") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "vendor");
         } else if (audience === "support") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "support" || isAdminUser(p));
-        } else if (audience === "user") {
+        } else if (audience === "user" || audience === "users") {
           filteredProfiles = filteredProfiles.filter((p) => p.role === "user" && !isMasterEmail(p.email));
+        } else if (audience === "free" || audience === "gratis") {
+          filteredProfiles = filteredProfiles.filter((p) => p.role === "user" && !isMasterEmail(p.email));
+        } else if (audience === "premium" || audience === "pro" || audience === "paid") {
+          filteredProfiles = filteredProfiles;
         }
       }
 
@@ -1467,37 +1471,38 @@ async function startServer() {
 
         if (!trimmedToken) return;
 
-        // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID
+        // Se o token começa com '{', é um objeto JSON de assinatura Web Push VAPID e/ou FCM
         if (trimmedToken.startsWith("{")) {
           try {
             const sub = JSON.parse(trimmedToken);
-            let added = false;
 
-            // 1. Prioridade absoluta para Web Push VAPID se o endpoint estiver presente
-            if (sub && sub.endpoint) {
+            // 1. Extrair Web Push VAPID se endpoint e keys estiverem presentes
+            if (sub && sub.endpoint && sub.keys) {
               const endpoint = sub.endpoint;
               if (!seenEndpoints.has(endpoint)) {
                 seenEndpoints.add(endpoint);
                 webPushSubscriptions.push({
-                  subscription: sub,
+                  subscription: {
+                    endpoint: sub.endpoint,
+                    keys: {
+                      p256dh: sub.keys.p256dh,
+                      auth: sub.keys.auth
+                    }
+                  },
                   userId: p.id,
+                  email: p.email
                 });
               }
-              added = true;
             }
 
-            // 2. Se possuir fcmToken associado, adicionamos ao FCM unicamente se não adicionámos via VAPID para a mesma máquina/browser
-            if (sub && sub.fcmToken) {
-              const fcmTok = sub.fcmToken;
-              if (!added && !seenFcmTokens.has(fcmTok)) {
-                seenFcmTokens.add(fcmTok);
-                fcmTokens.push(fcmTok);
+            // 2. Extrair FCM Token se presente
+            const extractedFcm = sub && (sub.fcmToken || sub.fcm_token || sub.token);
+            if (extractedFcm && typeof extractedFcm === "string") {
+              if (!seenFcmTokens.has(extractedFcm)) {
+                seenFcmTokens.add(extractedFcm);
+                fcmTokens.push(extractedFcm);
               }
-              added = true;
-            }
-
-            // Fallback se não preencheu como nenhum dos dois padrões estruturados
-            if (!added) {
+            } else if (!sub.endpoint) {
               if (!seenFcmTokens.has(trimmedToken)) {
                 seenFcmTokens.add(trimmedToken);
                 fcmTokens.push(trimmedToken);
@@ -1523,52 +1528,69 @@ async function startServer() {
         const localSubs = await loadAllSubscriptions();
         logPushStep(`Carregadas ${localSubs.length} assinaturas locais/Firestore.`);
         localSubs.forEach((ls) => {
-          if (!ls.subscription || !ls.subscription.endpoint) return;
+          if (!ls.subscription) return;
 
-          const endpoint = ls.subscription.endpoint;
-          if (seenEndpoints.has(endpoint)) {
-            return; // Já capturado e processado via perfis principais ativos
+          const subObj = ls.subscription;
+          const userEmail = (ls.email || "").toLowerCase();
+          const userRole = (ls.role || "user").toLowerCase();
+
+          const isMaster = isMasterEmail(userEmail);
+          const isAdmin = isMaster || userRole === "admin" || userRole === "master";
+
+          let belongsToAudience = false;
+
+          if (targetUserId) {
+            belongsToAudience = ls.userId === targetUserId;
+          } else if (targetUserEmail) {
+            belongsToAudience = userEmail === targetUserEmail.toLowerCase();
+          } else if (isSys) {
+            belongsToAudience = isAdmin;
+          } else {
+            if (audience === "admin" || audience === "master") {
+              belongsToAudience = isAdmin;
+            } else if (audience === "vendors" || audience === "vendor") {
+              belongsToAudience = userRole === "vendor";
+            } else if (audience === "support") {
+              belongsToAudience = userRole === "support" || isAdmin;
+            } else if (audience === "user" || audience === "users") {
+              belongsToAudience = userRole === "user" && !isAdmin;
+            } else if (audience === "free" || audience === "gratis") {
+              belongsToAudience = userRole === "user" && !isAdmin;
+            } else if (audience === "premium" || audience === "pro" || audience === "paid") {
+              belongsToAudience = true;
+            } else {
+              // "all", "todos", "geral", ou qualquer outro
+              belongsToAudience = true;
+            }
           }
 
-          const jaExiste = webPushSubscriptions.some((ws) => ws.subscription.endpoint === endpoint);
-          if (!jaExiste) {
-            const matchingProfile = profiles?.find((p) => p.id === ls.userId);
-            
-            if (matchingProfile && matchingProfile.fcm_token) {
-              return;
-            }
-            
-            const userEmail = (matchingProfile?.email || ls.email || "").toLowerCase();
-            const userRole = (matchingProfile?.role || ls.role || "user").toLowerCase();
-
-            const isMaster = isMasterEmail(userEmail);
-            const isAdmin = isMaster || userRole === "admin" || userRole === "master";
-
-            let belongsToAudience = false;
-
-            if (targetUserId) {
-              belongsToAudience = ls.userId === targetUserId;
-            } else if (targetUserEmail) {
-              belongsToAudience = (ls.email || "").toLowerCase() === targetUserEmail.toLowerCase();
-            } else if (isSys) {
-              belongsToAudience = isAdmin;
-            } else {
-              if (audience === "admin" || audience === "master") {
-                belongsToAudience = isAdmin;
-              } else if (audience === "vendors") {
-                belongsToAudience = userRole === "vendor";
-              } else if (audience === "support") {
-                belongsToAudience = userRole === "support" || isAdmin;
-              } else if (audience === "user") {
-                belongsToAudience = userRole === "user" && !isAdmin;
-              } else if (!audience || audience === "geral" || audience === "all") {
-                belongsToAudience = true;
+          if (belongsToAudience) {
+            // A) Web Push VAPID
+            if (subObj.endpoint && subObj.keys) {
+              const endpoint = subObj.endpoint;
+              if (!seenEndpoints.has(endpoint)) {
+                seenEndpoints.add(endpoint);
+                webPushSubscriptions.push({
+                  subscription: {
+                    endpoint: subObj.endpoint,
+                    keys: {
+                      p256dh: subObj.keys.p256dh,
+                      auth: subObj.keys.auth
+                    }
+                  },
+                  userId: ls.userId,
+                  email: ls.email
+                });
               }
             }
 
-            if (belongsToAudience) {
-              seenEndpoints.add(endpoint);
-              webPushSubscriptions.push(ls);
+            // B) FCM Token
+            const extractedFcm = subObj.fcmToken || subObj.fcm_token || subObj.token;
+            if (extractedFcm && typeof extractedFcm === "string") {
+              if (!seenFcmTokens.has(extractedFcm)) {
+                seenFcmTokens.add(extractedFcm);
+                fcmTokens.push(extractedFcm);
+              }
             }
           }
         });
@@ -1601,8 +1623,15 @@ async function startServer() {
 
         try {
           logPushStep(`Enviando Web Push para endpoint: ${ws.subscription.endpoint.substring(0, 30)}...`);
+          const cleanSub = {
+            endpoint: ws.subscription.endpoint,
+            keys: {
+              p256dh: ws.subscription.keys?.p256dh,
+              auth: ws.subscription.keys?.auth
+            }
+          };
           await withTimeout(
-            webpush.sendNotification(ws.subscription, payload, {
+            webpush.sendNotification(cleanSub, payload, {
               headers: {
                 "Urgency": "high"
               },
@@ -1614,7 +1643,7 @@ async function startServer() {
           totalSent++;
           logPushStep(`Web Push enviado com sucesso para ${ws.subscription.endpoint.substring(0, 30)}...`);
         } catch (err: any) {
-          logPushStep(`Erro no Web Push: ${err.message || err}`);
+          logPushStep(`Erro no Web Push (${err.statusCode || 'NO_STATUS'}): ${err.message || err}`);
           if (err.statusCode === 410 || err.statusCode === 404) {
             logPushStep(`Iniciando remoção em background de assinatura inválida.`);
             deleteSubscriptionFromDatabase(ws.subscription.endpoint).catch((dbErr) => {
