@@ -8,9 +8,9 @@ importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-comp
 try {
   const firebaseConfig = {
     apiKey: "AIzaSyClZrrC0g02fWxqH5n0aaZW_K8oog8_Qnw",
-    authDomain: "gen-lang-client-0484473706.firebaseapp.com",
-    projectId: "gen-lang-client-0484473706",
-    storageBucket: "gen-lang-client-0484473706.firebasestorage.app",
+    authDomain: "ai-studio-2f050a4c-3230-4998-afa1-380ba6ae66da.firebaseapp.com",
+    projectId: "ai-studio-2f050a4c-3230-4998-afa1-380ba6ae66da",
+    storageBucket: "ai-studio-2f050a4c-3230-4998-afa1-380ba6ae66da.firebasestorage.app",
     messagingSenderId: "930305696130",
     appId: "1:930305696130:web:bd82c9a63cf737900f6f9b"
   };
