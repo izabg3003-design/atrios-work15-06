@@ -214,34 +214,53 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
   }, [user.id, user.subscription]);
 
   // Função auxiliar para disparar notificação nativa do browser em PWA
-  const triggerNativePush = (title: string, body: string) => {
+  const triggerNativePush = async (title: string, body: string) => {
     if (!('Notification' in window)) return;
     
-    if (Notification.permission === 'granted') {
-      // 1. Tentar por Service Worker (Ideal para disparar no ecran em segundo plano)
-      if (navigator.serviceWorker && navigator.serviceWorker.controller) {
-        navigator.serviceWorker.ready.then(reg => {
-          reg.showNotification(title, {
-            body: body,
-            icon: '/logo_atualizado.jpg?v=20260314_v1',
-            badge: '/logo_atualizado.jpg?v=20260314_v1',
-            vibrate: [200, 100, 200],
-            tag: `push-alert-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
-            requireInteraction: true
-          } as any);
-        }).catch(() => {
-          // Fallback para Notificação normal de janela
-          new Notification(title, {
-            body: body,
-            icon: '/logo_atualizado.jpg?v=20260314_v1',
-          });
-        });
-      } else {
-        // Fallback direta
+    let currentPerm = Notification.permission;
+    if (currentPerm === 'default') {
+      try {
+        currentPerm = await Notification.requestPermission();
+        setNotificationPermission(currentPerm);
+      } catch (permErr) {
+        console.warn('Erro ao solicitar permissão de notificação:', permErr);
+      }
+    }
+
+    if (currentPerm === 'granted') {
+      const iconPath = '/logo_atualizado.jpg?v=20260314_v1';
+      const uniqueTag = `push-alert-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+      // 1. Tentar exibir via Service Worker para suporte robusto em PWA/Móvel
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          if (reg && typeof reg.showNotification === 'function') {
+            await reg.showNotification(title, {
+              body: body,
+              icon: iconPath,
+              badge: iconPath,
+              vibrate: [200, 100, 200],
+              tag: uniqueTag,
+              requireInteraction: true,
+              data: { url: '/' }
+            } as any);
+            return;
+          }
+        } catch (swErr) {
+          console.warn('[Push Manager] SW showNotification falhou, tentando fallback window.Notification:', swErr);
+        }
+      }
+
+      // 2. Fallback via construtor padrão window.Notification
+      try {
         new Notification(title, {
           body: body,
-          icon: '/logo_atualizado.jpg?v=20260314_v1',
+          icon: iconPath,
+          tag: uniqueTag
         });
+      } catch (notifErr) {
+        console.warn('[Push Manager] Fallback window.Notification falhou:', notifErr);
       }
     }
   };
@@ -500,7 +519,11 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
 
           // Verificar filtro de audiência
           const userRole = user.role || 'user';
-          const isMaster = user.email?.toLowerCase().includes('master') || user.email === 'izarelleBraga@gmail.com';
+          const emailLower = user.email?.toLowerCase() || '';
+          const isMaster = emailLower.includes('master') || 
+                           emailLower.includes('izarellebraga@gmail.com') ||
+                           emailLower.includes('digitalnexus') ||
+                           emailLower.includes('jefersongoes36@gmail.com');
           let applies = false;
           if (!audience || audience === 'all' || audience === 'todos' || audience === 'geral') {
             applies = true;
