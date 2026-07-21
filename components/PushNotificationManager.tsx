@@ -486,6 +486,58 @@ const PushNotificationManager: React.FC<Props> = ({ user }) => {
     return () => unsubscribe();
   }, [user.id]);
 
+  // Escutar canal de broadcast geral 'atrioswork-push-notifications' para todos os utilizadores autenticados (site + PWA)
+  useEffect(() => {
+    if (!user.id) return;
+    if (!supabase || typeof supabase.channel !== 'function') return;
+
+    try {
+      const generalPushChannel = supabase.channel('atrioswork-push-notifications');
+      generalPushChannel
+        .on('broadcast', { event: 'push_received' }, (payload: any) => {
+          const { title, body, audience } = payload.payload || {};
+          if (!title || !body) return;
+
+          // Verificar filtro de audiência
+          const userRole = user.role || 'user';
+          const isMaster = user.email?.toLowerCase().includes('master') || user.email === 'izarelleBraga@gmail.com';
+          let applies = false;
+          if (!audience || audience === 'all' || audience === 'todos' || audience === 'geral') {
+            applies = true;
+          } else if (audience === 'free' || audience === 'gratis') {
+            applies = userRole === 'user' && !isMaster;
+          } else if (audience === 'premium' || audience === 'pro') {
+            applies = true;
+          } else if (audience === 'admin' || audience === 'master') {
+            applies = isAdmin || isMaster;
+          } else {
+            applies = true;
+          }
+
+          if (applies) {
+            setNewPushAlert({
+              id: String(Date.now()),
+              title: title,
+              subtitle: body
+            });
+            logReceivedPush(title, body, 'manual');
+            triggerNativePush(title, body);
+          }
+        })
+        .subscribe();
+
+      return () => {
+        try {
+          if (typeof supabase.removeChannel === 'function') {
+            supabase.removeChannel(generalPushChannel);
+          }
+        } catch (e) {}
+      };
+    } catch (err) {
+      console.warn('[Push Broadcast Listener Error]:', err);
+    }
+  }, [user.id, user.role, isAdmin]);
+
   // Escutar inserções em tempo real no app_banners para administradores receberem alertas imediatos
   // Escutar cadastros e alertas de sistema em tempo real via Broadcast e Postgres Changes no Supabase
   useEffect(() => {

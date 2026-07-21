@@ -724,44 +724,45 @@ export const supabase = new Proxy({}, {
               return { data: { success: true, sent: 1, message: "Offline/Fallback push notification dispatched" }, error: null };
             }
             try {
-              console.log(`[FCM Interceptor] Desviando Edge Function '${functionName}' para a API local /api/send-fcm-push...`);
+              console.log(`[FCM Interceptor] Tentando API local /api/send-fcm-push...`);
               const response = await fetch('/api/send-fcm-push', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(options?.body || {}),
               });
               
-              if (!response.ok) {
-                console.warn("[FCM Interceptor] Servidor local retornou erro, tentando Edge Function real do Supabase...");
-                if (originalFunctions && typeof originalFunctions.invoke === 'function') {
-                  return originalFunctions.invoke(functionName, options).catch((origErr: any) => {
-                    return { data: { success: false, error: origErr.message || String(origErr) }, error: origErr };
-                  });
-                }
-              }
-              
-              const responseText = await response.text();
-              let data: any = null;
-              if (responseText.trim()) {
+              const contentType = response.headers.get('content-type') || '';
+              if (response.ok && contentType.includes('application/json')) {
+                const responseText = await response.text();
+                let data: any = null;
                 try {
                   data = JSON.parse(responseText);
                 } catch (parseErr) {
-                  data = { success: response.ok, rawText: responseText };
+                  data = null;
                 }
-              } else {
-                data = { success: response.ok, message: "Empty response" };
+                if (data && data.success) {
+                  console.log(`[FCM Interceptor] API local respondeu com sucesso:`, data);
+                  return { data, error: null };
+                }
               }
-              
-              return { data, error: response.ok ? null : new Error((data && data.error) || "Erro no envio") };
+
+              console.warn("[FCM Interceptor] Servidor local não respondeu com JSON de sucesso, tentando Edge Function real do Supabase...");
+              if (originalFunctions && typeof originalFunctions.invoke === 'function') {
+                return originalFunctions.invoke(functionName, options).catch((origErr: any) => {
+                  console.warn("[FCM Interceptor] Falha na Edge Function do Supabase:", origErr);
+                  return { data: { success: false, error: origErr.message || String(origErr) }, error: origErr };
+                });
+              }
+              return { data: { success: false, error: "Servidor local e Edge Function indisponíveis" }, error: new Error("Servidor local indisponível") };
             } catch (err) {
               console.warn("[FCM Interceptor] Falha ao ligar ao servidor local de push, tentando Edge Function real do Supabase...", err);
               if (originalFunctions && typeof originalFunctions.invoke === 'function') {
                 return originalFunctions.invoke(functionName, options).catch((origErr: any) => {
-                  console.warn("[FCM Interceptor] Falha definitiva na Edge Function real do Supabase:", origErr);
+                  console.warn("[FCM Interceptor] Falha na Edge Function real do Supabase:", origErr);
                   return { data: { success: false, error: origErr.message || String(origErr) }, error: origErr };
                 });
               }
-              return { data: { success: true }, error: null };
+              return { data: { success: false, error: String(err) }, error: err };
             }
           }
 

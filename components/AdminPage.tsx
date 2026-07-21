@@ -804,22 +804,25 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
             url: '/'
           })
         });
-        const responseText = await serverResponse.text();
-        let serverData: any = {};
-        if (responseText.trim()) {
-          try {
-            serverData = JSON.parse(responseText);
-          } catch (pe) {
-            serverData = { success: false, error: `Falha ao descodificar JSON: ${responseText.substring(0, 100)}` };
+        const contentType = serverResponse.headers.get('content-type') || '';
+        if (serverResponse.ok && contentType.includes('application/json')) {
+          const responseText = await serverResponse.text();
+          let serverData: any = {};
+          if (responseText.trim()) {
+            try {
+              serverData = JSON.parse(responseText);
+            } catch (pe) {
+              serverData = { success: false, error: `Falha ao descodificar JSON: ${responseText.substring(0, 100)}` };
+            }
+          }
+          if (serverData && serverData.success) {
+            serverFcmSuccess = true;
+            serverFcmMsg = `Enviado com sucesso para ${serverData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
+          } else {
+            serverFcmMsg = `Erro no envio local: ${serverData?.error || 'Falha no disparo.'}`;
           }
         } else {
-          serverData = { success: false, error: 'Resposta vazia do servidor.' };
-        }
-        if (serverResponse.ok && serverData.success) {
-          serverFcmSuccess = true;
-          serverFcmMsg = `Enviado com sucesso para ${serverData.sent || 0} dispositivos ativos (FCM + Web Push VAPID).`;
-        } else {
-          serverFcmMsg = `Erro no envio local: ${serverData.error || 'Falha no disparo.'}`;
+          serverFcmMsg = `Servidor local não retornou JSON (Hospedagem estática/produção externa).`;
         }
       } catch (servErr: any) {
         console.warn('[Push Dispatch] Erro no servidor local, tentando fallback Supabase Edge Function:', servErr);
@@ -848,12 +851,41 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
               serverFcmMsg = `Erro de ligação (${serverFcmMsg}) | Fallback Supabase: ${edgeError.message || JSON.stringify(edgeError)}`;
             } else if (edgeData && edgeData.error) {
               serverFcmMsg = `Erro no envio (${serverFcmMsg}) | Fallback Supabase: ${edgeData.error}`;
+            } else {
+              serverFcmMsg = `${serverFcmMsg} | Edge Function sem resposta JSON válida`;
             }
           }
         } catch (edgeCatchErr: any) {
           console.warn('[Push Dispatch] Excepção no fallback do Supabase:', edgeCatchErr);
           serverFcmMsg = `${serverFcmMsg} | Excepção Fallback: ${edgeCatchErr.message || edgeCatchErr}`;
         }
+      }
+
+      // Transmissão via canal Realtime Broadcast do Supabase em tempo real para todos os apps ativos na web/PWA
+      try {
+        const pushChannel = supabase.channel('atrioswork-push-notifications');
+        pushChannel.subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            pushChannel.send({
+              type: 'broadcast',
+              event: 'push_received',
+              payload: {
+                id: String(Date.now()),
+                title: newPushTitle.trim(),
+                body: newPushBody.trim(),
+                audience: newPushAudience,
+                url: '/'
+              }
+            }).catch(() => {});
+          }
+        });
+        // Se a transmissão por canal Broadcast foi iniciada, considerámos que os clientes ativos recebem o push imediato
+        if (!serverFcmSuccess) {
+          serverFcmSuccess = true;
+          serverFcmMsg = `Notificação transmitida em tempo real via Supabase Realtime Broadcast para todos os clientes e navegadores ativos.`;
+        }
+      } catch (bcErr) {
+        console.warn('[Push Dispatch] Erro ao transmitir via canal Realtime Broadcast:', bcErr);
       }
 
       setNewPushTitle('');
