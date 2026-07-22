@@ -1,4 +1,4 @@
-const CACHE_NAME = 'atrioswork-v6.4';
+const CACHE_NAME = 'atrioswork-v6.5';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

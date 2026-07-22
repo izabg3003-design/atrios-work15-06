@@ -1585,6 +1585,12 @@ async function startServer() {
           data: { url: absoluteTargetUrl },
           tag: uniqueTag,
         },
+        data: {
+          title,
+          body,
+          url: absoluteTargetUrl,
+          tag: uniqueTag
+        }
       });
 
       try {

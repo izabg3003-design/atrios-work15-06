@@ -1,9 +1,13 @@
 // Importa o Service Worker principal AtriosWork (/sw-v3.js) para lidar com eventos push VAPID nativos
 importScripts('/sw-v3.js');
 
-// Importa os SDKs do Firebase Compat para suportar background messaging do Firebase Cloud Messaging (FCM)
-importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
+// Importa os SDKs do Firebase Compat protegidos contra erros de rede/offline
+try {
+  importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
+  importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
+} catch (cdnErr) {
+  console.warn('[firebase-messaging-sw.js] Falha ao carregar SDKs do Firebase CDN (offline/segundo plano):', cdnErr);
+}
 
 try {
   const firebaseConfig = {
