@@ -1488,6 +1488,7 @@ async function startServer() {
       }
 
       // 1. Extrair subscrição VAPID WebPush se existir
+      let isVapidAdded = false;
       const subObj = (parsed && parsed.subscription && typeof parsed.subscription === "object") ? parsed.subscription : parsed;
       if (subObj && subObj.endpoint && typeof subObj.endpoint === "string" && subObj.keys && subObj.keys.p256dh && subObj.keys.auth) {
         const ep = subObj.endpoint.trim();
@@ -1501,16 +1502,19 @@ async function startServer() {
             userId,
             email
           });
+          isVapidAdded = true;
         }
       }
 
-      // 2. Extrair FCM Token se existir
-      const extractedFcm = parsed.fcmToken || parsed.fcm_token || parsed.token || (subObj && (subObj.fcmToken || subObj.fcm_token || subObj.token));
-      if (extractedFcm && typeof extractedFcm === "string" && !extractedFcm.startsWith("{")) {
-        const trimmedFcm = extractedFcm.trim();
-        if (trimmedFcm && !seenFcmTokens.has(trimmedFcm)) {
-          seenFcmTokens.add(trimmedFcm);
-          fcmTokens.push(trimmedFcm);
+      // 2. Extrair FCM Token apenas se não houver subscrição VAPID no mesmo objeto (evita envio duplo)
+      if (!isVapidAdded) {
+        const extractedFcm = parsed.fcmToken || parsed.fcm_token || parsed.token || (subObj && (subObj.fcmToken || subObj.fcm_token || subObj.token));
+        if (extractedFcm && typeof extractedFcm === "string" && !extractedFcm.startsWith("{")) {
+          const trimmedFcm = extractedFcm.trim();
+          if (trimmedFcm && !seenFcmTokens.has(trimmedFcm)) {
+            seenFcmTokens.add(trimmedFcm);
+            fcmTokens.push(trimmedFcm);
+          }
         }
       }
     };

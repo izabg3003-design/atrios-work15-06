@@ -27,26 +27,8 @@ try {
     const messaging = firebase.messaging();
 
     messaging.onBackgroundMessage((payload) => {
-      console.log('[FCM Background SW] Notificação recebida com o app fechado:', payload);
-      const title = payload.notification?.title || payload.data?.title || 'AtriosWork';
-      const body = payload.notification?.body || payload.data?.body || 'Nova notificação do sistema!';
-      const targetUrl = payload.data?.url || payload.fcmOptions?.link || payload.fcm_options?.link || '/';
-      const origin = self.location.origin;
-      const iconUrl = `${origin}/logo_atualizado.jpg?v=20260314_v1`;
-      const tag = `atrioswork-fcm-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
-
-      return self.registration.showNotification(title, {
-        body: body,
-        icon: iconUrl,
-        badge: iconUrl,
-        data: targetUrl,
-        tag: tag
-      }).catch(() => {
-        return self.registration.showNotification(title || 'AtriosWork', {
-          body: body || 'Nova notificação do sistema!',
-          tag: tag
-        });
-      });
+      console.log('[FCM Background SW] Evento FCM recebido no Service Worker:', payload);
+      // O sw-v3.js já trata de forma unificada o evento 'push' nativo para prevenir notificações duplicadas
     });
   }
 } catch (fcmErr) {

@@ -191,7 +191,9 @@ self.addEventListener('push', (event) => {
                        '/';
 
         url = (typeof rawUrl === 'string' && rawUrl.length > 0) ? rawUrl : '/';
-        tag = `atrioswork-push-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+        if (notif.tag || rawData.tag || data.tag) {
+          tag = notif.tag || rawData.tag || data.tag;
+        }
       }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
@@ -201,36 +203,39 @@ self.addEventListener('push', (event) => {
     if (typeof body !== 'string' || !body) body = 'Nova notificação do sistema!';
     if (typeof url !== 'string' || !url) url = '/';
 
-    // Resolver ícone absoluto de forma segura usando a origem do Service Worker
     const origin = self.location.origin;
-    const iconUrl = `${origin}/logo_atualizado.jpg?v=20260314_v1`;
+    const iconUrl = `${origin}/logo_atualizado.jpg`;
 
-    // Exibição resiliente com fallback em 3 níveis (Garante que a notificação SEMPRE seja exibida no SO com o app fechado)
+    // Exibição resiliente otimizada para o app FECHADO
+    const notificationData = { url: url, targetUrl: url };
+
     try {
-      // Nível 1: Notificação completa com ícone, badge e link de redirecionamento
+      // Nível 1: Notificação completa com vibração e renotificação
       await self.registration.showNotification(title, {
         body: body,
         icon: iconUrl,
-        badge: iconUrl,
-        data: url,
-        tag: tag
+        data: notificationData,
+        tag: tag,
+        renotify: true,
+        vibrate: [200, 100, 200]
       });
     } catch (err1) {
-      console.warn('[Service Worker] Tentativa 1 de exibição falhou, tentando minimal com ícone:', err1);
+      console.warn('[Service Worker] Tentativa 1 de exibição falhou, tentando opção simplificada:', err1);
       try {
-        // Nível 2: Minimal com ícone e link
+        // Nível 2: Minimal com ícone e dados
         await self.registration.showNotification(title, {
           body: body,
           icon: iconUrl,
-          data: url,
+          data: notificationData,
           tag: tag
         });
       } catch (err2) {
         console.warn('[Service Worker] Tentativa 2 de exibição falhou, tentando fallback apenas texto:', err2);
         try {
-          // Nível 3: Fallback absoluto (apenas título, corpo e tag) - Impossível falhar em qualquer SO/PWA
+          // Nível 3: Fallback absoluto (apenas título, corpo e tag)
           await self.registration.showNotification(title || 'AtriosWork', {
             body: body || 'Nova mensagem no sistema',
+            data: notificationData,
             tag: tag
           });
         } catch (fatalErr) {
@@ -245,9 +250,12 @@ self.addEventListener('push', (event) => {
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   
-  let targetUrl = event.notification.data || '/';
-  if (typeof targetUrl !== 'string') {
-    targetUrl = '/';
+  let targetUrl = '/';
+  const rawData = event.notification.data;
+  if (typeof rawData === 'string' && rawData.length > 0) {
+    targetUrl = rawData;
+  } else if (rawData && typeof rawData === 'object') {
+    targetUrl = rawData.url || rawData.targetUrl || '/';
   }
   
   let absoluteUrl = targetUrl;
@@ -259,9 +267,6 @@ self.addEventListener('notificationclick', (event) => {
     }
   }
 
-  // Garantir de forma absoluta que a URL de redirecionamento use a origem atual do Service Worker (self.location.origin)
-  // Isto resolve de forma robusta e definitiva o problema de ir para localhost em produção/móvel,
-  // ou de ir para localhost/atrioswork.pt quando o utilizador testa na sandbox do Google AI Studio.
   try {
     const parsed = new URL(absoluteUrl);
     const swOrigin = self.location.origin;
