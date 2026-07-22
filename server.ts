@@ -1076,14 +1076,21 @@ async function startServer() {
                 body: JSON.stringify({
                   message: {
                     token,
-                    notification: { title: resolvedTitle, body: resolvedBody },
+                    notification: { title: resolvedTitle, body: resolvedBody, image: iconUrl },
                     android: {
                       priority: "HIGH",
-                      notification: { notification_priority: "PRIORITY_HIGH", visibility: "PUBLIC", sound: "default" }
+                      notification: {
+                        channel_id: "default",
+                        default_sound: true,
+                        visibility: "PUBLIC",
+                        notification_priority: "PRIORITY_MAX",
+                        click_action: absoluteTargetUrl,
+                        icon: iconUrl
+                      }
                     },
                     apns: {
                       headers: { "apns-priority": "10", "apns-push-type": "alert" },
-                      payload: { aps: { sound: "default", "content-available": 1 } },
+                      payload: { aps: { alert: { title: resolvedTitle, body: resolvedBody }, sound: "default", "content-available": 1 } },
                     },
                     webpush: {
                       headers: { Urgency: "high", TTL: "86400" },
@@ -1092,14 +1099,13 @@ async function startServer() {
                         body: resolvedBody,
                         icon: iconUrl,
                         badge: iconUrl,
-                        click_action: absoluteTargetUrl,
-                        clickAction: absoluteTargetUrl,
                         requireInteraction: true,
                         tag: uniqueTag
                       },
                       fcm_options: { link: absoluteTargetUrl },
+                      data: { title: resolvedTitle, body: resolvedBody, url: absoluteTargetUrl }
                     },
-                    data: { url: absoluteTargetUrl, click_action: absoluteTargetUrl },
+                    data: { title: resolvedTitle, body: resolvedBody, url: absoluteTargetUrl, click_action: absoluteTargetUrl },
                   },
                 }),
               }
@@ -1663,12 +1669,11 @@ async function startServer() {
                   body,
                   icon: iconUrl,
                   badge: iconUrl,
-                  vibrate: [100, 50, 100],
                   requireInteraction: true,
-                  tag: `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
-                  data: { url: absoluteTargetUrl }
+                  tag: `push-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`
                 },
-                fcm_options: { link: absoluteTargetUrl }
+                fcm_options: { link: absoluteTargetUrl },
+                data: { title, body, url: absoluteTargetUrl }
               },
               android: {
                 priority: "HIGH",
@@ -2361,13 +2366,16 @@ async function startServer() {
                 body: JSON.stringify({
                   message: {
                     token,
-                    notification: { title, body },
+                    notification: { title, body, image: iconUrl },
                     android: { 
                       priority: "HIGH",
                       notification: {
-                        notification_priority: "PRIORITY_HIGH",
+                        channel_id: "default",
+                        default_sound: true,
                         visibility: "PUBLIC",
-                        sound: "default"
+                        notification_priority: "PRIORITY_MAX",
+                        click_action: absoluteTargetUrl,
+                        icon: iconUrl
                       }
                     },
                     apns: {
@@ -2377,6 +2385,7 @@ async function startServer() {
                       },
                       payload: { 
                         aps: { 
+                          alert: { title, body },
                           sound: "default",
                           "content-available": 1
                         } 
@@ -2385,23 +2394,22 @@ async function startServer() {
                     webpush: {
                       headers: {
                         Urgency: "high",
-                        urgency: "high",
-                        TTL: "86400",
-                        ttl: "86400"
+                        TTL: "86400"
                       },
                       notification: {
                         title,
                         body,
                         icon: iconUrl,
                         badge: iconUrl,
-                        click_action: absoluteTargetUrl,
-                        clickAction: absoluteTargetUrl,
                         requireInteraction: true,
                         tag: uniqueTag
                       },
                       fcm_options: { link: absoluteTargetUrl },
+                      data: { title, body, url: absoluteTargetUrl }
                     },
                     data: { 
+                      title,
+                      body,
                       url: absoluteTargetUrl,
                       click_action: absoluteTargetUrl,
                     },
@@ -2629,6 +2637,7 @@ async function startServer() {
     res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0");
     res.setHeader("Pragma", "no-cache");
     res.setHeader("Expires", "0");
+    res.setHeader("Service-Worker-Allowed", "/");
     next();
   });
 
