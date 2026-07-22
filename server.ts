@@ -1462,59 +1462,61 @@ async function startServer() {
     const seenEndpoints = new Set<string>();
     const seenFcmTokens = new Set<string>();
 
+    const processRawSubscriptionOrToken = (rawToken: any, userId?: string, email?: string) => {
+      if (!rawToken) return;
+      let parsed: any = rawToken;
+      if (typeof parsed === "string") {
+        const trimmed = parsed.trim();
+        if (!trimmed) return;
+        if (trimmed.startsWith("{")) {
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch (e) {
+            if (!seenFcmTokens.has(trimmed)) {
+              seenFcmTokens.add(trimmed);
+              fcmTokens.push(trimmed);
+            }
+            return;
+          }
+        } else {
+          if (!seenFcmTokens.has(trimmed)) {
+            seenFcmTokens.add(trimmed);
+            fcmTokens.push(trimmed);
+          }
+          return;
+        }
+      }
+
+      // 1. Extrair subscrição VAPID WebPush se existir
+      const subObj = (parsed && parsed.subscription && typeof parsed.subscription === "object") ? parsed.subscription : parsed;
+      if (subObj && subObj.endpoint && typeof subObj.endpoint === "string" && subObj.keys && subObj.keys.p256dh && subObj.keys.auth) {
+        const ep = subObj.endpoint.trim();
+        if (!seenEndpoints.has(ep)) {
+          seenEndpoints.add(ep);
+          webPushSubscriptions.push({
+            subscription: {
+              endpoint: ep,
+              keys: { p256dh: subObj.keys.p256dh, auth: subObj.keys.auth }
+            },
+            userId,
+            email
+          });
+        }
+      }
+
+      // 2. Extrair FCM Token se existir
+      const extractedFcm = parsed.fcmToken || parsed.fcm_token || parsed.token || (subObj && (subObj.fcmToken || subObj.fcm_token || subObj.token));
+      if (extractedFcm && typeof extractedFcm === "string" && !extractedFcm.startsWith("{")) {
+        const trimmedFcm = extractedFcm.trim();
+        if (trimmedFcm && !seenFcmTokens.has(trimmedFcm)) {
+          seenFcmTokens.add(trimmedFcm);
+          fcmTokens.push(trimmedFcm);
+        }
+      }
+    };
+
     filteredProfiles.forEach((p) => {
-      const token = p.fcm_token;
-      if (!token) return;
-
-      let trimmedToken = "";
-      try {
-        trimmedToken = typeof token === "string" ? token.trim() : JSON.stringify(token);
-      } catch (err) {
-        return;
-      }
-      if (!trimmedToken) return;
-
-      if (trimmedToken.startsWith("{")) {
-        try {
-          const sub = JSON.parse(trimmedToken);
-          if (sub && sub.endpoint && sub.keys) {
-            const endpoint = sub.endpoint;
-            if (!seenEndpoints.has(endpoint)) {
-              seenEndpoints.add(endpoint);
-              webPushSubscriptions.push({
-                subscription: {
-                  endpoint: sub.endpoint,
-                  keys: { p256dh: sub.keys.p256dh, auth: sub.keys.auth }
-                },
-                userId: p.id,
-                email: p.email
-              });
-            }
-          }
-          const extractedFcm = sub && (sub.fcmToken || sub.fcm_token || sub.token);
-          if (extractedFcm && typeof extractedFcm === "string") {
-            if (!seenFcmTokens.has(extractedFcm)) {
-              seenFcmTokens.add(extractedFcm);
-              fcmTokens.push(extractedFcm);
-            }
-          } else if (!sub.endpoint) {
-            if (!seenFcmTokens.has(trimmedToken)) {
-              seenFcmTokens.add(trimmedToken);
-              fcmTokens.push(trimmedToken);
-            }
-          }
-        } catch (e) {
-          if (!seenFcmTokens.has(trimmedToken)) {
-            seenFcmTokens.add(trimmedToken);
-            fcmTokens.push(trimmedToken);
-          }
-        }
-      } else {
-        if (!seenFcmTokens.has(trimmedToken)) {
-          seenFcmTokens.add(trimmedToken);
-          fcmTokens.push(trimmedToken);
-        }
-      }
+      processRawSubscriptionOrToken(p.fcm_token, p.id, p.email);
     });
 
     // Subscrições do Firestore / local
@@ -1522,7 +1524,6 @@ async function startServer() {
       const localSubs = await loadAllSubscriptions();
       localSubs.forEach((ls) => {
         if (!ls.subscription) return;
-        const subObj = ls.subscription;
         const userEmail = (ls.email || "").toLowerCase();
         const userRole = (ls.role || "user").toLowerCase();
         const isMaster = isMasterEmail(userEmail);
@@ -1545,27 +1546,14 @@ async function startServer() {
         }
 
         if (belongsToAudience) {
-          if (subObj.endpoint && subObj.keys) {
-            const endpoint = subObj.endpoint;
-            if (!seenEndpoints.has(endpoint)) {
-              seenEndpoints.add(endpoint);
-              webPushSubscriptions.push({
-                subscription: { endpoint: subObj.endpoint, keys: { p256dh: subObj.keys.p256dh, auth: subObj.keys.auth } },
-                userId: ls.userId,
-                email: ls.email
-              });
-            }
-          }
-          const extractedFcm = subObj.fcmToken || subObj.fcm_token || subObj.token;
-          if (extractedFcm && typeof extractedFcm === "string") {
-            if (!seenFcmTokens.has(extractedFcm)) {
-              seenFcmTokens.add(extractedFcm);
-              fcmTokens.push(extractedFcm);
-            }
-          }
+          processRawSubscriptionOrToken(ls.subscription, ls.userId, ls.email);
         }
       });
-    } catch (err: any) {}
+    } catch (err: any) {
+      console.warn("[Push Server] Erro ao carregar subscrições locais:", err.message || err);
+    }
+
+    logPushStep(`Encontradas ${webPushSubscriptions.length} subscrições WebPush VAPID e ${fcmTokens.length} tokens FCM.`);
 
     let totalSent = 0;
 
@@ -1598,7 +1586,8 @@ async function startServer() {
           endpoint: ws.subscription.endpoint,
           keys: { p256dh: ws.subscription.keys?.p256dh, auth: ws.subscription.keys?.auth }
         };
-        await withTimeout(
+        console.log(`[Push Dispatcher] Enviando VAPID Web Push para endpoint: ${cleanSub.endpoint.substring(0, 50)}...`);
+        const sendResult = await withTimeout(
           webpush.sendNotification(cleanSub, payload, {
             headers: { "Urgency": "high" },
             urgency: "high",
@@ -1607,8 +1596,10 @@ async function startServer() {
           8000,
           "Timeout Web Push"
         );
+        console.log(`[Push Dispatcher] VAPID Web Push enviado com SUCESSO! Status:`, (sendResult as any)?.statusCode || 201);
         totalSent++;
       } catch (err: any) {
+        console.error(`[Push Dispatcher] ERRO no envio de VAPID Web Push:`, err?.statusCode || '', err?.message || err);
         if (err.statusCode === 410 || err.statusCode === 404) {
           deleteSubscriptionFromDatabase(ws.subscription.endpoint).catch(() => {});
         }
