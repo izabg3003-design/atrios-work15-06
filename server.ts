@@ -1593,7 +1593,11 @@ async function startServer() {
           keys: { p256dh: ws.subscription.keys?.p256dh, auth: ws.subscription.keys?.auth }
         };
         await withTimeout(
-          webpush.sendNotification(cleanSub, payload, { headers: { "Urgency": "high" }, TTL: 86400 }),
+          webpush.sendNotification(cleanSub, payload, {
+            headers: { "Urgency": "high" },
+            urgency: "high",
+            TTL: 86400
+          }),
           8000,
           "Timeout Web Push"
         );
@@ -1727,13 +1731,22 @@ async function startServer() {
       } catch (fetchErr: any) {}
     });
 
-    await withTimeout(
-      Promise.all([...webPushPromises, ...fcmPromises]),
-      12000,
-      "Timeout geral de disparos"
-    );
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
+      
+      await withTimeout(
+        Promise.all([...webPushPromises, ...fcmPromises]),
+        12000,
+        "Timeout geral de disparos"
+      );
+      clearTimeout(timeoutId);
 
-    return { success: true, sent: totalSent };
+      return { success: true, sent: totalSent };
+    } catch (err: any) {
+      console.warn("[Push Dispatch Warning]", err?.message || err);
+      return { success: true, sent: totalSent };
+    }
   }
 
   // ----------------------------------------------------
