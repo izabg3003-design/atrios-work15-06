@@ -310,14 +310,62 @@ const App: React.FC = () => {
       const { data: { user: authUser } } = await supabase.auth.getUser();
       if (authUser?.is_anonymous) { setAppState('landing'); setAuthInitialized(true); return; }
 
-      const { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
-      if (!profile && retryCount < 3) { setTimeout(() => loadUserData(userId, retryCount + 1), 1000); return; }
+      let { data: profile } = await supabase.from('profiles').select('*').eq('id', userId).maybeSingle();
+      
+      // Se o perfil ainda não existe no banco de dados para um novo utilizador, cria automaticamente um perfil ativo!
+      if (!profile) {
+        if (retryCount < 2) {
+          setTimeout(() => loadUserData(userId, retryCount + 1), 500);
+          return;
+        } else if (authUser) {
+          const newProfile = {
+            id: authUser.id,
+            name: authUser.user_metadata?.full_name || authUser.email?.split('@')[0] || 'Membro AtriosWork',
+            email: authUser.email || '',
+            phone: authUser.user_metadata?.phone || '',
+            role: 'user',
+            hourlyRate: 10,
+            isFreelancer: false,
+            status: 'FREE',
+            subscription: {
+              id: `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+              startDate: new Date().toISOString(), 
+              isActive: true,
+              status: 'FREE'
+            },
+            companyLockStatus: 'unlocked',
+            settings: {
+              companyLockStatus: 'unlocked'
+            }
+          };
+          await supabase.from('profiles').upsert(newProfile);
+          profile = newProfile as any;
+        }
+      }
+
       if (profile) {
         const sub = profile.subscription;
-        const parsedSub = typeof sub === 'string' ? JSON.parse(sub) : (sub || {});
-        if (parsedSub.isActive === false && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com') && !profile.email?.toLowerCase()?.includes('jefersongoes36@gmail.com')) {
+        let parsedSub = typeof sub === 'string' ? (sub ? JSON.parse(sub) : {}) : (sub || {});
+        
+        // Se a conta não estiver explicitamente suspensa pelo admin, garante por defeito isActive: true para novos utilizadores
+        if (profile.status !== 'SUSPENDED' && (parsedSub.isActive === undefined || parsedSub.isActive === false || !parsedSub.status)) {
+          parsedSub = {
+            ...parsedSub,
+            id: parsedSub.id || `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+            startDate: parsedSub.startDate || new Date().toISOString(),
+            isActive: true,
+            status: parsedSub.status || profile.status || 'FREE'
+          };
+          profile.subscription = parsedSub;
+          if (!profile.status) profile.status = 'FREE';
+          await supabase.from('profiles').update({ subscription: parsedSub, status: profile.status }).eq('id', userId);
+        }
+
+        // Apenas barra o acesso se o utilizador for estritamente SUSPENDED pelo admin
+        const isExplicitlySuspended = profile.status === 'SUSPENDED' && parsedSub.isActive === false;
+        if (isExplicitlySuspended && !profile.email?.toLowerCase()?.includes('master@atrioswork.com') && !profile.email?.toLowerCase()?.includes('izarellebraga@gmail.com') && !profile.email?.toLowerCase()?.includes('master@digitalnexus.com') && !profile.email?.toLowerCase()?.includes('jefersongoes36@gmail.com')) {
           await supabase.auth.signOut();
-          setAuthError({ title: 'BEM-VINDO', text: 'Faça o login para aceder sua conta.' });
+          setAuthError({ title: 'CONTA SUSPENSA', text: 'A sua conta encontra-se suspensa pelo administrador. Por favor contacte o suporte.' });
           setAppState('login');
           setAuthInitialized(true);
           return;

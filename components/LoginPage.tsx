@@ -64,23 +64,56 @@ const LoginPage: React.FC<Props> = ({ onLogin, onBack, t, externalError, initial
         try {
           const { data: profile } = await supabase
             .from('profiles')
-            .select('settings')
+            .select('*')
             .eq('id', authData.user.id)
-            .single();
-          const currentSettings = profile?.settings || {};
-          if (currentSettings.password !== password) {
-            await supabase
-              .from('profiles')
-              .update({
-                settings: {
-                  ...currentSettings,
-                  password: password
-                }
-              })
-              .eq('id', authData.user.id);
+            .maybeSingle();
+
+          if (!profile) {
+            await supabase.from('profiles').upsert({
+              id: authData.user.id,
+              name: authData.user.user_metadata?.full_name || email.split('@')[0] || 'Membro AtriosWork',
+              email: email,
+              phone: authData.user.user_metadata?.phone || '',
+              role: 'user',
+              hourlyRate: 10,
+              isFreelancer: false,
+              status: 'FREE',
+              subscription: {
+                id: `FREE-${Math.random().toString(36).substr(2, 9).toUpperCase()}`,
+                startDate: new Date().toISOString(), 
+                isActive: true,
+                status: 'FREE'
+              },
+              password: password,
+              settings: {
+                password: password,
+                companyLockStatus: 'unlocked'
+              }
+            });
+          } else {
+            const currentSettings = profile.settings || {};
+            const sub = typeof profile.subscription === 'string' ? (profile.subscription ? JSON.parse(profile.subscription) : {}) : (profile.subscription || {});
+            
+            const needsSubFix = profile.status !== 'SUSPENDED' && (sub.isActive === undefined || sub.isActive === false);
+            const needsPassFix = currentSettings.password !== password;
+
+            if (needsSubFix || needsPassFix) {
+              const updatedSub = profile.status !== 'SUSPENDED' ? { ...sub, isActive: true, status: sub.status || profile.status || 'FREE' } : sub;
+              await supabase
+                .from('profiles')
+                .update({
+                  subscription: updatedSub,
+                  password: password,
+                  settings: {
+                    ...currentSettings,
+                    password: password
+                  }
+                })
+                .eq('id', authData.user.id);
+            }
           }
         } catch (updateErr) {
-          console.warn('Erro ao sincronizar senha no perfil:', updateErr);
+          console.warn('Erro ao sincronizar senha e subscrição no perfil:', updateErr);
         }
       }
 

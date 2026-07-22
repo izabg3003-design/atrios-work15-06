@@ -988,10 +988,15 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
       if (typeof rawSub === 'string') { try { sub = JSON.parse(rawSub); } catch(e) { sub = {}; } } 
       else { sub = rawSub || {}; }
       
-      const nextStatus = sub.isActive === false;
-      const updatedSub = { ...sub, isActive: nextStatus };
+      const isCurrentlySuspended = inputUser.status === 'SUSPENDED' || (sub.isActive === false && inputUser.status === 'SUSPENDED');
+      const nextActive = isCurrentlySuspended; // Se atualmente suspenso, ativa (true); se ativo, suspende (false)
+      const updatedSub = { ...sub, isActive: nextActive };
+      const nextStatus = nextActive ? (sub.status === 'SUSPENDED' ? 'FREE' : (sub.status || inputUser.status || 'FREE')) : 'SUSPENDED';
       
-      const { error } = await supabase.from('profiles').update({ subscription: updatedSub }).eq('id', inputUser.id);
+      const { error } = await supabase.from('profiles').update({ 
+        subscription: updatedSub,
+        status: nextStatus 
+      }).eq('id', inputUser.id);
       if (error) throw error;
       await fetchData();
     } catch (e: any) {
@@ -2038,7 +2043,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                      const rawSub = v.profile?.subscription;
                      let sub: any = {};
                      if (typeof rawSub === 'string') { try { sub = JSON.parse(rawSub); } catch(e) {} } else { sub = rawSub || {}; }
-                     const isSuspended = sub.isActive === false;
+                     const isSuspended = v.profile?.status === 'SUSPENDED' && sub.isActive === false;
                      return (
                       <tr key={v.id} className="transition-all hover:bg-slate-800/40 group print:text-black">
                         <td className="px-10 py-6">
@@ -2094,7 +2099,7 @@ const AdminPage: React.FC<Props> = ({ currentUser, f, onLogout, onViewVendor, on
                     const rawSub = u.subscription;
                     let sub: any = {};
                     if (typeof rawSub === 'string') { try { sub = JSON.parse(rawSub); } catch(e) {} } else { sub = rawSub || {}; }
-                    const isSuspended = sub.isActive === false;
+                    const isSuspended = u.status === 'SUSPENDED' && sub.isActive === false;
 
                     const isUserPaid = sub?.status === 'ACTIVE_PAID' || sub?.status === 'PRO' || u?.status === 'PRO' || u?.status === 'ACTIVE_PAID';
                     const isUserMaster = u.email?.toLowerCase()?.includes('master@atrioswork.com') || u.email?.toLowerCase()?.includes('izarellebraga@gmail.com') || u.email?.toLowerCase()?.includes('master@digitalnexus.com') || u.email?.toLowerCase()?.includes('jefersongoes36@gmail.com');
