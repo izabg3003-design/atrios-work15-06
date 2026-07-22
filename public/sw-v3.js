@@ -147,12 +147,21 @@ self.addEventListener('push', (event) => {
 
     try {
       if (event.data) {
+        let rawText = '';
         try {
-          rawData = event.data.json();
-          console.log('[Service Worker] Notificação push JSON recebida:', rawData);
-        } catch (e) {
-          console.log('[Service Worker] Notificação push de texto recebida:', event.data.text());
-          rawData = { title: 'AtriosWork', body: event.data.text() };
+          rawText = event.data.text();
+        } catch (readErr) {
+          console.warn('[Service Worker] Erro ao ler stream do event.data:', readErr);
+        }
+
+        if (rawText) {
+          try {
+            rawData = JSON.parse(rawText);
+            console.log('[Service Worker] Notificação push JSON recebida:', rawData);
+          } catch (e) {
+            console.log('[Service Worker] Notificação push de texto recebida:', rawText);
+            rawData = { title: 'AtriosWork', body: rawText };
+          }
         }
       }
 
@@ -173,19 +182,24 @@ self.addEventListener('push', (event) => {
                nestedNotif.body || 
                'Nova notificação do sistema!';
                     
-        url = notif.data?.url ||
-              data.url || 
-              rawData.url || 
-              nestedNotif.url || 
-              rawData.fcmOptions?.link ||
-              rawData.fcm_options?.link ||
-              '/';
+        const rawUrl = notif.data?.url ||
+                       data.url || 
+                       rawData.url || 
+                       nestedNotif.url || 
+                       rawData.fcmOptions?.link ||
+                       rawData.fcm_options?.link ||
+                       '/';
 
+        url = (typeof rawUrl === 'string' && rawUrl.length > 0) ? rawUrl : '/';
         tag = `atrioswork-push-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
       }
     } catch (extractErr) {
       console.error('[Service Worker] Erro ao extrair dados da notificação:', extractErr);
     }
+
+    if (typeof title !== 'string' || !title) title = 'AtriosWork';
+    if (typeof body !== 'string' || !body) body = 'Nova notificação do sistema!';
+    if (typeof url !== 'string' || !url) url = '/';
 
     // Resolver ícone absoluto de forma segura usando a origem do Service Worker
     const origin = self.location.origin;
